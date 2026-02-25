@@ -1,111 +1,76 @@
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
 using LocalCam.Networking;
 
 namespace LocalCam {
     public partial class MainWindow : Window {
-        private readonly ObservableCollection<CameraDetectionRow> _cameraRows = [];
-        private CancellationTokenSource? _scanCancellation;
-        private bool _isScanning;
+        private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
+        private static readonly Geometry RestoreGeometry = Geometry.Parse("M4,2 L12,2 12,10 M4,2 L4,10 12,10 M2,4 L10,4 10,12 2,12 Z");
 
         public MainWindow()
-            : this(null) {
+            : this(Array.Empty<TapoCameraDetection>()) {
         }
 
-        public MainWindow(IReadOnlyList<TapoCameraDetection>? initialDetections) {
+        public MainWindow(IReadOnlyList<TapoCameraDetection> detections) {
             InitializeComponent();
-            CameraDataGrid.ItemsSource = _cameraRows;
+            PopulateCameraTiles(detections);
+            UpdateMaximizeButtonIcon();
+        }
 
-            if (initialDetections is { Count: > 0 }) {
-                ApplyDetections(initialDetections);
-                StatusText.Text = $"Startup scan detected {initialDetections.Count} likely Tapo camera(s).";
+        private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
+            var tileLabels = new[] { CameraTile1, CameraTile2, CameraTile3, CameraTile4 };
+
+            for (var i = 0; i < tileLabels.Length; i++) {
+                var label = tileLabels[i];
+                var baseText = $"camera {i + 1} - live streaming";
+
+                if (i < detections.Count) {
+                    label.Text = $"{baseText} ({detections[i].IpAddress})";
+                }
+                else {
+                    label.Text = baseText;
+                }
             }
         }
 
-        private async void ScanButton_Click(object sender, RoutedEventArgs e) {
-            if (_isScanning) {
+        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+            if (e.ClickCount == 2) {
+                ToggleMaximizeRestore();
                 return;
             }
 
-            _isScanning = true;
-            _scanCancellation = new CancellationTokenSource();
-            SetScanUiState(isScanning: true);
-            StatusText.Text = "Scanning local network for Tapo cameras...";
-            var startedAt = DateTime.UtcNow;
-
-            try {
-                var detections = await TapoCameraScanner.ScanLocalNetworkForTapoCamerasAsync(
-                    cancellationToken: _scanCancellation.Token);
-
-                ApplyDetections(detections);
-
-                var elapsed = DateTime.UtcNow - startedAt;
-                StatusText.Text = detections.Count == 0
-                    ? $"Scan completed in {elapsed.TotalSeconds:0.0}s. No likely Tapo cameras were detected. Check same subnet and enable RTSP/ONVIF in the Tapo app."
-                    : $"Scan completed in {elapsed.TotalSeconds:0.0}s. Detected {detections.Count} likely Tapo camera(s).";
-            }
-            catch (OperationCanceledException) {
-                StatusText.Text = "Scan canceled.";
-            }
-            catch (Exception ex) {
-                StatusText.Text = $"Scan failed: {ex.Message}";
-            }
-            finally {
-                _scanCancellation?.Dispose();
-                _scanCancellation = null;
-                _isScanning = false;
-                SetScanUiState(isScanning: false);
+            if (e.ButtonState == MouseButtonState.Pressed) {
+                DragMove();
             }
         }
 
-        private void CancelButton_Click(object sender, RoutedEventArgs e) {
-            _scanCancellation?.Cancel();
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e) {
+            WindowState = WindowState.Minimized;
         }
 
-        protected override void OnClosed(EventArgs e) {
-            _scanCancellation?.Cancel();
-            _scanCancellation?.Dispose();
-            _scanCancellation = null;
-            base.OnClosed(e);
+        private void MaximizeRestoreButton_Click(object sender, RoutedEventArgs e) {
+            ToggleMaximizeRestore();
         }
 
-        private void SetScanUiState(bool isScanning) {
-            ScanButton.IsEnabled = !isScanning;
-            CancelButton.IsEnabled = isScanning;
-            ScanProgress.Visibility = isScanning ? Visibility.Visible : Visibility.Collapsed;
+        private void CloseButton_Click(object sender, RoutedEventArgs e) {
+            Close();
         }
 
-        private void ApplyDetections(IEnumerable<TapoCameraDetection> detections) {
-            _cameraRows.Clear();
-
-            foreach (var detection in detections.OrderByDescending(static d => d.ConfidenceScore)) {
-                _cameraRows.Add(CameraDetectionRow.FromDetection(detection));
-            }
+        private void Window_StateChanged(object sender, EventArgs e) {
+            UpdateMaximizeButtonIcon();
         }
 
-        private sealed record CameraDetectionRow(
-            string IpAddress,
-            string HostName,
-            string MacAddress,
-            string OpenPorts,
-            string Confidence,
-            string DetectionReason) {
+        private void ToggleMaximizeRestore() {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+        }
 
-            public static CameraDetectionRow FromDetection(TapoCameraDetection detection) {
-                var hostName = string.IsNullOrWhiteSpace(detection.HostName) ? "-" : detection.HostName;
-                var macAddress = string.IsNullOrWhiteSpace(detection.MacAddress) ? "-" : detection.MacAddress;
-                var openPorts = detection.OpenPorts.Count == 0 ? "-" : string.Join(", ", detection.OpenPorts);
-
-                return new CameraDetectionRow(
-                    detection.IpAddress.ToString(),
-                    hostName,
-                    macAddress,
-                    openPorts,
-                    detection.ConfidenceScore.ToString("0.00"),
-                    detection.DetectionReason);
-            }
+        private void UpdateMaximizeButtonIcon() {
+            MaximizeIconPath.Data = WindowState == WindowState.Maximized
+                ? RestoreGeometry
+                : MaximizeGeometry;
         }
     }
 }
