@@ -25,6 +25,11 @@ Primary flow:
 - `13489fb`: README tech stack documentation.
 - `dab21ce`: Startup flow window + dark borderless UI + custom title controls + icon assets.
 - `1f52339`: RTSP live streaming integration in main viewer.
+- `5d86516`: Added this history/engineering guide file.
+- Local working changes (not yet pushed at time of writing):
+  - aggressive scanner refactor,
+  - startup diagnostics panel with candidate pass/fail reasons,
+  - field troubleshooting logs in `logs/`.
 
 ## Chronological Change Log
 
@@ -151,6 +156,64 @@ Main features:
   - `C:\Users\Justiniano\Desktop\LocalCam.lnk`
   - target: debug build executable.
 
+### 11) Scanner robustness expansion + diagnostics instrumentation
+Problem observed in some house deployments:
+- scanner returned 0 likely cameras even when Tapo app could show video.
+
+Scanner refactor updates:
+- removed strict assumptions that reduced discovery reliability across varied home LAN topologies.
+- added multi-source host seeding:
+  - subnet host enumeration,
+  - ARP table seeds,
+  - ONVIF WS-Discovery hints,
+  - TP-Link/Tapo broadcast hints.
+- added adaptive large-subnet host sampling for broad prefixes.
+- added retry/timeout hardening for TCP probe checks.
+- expanded probe ports to include TP-Link/Tapo control ports (`20002`, `9999`).
+- added direct TP-Link/Tapo UDP unicast probing per host (`20002`, `9999`).
+- increased HTTP fingerprint depth:
+  - probes multiple paths (`/`, `/index.html`, `/mainFrame.htm`, `/error.html`),
+  - larger body capture limit to avoid missing late markers.
+- added ARP-prime pass before probe cycle to improve neighbor visibility in noisy WLANs.
+- added repeater/router fingerprint down-scoring to reduce false positives (e.g. `tplinkrepeater` UIs).
+
+New scanner result models:
+- `TapoCameraScanResult`
+- `TapoScanDiagnostics`
+- `TapoCameraCandidateDiagnostics`
+
+Diagnostics now include:
+- subnets scanned,
+- enumerated host count,
+- ARP seed count,
+- ONVIF hint count,
+- Tapo broadcast hint count,
+- Tapo unicast hint count,
+- responsive host count,
+- per-candidate pass/fail reason and score.
+
+### 12) Startup diagnostics UI upgrade
+`StartupWindow` was expanded from minimal status/progress to full diagnostics view:
+- larger resizable window to show scan evidence,
+- summary counters for scan signals,
+- subnet summary text,
+- candidate `DataGrid` columns:
+  - IP, pass/fail, score, open ports, ONVIF, Tapo UDP broadcast, Tapo UDP unicast, ARP, hostname, MAC, reason.
+
+Purpose:
+- make field troubleshooting explicit instead of opaque "no camera detected" outcomes.
+
+### 13) Field troubleshooting findings (important context)
+Live troubleshooting in problematic site showed:
+- laptop and camera had same IPv4 subnet (`192.168.1.0/24`) in router client lists,
+- camera IP (`192.168.1.9`) still unreachable from laptop (`destination host unreachable`),
+- aggressive scan could only reach router and TP-Link repeater-style host (`192.168.1.11`),
+- no reachable RTSP/ONVIF camera endpoints from the laptop despite Tapo app video availability.
+
+Interpretation:
+- same Layer-3 subnet does not guarantee Layer-2 client reachability.
+- likely root cause in failed house is WLAN client isolation/inter-SSID bridging behavior (router firmware/policy), not only scanner logic.
+
 ## Current Architecture Snapshot
 
 ### Startup and navigation
@@ -164,13 +227,17 @@ Main features:
 - `Networking/TapoCameraScanner.cs`:
   - standalone scanner service,
   - async + cancellation-aware,
-  - heuristic candidate scoring.
+  - multi-strategy discovery (subnet + ARP + ONVIF + Tapo UDP broadcast + Tapo UDP unicast),
+  - aggressive retry/timeouts and deeper HTTP fingerprinting,
+  - heuristic candidate scoring with repeater false-positive suppression,
+  - diagnostics-rich scan result model.
 
 ### Startup UI
 - `StartupWindow.xaml/.cs`:
   - auto-scan on load,
   - scan-again/exit actions,
   - status + progress updates,
+  - scan diagnostics summary + subnet list + candidate reason table,
   - returns detection list to app startup.
 
 ### Viewer UI + playback
@@ -186,6 +253,9 @@ Main features:
 - Startup gating: prevents entering main viewer when no camera candidates are available.
 - Custom titlebar controls: required for borderless design and visual parity with references.
 - Keep close-button corner handling isolated: avoids regressions in min/max behavior.
+- Preserve scanner as evidence-driven and diagnostics-forward:
+  - when detection fails, show concrete network signals and reasons in UI.
+- Treat TP-Link repeater/admin signatures as non-camera by default unless camera-service evidence exists.
 
 ## Do-Not-Regress Rules (Important)
 1. Do not reintroduce `StartupUri` in `App.xaml`; startup flow is code-controlled in `App.xaml.cs`.
@@ -194,13 +264,17 @@ Main features:
 4. Keep window host background transparent for borderless rounded shape behavior.
 5. Keep titlebar control buttons full titlebar height to avoid visual gaps.
 6. Keep LibVLC disposal in `MainWindow.OnClosed`.
-7. Keep scanner cancellation handling and gateway-filtered subnet enumeration.
+7. Keep scanner cancellation handling and multi-strategy discovery signals (ARP + ONVIF + Tapo broadcast + Tapo unicast).
+8. Keep startup diagnostics table fields in sync with scanner diagnostics model.
+9. Keep repeater/router false-positive suppression logic intact unless intentionally redesigned.
 
 ## Known Limitations
 - Scanner identifies likely Tapo devices (heuristic), not absolute certainty.
 - Live streaming requires valid RTSP credentials enabled in the Tapo app.
 - Current viewer supports up to 4 simultaneous streams.
 - RTSP path may vary per model/config (`stream1` default, `stream2` often available).
+- In some ISP router firmware profiles, WLAN client isolation/inter-SSID bridge restrictions can block local camera reachability even within the same IPv4 subnet.
+- Tapo app video can still appear functional via cloud relay when direct LAN ports are blocked; LocalCam requires local LAN reachability.
 
 ## Validation Checklist Before Any Major UI/Flow Change
 - Build succeeds with no errors.
@@ -211,6 +285,10 @@ Main features:
   - min/max hover gray,
   - close hover red,
   - top-right corner remains rounded when close is hovered.
+- Startup diagnostics still render and populate:
+  - summary counters,
+  - scanned subnet text,
+  - candidate table with pass/fail reasons.
 - At least one known camera stream can be started/stopped.
 - Closing main window releases VLC resources cleanly.
 
@@ -218,8 +296,9 @@ Main features:
 1. Move streaming settings to persisted app config (username not stored in plain text unless user opts in).
 2. Add per-tile connection state and retry logic.
 3. Add camera selection UI when more than 4 cameras are detected.
-4. Add diagnostics panel (RTSP URL test, port check, auth error details).
-5. Add automated tests for scanner scoring and startup flow state transitions.
+4. Add diagnostics export (`.json`/`.txt`) for remote support and house-to-house comparisons.
+5. Add manual IP reachability tool in startup UI (test specific host with ports `554/8554/2020/20002/9999`).
+6. Add automated tests for scanner scoring and startup flow state transitions.
 
 ## Notes for New Codex Sessions
 When starting fresh, read this file first, then inspect:
