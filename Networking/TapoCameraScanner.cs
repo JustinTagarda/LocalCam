@@ -6,6 +6,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
+using LocalCam.Services;
 
 namespace LocalCam.Networking {
     public sealed record TapoCameraDetection(
@@ -44,9 +45,9 @@ namespace LocalCam.Networking {
         TapoScanDiagnostics Diagnostics);
 
     public static class TapoCameraScanner {
-        private const int MaxHostsForFullSubnetScan = 4096;
+        private const int MaxHostsForFullSubnetScan = 1024;
         private const int LargeSubnetChunkSize = 256;
-        private const int MaxLargeSubnetChunks = 16;
+        private const int MaxLargeSubnetChunks = 4;
         private const int OnvifDiscoveryPort = 3702;
         private const int OnvifReceiveWindowMs = 1800;
         private const int TapoDiscoveryPort = 20002;
@@ -103,124 +104,368 @@ namespace LocalCam.Networking {
                 throw new ArgumentOutOfRangeException(nameof(maxParallelism), "Parallelism must be at least 1.");
             }
 
+            var startedAtUtc = DateTimeOffset.UtcNow;
+            var phaseStartedAtUtc = startedAtUtc;
             var subnets = GetCandidateSubnets();
+            var gatewayBearingSubnets = subnets
+                .Where(static s => s.GatewayAddresses.Count > 0)
+                .ToArray();
+
+            if (gatewayBearingSubnets.Length > 0 && gatewayBearingSubnets.Length < subnets.Count) {
+                JsonLogStore.Information(
+                    eventName: "camera_search_subnets_filtered",
+                    message: "Skipping subnets without a gateway because gateway-bearing subnets are available.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["originalSubnetCount"] = subnets.Count,
+                        ["keptSubnetCount"] = gatewayBearingSubnets.Length,
+                        ["excludedSubnets"] = subnets
+                            .Where(static s => s.GatewayAddresses.Count == 0)
+                            .Select(FormatSubnetDiagnostic)
+                            .ToArray()
+                    });
+
+                subnets = gatewayBearingSubnets;
+            }
+
+            JsonLogStore.Information(
+                eventName: "camera_search_started",
+                message: "Starting local network scan for likely Tapo cameras.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["maxParallelism"] = maxParallelism,
+                    ["subnetCount"] = subnets.Count,
+                    ["subnets"] = subnets.Select(FormatSubnetDiagnostic).ToArray()
+                });
+
             var enumeratedSubnetHosts = subnets
                 .SelectMany(EnumerateHostAddresses)
                 .DistinctBy(static ip => ip.ToString())
                 .ToArray();
 
-            await PrimeArpCacheAsync(enumeratedSubnetHosts, cancellationToken).ConfigureAwait(false);
+            JsonLogStore.Information(
+                eventName: "camera_search_phase_complete",
+                message: "Candidate subnet enumeration completed.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["phase"] = "enumerate_subnets",
+                    ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                    ["subnetCount"] = subnets.Count,
+                    ["enumeratedHostCount"] = enumeratedSubnetHosts.Length
+                });
 
-            var onvifHints = await DiscoverOnvifCameraAddressesAsync(
-                subnets.Select(static s => s.LocalAddress),
-                cancellationToken).ConfigureAwait(false);
-            var tapoBroadcastHints = await DiscoverTapoBroadcastAddressesAsync(
-                subnets,
-                cancellationToken).ConfigureAwait(false);
-            var arpSeedTable = await ReadArpTableAsync(cancellationToken).ConfigureAwait(false);
+            phaseStartedAtUtc = DateTimeOffset.UtcNow;
+            JsonLogStore.Information(
+                eventName: "camera_search_phase_started",
+                message: "Priming ARP cache for candidate hosts.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["phase"] = "prime_arp",
+                    ["hostCount"] = enumeratedSubnetHosts.Length
+                });
 
-            var hostAddresses = enumeratedSubnetHosts
-                .Concat(arpSeedTable.Keys)
-                .Concat(onvifHints)
-                .Concat(tapoBroadcastHints)
-                .DistinctBy(static ip => ip.ToString())
-                .ToArray();
+            try {
+                await PrimeArpCacheAsync(enumeratedSubnetHosts, cancellationToken).ConfigureAwait(false);
 
-            var subnetDiagnostics = subnets
-                .OrderBy(static s => s.NetworkAddress)
-                .ThenBy(static s => s.PrefixLength)
-                .Select(FormatSubnetDiagnostic)
-                .ToArray();
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "ARP cache priming completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "prime_arp",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["hostCount"] = enumeratedSubnetHosts.Length
+                    });
 
-            if (hostAddresses.Length == 0) {
-                return new TapoCameraScanResult(
-                    Array.Empty<TapoCameraDetection>(),
-                    new TapoScanDiagnostics(
-                        subnetDiagnostics,
-                        EnumeratedHostCount: 0,
-                        ArpSeedCount: arpSeedTable.Count,
-                        OnvifHintCount: onvifHints.Count,
-                        TapoBroadcastHintCount: tapoBroadcastHints.Count,
-                        TapoUnicastHintCount: 0,
-                        ResponsiveHostCount: 0,
-                        Candidates: Array.Empty<TapoCameraCandidateDiagnostics>()));
-            }
+                phaseStartedAtUtc = DateTimeOffset.UtcNow;
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_started",
+                    message: "Discovering ONVIF and Tapo broadcast hints.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "discover_hints"
+                    });
 
-            var onvifHintSet = onvifHints.ToHashSet();
-            var tapoBroadcastHintSet = tapoBroadcastHints.ToHashSet();
-            var probes = new ConcurrentBag<HostProbeResult>();
+                var onvifHints = await DiscoverOnvifCameraAddressesAsync(
+                    subnets.Select(static s => s.LocalAddress),
+                    cancellationToken).ConfigureAwait(false);
+                var tapoBroadcastHints = await DiscoverTapoBroadcastAddressesAsync(
+                    subnets,
+                    cancellationToken).ConfigureAwait(false);
 
-            await Parallel.ForEachAsync(
-                hostAddresses,
-                new ParallelOptions {
-                    CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = maxParallelism
-                },
-                async (ip, token) => {
-                    var result = await ProbeHostAsync(
-                        ip,
-                        discoveredViaOnvif: onvifHintSet.Contains(ip),
-                        discoveredViaTapoBroadcast: tapoBroadcastHintSet.Contains(ip),
-                        token).ConfigureAwait(false);
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Discovery hint collection completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "discover_hints",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["onvifHintCount"] = onvifHints.Count,
+                        ["tapoBroadcastHintCount"] = tapoBroadcastHints.Count
+                    });
+
+                phaseStartedAtUtc = DateTimeOffset.UtcNow;
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_started",
+                    message: "Reading ARP table before host probing.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "read_arp"
+                    });
+
+                var arpSeedTable = await ReadArpTableAsync(cancellationToken).ConfigureAwait(false);
+
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Initial ARP table read completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "read_arp",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["arpSeedCount"] = arpSeedTable.Count
+                    });
+
+                var hostAddresses = enumeratedSubnetHosts
+                    .Concat(arpSeedTable.Keys)
+                    .Concat(onvifHints)
+                    .Concat(tapoBroadcastHints)
+                    .DistinctBy(static ip => ip.ToString())
+                    .ToArray();
+
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Host address set assembled for probing.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "assemble_hosts",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["hostAddressCount"] = hostAddresses.Length
+                    });
+
+                var subnetDiagnostics = subnets
+                    .OrderBy(static s => s.NetworkAddress)
+                    .ThenBy(static s => s.PrefixLength)
+                    .Select(FormatSubnetDiagnostic)
+                    .ToArray();
+
+                if (hostAddresses.Length == 0) {
+                    var emptyResult = new TapoCameraScanResult(
+                        Array.Empty<TapoCameraDetection>(),
+                        new TapoScanDiagnostics(
+                            subnetDiagnostics,
+                            EnumeratedHostCount: 0,
+                            ArpSeedCount: arpSeedTable.Count,
+                            OnvifHintCount: onvifHints.Count,
+                            TapoBroadcastHintCount: tapoBroadcastHints.Count,
+                            TapoUnicastHintCount: 0,
+                            ResponsiveHostCount: 0,
+                            Candidates: Array.Empty<TapoCameraCandidateDiagnostics>()));
+
+                    JsonLogStore.Information(
+                        eventName: "camera_search_completed",
+                        message: "Local network scan completed without any responsive hosts.",
+                        category: "camera_search",
+                        data: new Dictionary<string, object?> {
+                            ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds,
+                            ["detectionCount"] = emptyResult.Detections.Count,
+                            ["responsiveHostCount"] = emptyResult.Diagnostics.ResponsiveHostCount,
+                            ["subnetCount"] = emptyResult.Diagnostics.SubnetsScanned.Count
+                        });
+
+                    return emptyResult;
+                }
+
+                var onvifHintSet = onvifHints.ToHashSet();
+                var tapoBroadcastHintSet = tapoBroadcastHints.ToHashSet();
+                var probes = new ConcurrentBag<HostProbeResult>();
+                var completedProbeCount = 0;
+                var responsiveProbeCount = 0;
+
+                phaseStartedAtUtc = DateTimeOffset.UtcNow;
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_started",
+                    message: "Probing candidate hosts.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "probe_hosts",
+                        ["hostAddressCount"] = hostAddresses.Length,
+                        ["maxParallelism"] = maxParallelism
+                    });
+
+                await Parallel.ForEachAsync(
+                    hostAddresses,
+                    new ParallelOptions {
+                        CancellationToken = cancellationToken,
+                        MaxDegreeOfParallelism = maxParallelism
+                    },
+                    async (ip, token) => {
+                        var result = await ProbeHostAsync(
+                            ip,
+                            discoveredViaOnvif: onvifHintSet.Contains(ip),
+                            discoveredViaTapoBroadcast: tapoBroadcastHintSet.Contains(ip),
+                            token).ConfigureAwait(false);
                     if (result is not null) {
                         probes.Add(result);
+                        Interlocked.Increment(ref responsiveProbeCount);
+                    }
+
+                    var completed = Interlocked.Increment(ref completedProbeCount);
+                    if (completed % 128 == 0 || completed == hostAddresses.Length) {
+                        JsonLogStore.Information(
+                            eventName: "camera_search_probe_progress",
+                            message: "Local network probing is still in progress.",
+                            category: "camera_search",
+                            data: new Dictionary<string, object?> {
+                                ["phase"] = "probe_hosts",
+                                ["completedProbeCount"] = completed,
+                                ["responsiveProbeCount"] = Volatile.Read(ref responsiveProbeCount),
+                                ["hostAddressCount"] = hostAddresses.Length
+                            });
                     }
                 }).ConfigureAwait(false);
 
-            var arpPostProbeTable = await ReadArpTableAsync(cancellationToken).ConfigureAwait(false);
-            var arpTable = MergeArpTables(arpSeedTable, arpPostProbeTable);
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Host probing completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "probe_hosts",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["completedProbeCount"] = completedProbeCount,
+                        ["responsiveProbeCount"] = responsiveProbeCount
+                    });
 
-            var orderedProbes = probes
-                .OrderBy(static p => IpToUInt32(p.IpAddress))
-                .ToArray();
+                phaseStartedAtUtc = DateTimeOffset.UtcNow;
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_started",
+                    message: "Reading ARP table after host probing.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "read_arp_post_probe"
+                    });
 
-            var detections = new List<TapoCameraDetection>();
-            var candidates = new List<TapoCameraCandidateDiagnostics>(orderedProbes.Length);
+                var arpPostProbeTable = await ReadArpTableAsync(cancellationToken).ConfigureAwait(false);
+                var arpTable = MergeArpTables(arpSeedTable, arpPostProbeTable);
 
-            foreach (var probe in orderedProbes) {
-                cancellationToken.ThrowIfCancellationRequested();
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Post-probe ARP table read completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "read_arp_post_probe",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["arpPostProbeCount"] = arpPostProbeTable.Count
+                    });
 
-                var hasArpEntry = arpTable.TryGetValue(probe.IpAddress, out var macAddress);
-                var hostName = await TryResolveHostNameAsync(probe.IpAddress, cancellationToken).ConfigureAwait(false);
-                var evaluation = EvaluateCandidate(probe, macAddress, hostName);
+                var orderedProbes = probes
+                    .OrderBy(static p => IpToUInt32(p.IpAddress))
+                    .ToArray();
 
-                candidates.Add(new TapoCameraCandidateDiagnostics(
-                    probe.IpAddress,
-                    evaluation.IsLikelyTapo,
-                    Math.Round(evaluation.Score, 2),
-                    evaluation.Reason,
-                    hostName,
-                    macAddress,
-                    hasArpEntry,
-                    probe.DiscoveredViaOnvif,
-                    probe.DiscoveredViaTapoBroadcast,
-                    probe.DiscoveredViaTapoUnicast,
-                    probe.OpenPorts));
+                phaseStartedAtUtc = DateTimeOffset.UtcNow;
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_started",
+                    message: "Classifying responsive hosts.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "classify_hosts",
+                        ["responsiveHostCount"] = orderedProbes.Length
+                    });
 
-                if (!evaluation.IsLikelyTapo) {
-                    continue;
+                var detections = new List<TapoCameraDetection>();
+                var candidates = new List<TapoCameraCandidateDiagnostics>(orderedProbes.Length);
+
+                foreach (var probe in orderedProbes) {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var hasArpEntry = arpTable.TryGetValue(probe.IpAddress, out var macAddress);
+                    var hostName = await TryResolveHostNameAsync(probe.IpAddress, cancellationToken).ConfigureAwait(false);
+                    var evaluation = EvaluateCandidate(probe, macAddress, hostName);
+
+                    candidates.Add(new TapoCameraCandidateDiagnostics(
+                        probe.IpAddress,
+                        evaluation.IsLikelyTapo,
+                        Math.Round(evaluation.Score, 2),
+                        evaluation.Reason,
+                        hostName,
+                        macAddress,
+                        hasArpEntry,
+                        probe.DiscoveredViaOnvif,
+                        probe.DiscoveredViaTapoBroadcast,
+                        probe.DiscoveredViaTapoUnicast,
+                        probe.OpenPorts));
+
+                    if (!evaluation.IsLikelyTapo) {
+                        continue;
+                    }
+
+                    detections.Add(new TapoCameraDetection(
+                        probe.IpAddress,
+                        hostName,
+                        macAddress,
+                        probe.OpenPorts,
+                        Math.Round(evaluation.Score, 2),
+                        evaluation.Reason));
                 }
 
-                detections.Add(new TapoCameraDetection(
-                    probe.IpAddress,
-                    hostName,
-                    macAddress,
-                    probe.OpenPorts,
-                    Math.Round(evaluation.Score, 2),
-                    evaluation.Reason));
+                var diagnostics = new TapoScanDiagnostics(
+                    subnetDiagnostics,
+                    EnumeratedHostCount: hostAddresses.Length,
+                    ArpSeedCount: arpSeedTable.Count,
+                    OnvifHintCount: onvifHints.Count,
+                    TapoBroadcastHintCount: tapoBroadcastHints.Count,
+                    TapoUnicastHintCount: orderedProbes.Count(static p => p.DiscoveredViaTapoUnicast),
+                    ResponsiveHostCount: orderedProbes.Length,
+                    Candidates: candidates);
+
+                JsonLogStore.Information(
+                    eventName: "camera_search_phase_complete",
+                    message: "Host classification completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["phase"] = "classify_hosts",
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - phaseStartedAtUtc).TotalMilliseconds,
+                        ["candidateCount"] = candidates.Count,
+                        ["detectionCount"] = detections.Count
+                    });
+
+                var result = new TapoCameraScanResult(detections, diagnostics);
+                JsonLogStore.Information(
+                    eventName: "camera_search_completed",
+                    message: "Local network scan completed.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds,
+                        ["detectionCount"] = result.Detections.Count,
+                        ["responsiveHostCount"] = result.Diagnostics.ResponsiveHostCount,
+                        ["enumeratedHostCount"] = result.Diagnostics.EnumeratedHostCount,
+                        ["onvifHintCount"] = result.Diagnostics.OnvifHintCount,
+                        ["tapoBroadcastHintCount"] = result.Diagnostics.TapoBroadcastHintCount,
+                        ["tapoUnicastHintCount"] = result.Diagnostics.TapoUnicastHintCount
+                    });
+
+                return result;
             }
-
-            var diagnostics = new TapoScanDiagnostics(
-                subnetDiagnostics,
-                EnumeratedHostCount: hostAddresses.Length,
-                ArpSeedCount: arpSeedTable.Count,
-                OnvifHintCount: onvifHints.Count,
-                TapoBroadcastHintCount: tapoBroadcastHints.Count,
-                TapoUnicastHintCount: orderedProbes.Count(static p => p.DiscoveredViaTapoUnicast),
-                ResponsiveHostCount: orderedProbes.Length,
-                Candidates: candidates);
-
-            return new TapoCameraScanResult(detections, diagnostics);
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                JsonLogStore.Warning(
+                    eventName: "camera_search_canceled",
+                    message: "Local network scan was canceled.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds
+                    });
+                throw;
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "camera_search_failed",
+                    message: "Local network scan failed.",
+                    category: "camera_search",
+                    exception: ex,
+                    data: new Dictionary<string, object?> {
+                        ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds
+                    });
+                throw;
+            }
         }
 
         private static async Task<HostProbeResult?> ProbeHostAsync(

@@ -21,7 +21,6 @@ Primary goal:
 Source references:
 - [LocalCam.csproj](D:\Projects\LocalCam\LocalCam.csproj)
 - [App.xaml.cs](D:\Projects\LocalCam\App.xaml.cs)
-- [StartupWindow.xaml.cs](D:\Projects\LocalCam\StartupWindow.xaml.cs)
 - [MainWindow.xaml.cs](D:\Projects\LocalCam\MainWindow.xaml.cs)
 - [Networking\TapoCameraScanner.cs](D:\Projects\LocalCam\Networking\TapoCameraScanner.cs)
 
@@ -37,43 +36,17 @@ The app has three main layers:
 
 Startup flow:
 1. Application starts in [App.xaml.cs](D:\Projects\LocalCam\App.xaml.cs).
-2. App sets `ShutdownMode = OnExplicitShutdown`.
-3. A modal `StartupWindow` is shown.
-4. `StartupWindow` scans the local network on load.
-5. If at least one likely Tapo camera is found, the dialog closes with `DialogResult = true`.
-6. App opens `MainWindow` with the detected cameras.
-7. App switches to `ShutdownMode = OnMainWindowClose`.
-8. App exits when the main window closes.
+2. App initializes JSON logging.
+3. App opens `MainWindow` directly.
+4. `MainWindow` performs local-network camera discovery on load.
+5. If detections are found, the viewer populates up to 4 camera tiles.
+6. If no detections are found, the user can retry search from the main window.
+7. App exits when the main window closes.
 
 Exit flow:
-- User can exit from the startup window directly.
-- If no cameras are found, the user can retry or exit.
 - If the main window closes, the app stops streams, disposes VLC resources, and terminates.
 
-## 5. Startup Window Specification
-
-The startup window is the discovery gate.
-
-Behavior:
-- Shows a scanning status message on load.
-- Runs an asynchronous LAN scan automatically.
-- Supports `Scan again`.
-- Supports `Exit`.
-- Supports close-button exit.
-- Cancels active scanning on close.
-
-UI states:
-- Scanning
-- No camera detected
-- Scan canceled
-- Scan failed
-- Success, with detected camera list passed to the main window
-
-Implementation reference:
-- [StartupWindow.xaml](D:\Projects\LocalCam\StartupWindow.xaml)
-- [StartupWindow.xaml.cs](D:\Projects\LocalCam\StartupWindow.xaml.cs)
-
-## 6. Camera Discovery Specification
+## 5. Camera Discovery Specification
 
 Discovery is best-effort and heuristic-based, not authoritative.
 
@@ -122,7 +95,7 @@ Important constraint:
 Implementation reference:
 - [Networking\TapoCameraScanner.cs](D:\Projects\LocalCam\Networking\TapoCameraScanner.cs)
 
-## 7. Main Window Specification
+## 6. Main Window Specification
 
 The main window is the streaming dashboard.
 
@@ -162,7 +135,7 @@ Implementation reference:
 - [MainWindow.xaml](D:\Projects\LocalCam\MainWindow.xaml)
 - [MainWindow.xaml.cs](D:\Projects\LocalCam\MainWindow.xaml.cs)
 
-## 8. Configuration Specification
+## 7. Configuration Specification
 
 Current configuration surface is minimal and environment-driven.
 
@@ -175,7 +148,7 @@ Implicit behavior:
 - No saved user profile or persistent camera list exists yet
 - No selectable camera inventory exists beyond the current scan result
 
-## 9. Non-Functional Constraints
+## 8. Non-Functional Constraints
 
 Platform:
 - Windows desktop only
@@ -195,7 +168,7 @@ Security and trust:
 - This is discovery-only probing, not full authentication
 - RTSP credentials are handled locally in memory and used to form stream URLs
 
-## 10. Error Handling Specification
+## 9. Error Handling Specification
 
 Discovery failures:
 - If scan returns no candidates, user gets a retryable “no camera detected” state
@@ -212,14 +185,13 @@ Resource cleanup:
 - On startup window close, cancellation is issued for active scans
 - On main window close, streams are stopped and VLC objects are disposed
 
-## 11. Current Product Scope
+## 10. Current Product Scope
 
 Implemented:
 - LAN discovery of likely Tapo cameras
-- Startup scan UI
-- Retry and exit controls
 - RTSP streaming in a 4-tile dashboard
 - Basic window chrome and polished WPF styling
+- Retry search from the main window
 
 Not implemented:
 - Persistent camera profiles
@@ -230,7 +202,7 @@ Not implemented:
 - A confirmed device identity model beyond heuristics
 - Multi-page navigation or settings screen
 
-## 12. Current Design Intent
+## 11. Current Design Intent
 
 The current UI is:
 - Dark-themed
@@ -244,9 +216,3 @@ Functional intent:
 - Minimize setup friction
 - Make scan-to-stream the dominant workflow
 - Keep the app simple enough for immediate camera access on a local network
-
-## 13. Known Repo Mismatch
-
-The README is behind the implementation in at least one place:
-- [README.md](D:\Projects\LocalCam\README.md) says stream playback is planned
-- The code already implements streaming, VLC initialization, RTSP URL generation, and stream control

@@ -9,19 +9,19 @@
         MinHeight="620"
         MinWidth="980"
         WindowStyle="None"
-        AllowsTransparency="False"
+        AllowsTransparency="True"
         ResizeMode="CanResize"
-        WindowStartupLocation="CenterScreen"
-        Background="#161B25"
+        Background="{x:Null}"
         Icon="/Assets/icon.ico"
         StateChanged="Window_StateChanged"
         Loaded="Window_Loaded"
+        WindowStartupLocation="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0"
                             ResizeBorderThickness="6"
-                            CornerRadius="0"
+                            CornerRadius="6"
                             GlassFrameThickness="0"
                             UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
@@ -127,14 +127,42 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="CameraCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#202736" />
+            <Setter Property="BorderBrush" Value="#2D3648" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="ClipToBounds" Value="True" />
+        </Style>
+
+        <Style x:Key="CameraVideoViewStyle" TargetType="vlc:VideoView">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Visibility" Value="Collapsed" />
+        </Style>
+
+        <Style x:Key="CameraBadgeStyle" TargetType="Border">
+            <Setter Property="Margin" Value="8,8,8,6" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="Background" Value="#880B0F17" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+
+        <Style x:Key="CameraPlaceholderStyle" TargetType="Border">
+            <Setter Property="Background" Value="#202736" />
+            <Setter Property="Margin" Value="8,0,8,8" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
     </Window.Resources>
 
     <Border Margin="0"
-            Background="#161B25"
+            Background="#101722"
             BorderBrush="#2A3242"
             BorderThickness="1"
-            CornerRadius="6">
-        <Grid>
+            CornerRadius="6"
+            ClipToBounds="True">
+        <Grid Background="{x:Null}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -142,9 +170,11 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
-                    Background="#101722"
+                    Background="{x:Null}"
                     CornerRadius="6,6,0,0"
+                    ClipToBounds="True"
                     Height="42"
+                    Visibility="Visible"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -196,7 +226,7 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="1" Margin="6">
+            <Grid Grid.Row="1" Margin="6" Background="{x:Null}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -204,7 +234,7 @@
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
-                        Background="Transparent"
+                        Background="{x:Null}"
                         Margin="0,0,0,10">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="DetectCameraButton"
@@ -280,37 +310,41 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <Border x:Name="CameraCard1" Grid.Row="0" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,0,6,6">
+                    <Border x:Name="CameraCard1" Style="{StaticResource CameraCardStyle}" Grid.Row="0" Grid.Column="0" Margin="0,0,6,6">
                         <Grid>
-                            <vlc:VideoView x:Name="VideoView1" />
-                            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
+                            <Border x:Name="CameraPlaceholder1" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
+                            <vlc:VideoView x:Name="VideoView1" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border x:Name="CameraBadge1" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile1Label" Foreground="#E4ECF7" FontSize="13" Text="camera 1 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="CameraCard2" Grid.Row="0" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,0,0,6">
+                    <Border x:Name="CameraCard2" Style="{StaticResource CameraCardStyle}" Grid.Row="0" Grid.Column="1" Margin="6,0,0,6">
                         <Grid>
-                            <vlc:VideoView x:Name="VideoView2" />
-                            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
+                            <Border x:Name="CameraPlaceholder2" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
+                            <vlc:VideoView x:Name="VideoView2" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border x:Name="CameraBadge2" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile2Label" Foreground="#E4ECF7" FontSize="13" Text="camera 2 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="CameraCard3" Grid.Row="1" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,6,6,0">
+                    <Border x:Name="CameraCard3" Style="{StaticResource CameraCardStyle}" Grid.Row="1" Grid.Column="0" Margin="0,6,6,0">
                         <Grid>
-                            <vlc:VideoView x:Name="VideoView3" />
-                            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
+                            <Border x:Name="CameraPlaceholder3" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
+                            <vlc:VideoView x:Name="VideoView3" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border x:Name="CameraBadge3" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile3Label" Foreground="#E4ECF7" FontSize="13" Text="camera 3 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border x:Name="CameraCard4" Grid.Row="1" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,6,0,0">
+                    <Border x:Name="CameraCard4" Style="{StaticResource CameraCardStyle}" Grid.Row="1" Grid.Column="1" Margin="6,6,0,0">
                         <Grid>
-                            <vlc:VideoView x:Name="VideoView4" />
-                            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
+                            <Border x:Name="CameraPlaceholder4" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
+                            <vlc:VideoView x:Name="VideoView4" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border x:Name="CameraBadge4" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile4Label" Foreground="#E4ECF7" FontSize="13" Text="camera 4 - empty" />
                             </Border>
                         </Grid>
@@ -319,10 +353,11 @@
             </Grid>
 
             <Border Grid.Row="2"
-                    Background="#101722"
-                    BorderBrush="#2A3242"
-                    BorderThickness="0,1,0,0"
+                    Background="{x:Null}"
+                    BorderBrush="{x:Null}"
+                    BorderThickness="0"
                     CornerRadius="0,0,6,6"
+                    Visibility="Visible"
                     Padding="10,6">
                 <Grid>
                     <Grid.ColumnDefinitions>

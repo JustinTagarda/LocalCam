@@ -218,10 +218,9 @@ Interpretation:
 
 ### Startup and navigation
 - `App.xaml.cs`:
-  - starts app in explicit shutdown mode,
-  - opens `StartupWindow` first,
-  - opens `MainWindow` only when startup scan returns cameras,
-  - exits otherwise.
+  - initializes logging,
+  - opens `MainWindow` directly,
+  - sets shutdown mode to close with the main window.
 
 ### Discovery layer
 - `Networking/TapoCameraScanner.cs`:
@@ -231,14 +230,6 @@ Interpretation:
   - aggressive retry/timeouts and deeper HTTP fingerprinting,
   - heuristic candidate scoring with repeater false-positive suppression,
   - diagnostics-rich scan result model.
-
-### Startup UI
-- `StartupWindow.xaml/.cs`:
-  - auto-scan on load,
-  - scan-again/exit actions,
-  - status + progress updates,
-  - scan diagnostics summary + subnet list + candidate reason table,
-  - returns detection list to app startup.
 
 ### Viewer UI + playback
 - `MainWindow.xaml/.cs`:
@@ -250,7 +241,6 @@ Interpretation:
 ## Key Decisions and Rationale
 - Local-first streaming: RTSP over LAN chosen for low latency and no cloud dependency.
 - Heuristic detection instead of vendor cloud APIs: works offline and avoids account coupling.
-- Startup gating: prevents entering main viewer when no camera candidates are available.
 - Custom titlebar controls: required for borderless design and visual parity with references.
 - Keep close-button corner handling isolated: avoids regressions in min/max behavior.
 - Preserve scanner as evidence-driven and diagnostics-forward:
@@ -259,14 +249,12 @@ Interpretation:
 
 ## Do-Not-Regress Rules (Important)
 1. Do not reintroduce `StartupUri` in `App.xaml`; startup flow is code-controlled in `App.xaml.cs`.
-2. Do not bypass `StartupWindow` gating unless intentionally redesigning app flow.
-3. Keep `TitleBarCloseButtonStyle` corner radius fix scoped to close button only.
-4. Keep window host background transparent for borderless rounded shape behavior.
-5. Keep titlebar control buttons full titlebar height to avoid visual gaps.
-6. Keep LibVLC disposal in `MainWindow.OnClosed`.
-7. Keep scanner cancellation handling and multi-strategy discovery signals (ARP + ONVIF + Tapo broadcast + Tapo unicast).
-8. Keep startup diagnostics table fields in sync with scanner diagnostics model.
-9. Keep repeater/router false-positive suppression logic intact unless intentionally redesigned.
+2. Keep `TitleBarCloseButtonStyle` corner radius fix scoped to close button only.
+3. Keep window host background transparent for borderless rounded shape behavior.
+4. Keep titlebar control buttons full titlebar height to avoid visual gaps.
+5. Keep LibVLC disposal in `MainWindow.OnClosed`.
+6. Keep scanner cancellation handling and multi-strategy discovery signals (ARP + ONVIF + Tapo broadcast + Tapo unicast).
+7. Keep repeater/router false-positive suppression logic intact unless intentionally redesigned.
 
 ## Known Limitations
 - Scanner identifies likely Tapo devices (heuristic), not absolute certainty.
@@ -278,17 +266,10 @@ Interpretation:
 
 ## Validation Checklist Before Any Major UI/Flow Change
 - Build succeeds with no errors.
-- Startup flow still works:
-  - detect -> main opens,
-  - none -> scan again/exit prompt stays usable.
 - Titlebar controls still behave correctly:
   - min/max hover gray,
   - close hover red,
   - top-right corner remains rounded when close is hovered.
-- Startup diagnostics still render and populate:
-  - summary counters,
-  - scanned subnet text,
-  - candidate table with pass/fail reasons.
 - At least one known camera stream can be started/stopped.
 - Closing main window releases VLC resources cleanly.
 
@@ -303,7 +284,6 @@ Interpretation:
 ## Notes for New Codex Sessions
 When starting fresh, read this file first, then inspect:
 - `App.xaml.cs`
-- `StartupWindow.xaml` and `StartupWindow.xaml.cs`
 - `Networking/TapoCameraScanner.cs`
 - `MainWindow.xaml` and `MainWindow.xaml.cs`
 - `LocalCam.csproj`

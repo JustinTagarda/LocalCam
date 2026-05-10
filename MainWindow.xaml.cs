@@ -21,6 +21,8 @@ namespace LocalCam {
         private bool _isClosing;
         private bool _isScanning;
         private bool _streamsRunning;
+        private bool _isApplyingPersistedWindowBounds;
+        private bool _hasAppliedPersistedWindowBounds;
         private LocalCamSettings _settings = new();
 
         public MainWindow()
@@ -31,10 +33,13 @@ namespace LocalCam {
             _detections = detections.Take(4).ToArray();
 
             InitializeComponent();
-            UpdateMaximizeButtonIcon();
+            LocationChanged += Window_LocationChanged;
+            SizeChanged += Window_SizeChanged;
             FooterVersionText.Text = $"v{GetStoreSubmissionVersion()}";
-            PopulateCameraTiles(_detections);
             LoadSettings();
+            ApplyPersistedWindowBounds();
+            UpdateMaximizeButtonIcon();
+            PopulateCameraTiles(_detections);
             var engineReady = InitializeStreamingEngine();
 
             if (engineReady) {
@@ -87,6 +92,103 @@ namespace LocalCam {
             };
         }
 
+        private void ApplyPersistedWindowBounds() {
+            if (_hasAppliedPersistedWindowBounds) {
+                return;
+            }
+
+            _hasAppliedPersistedWindowBounds = true;
+
+            if (!HasPersistedWindowBounds()) {
+                CenterWindowOnPrimaryScreen();
+                return;
+            }
+
+            _isApplyingPersistedWindowBounds = true;
+            try {
+                Left = _settings.MainWindowLeft ?? Left;
+                Top = _settings.MainWindowTop ?? Top;
+                Width = Math.Max(MinWidth, _settings.MainWindowWidth ?? Width);
+                Height = Math.Max(MinHeight, _settings.MainWindowHeight ?? Height);
+
+                if (!IsWindowVisibleOnScreen()) {
+                    CenterWindowOnPrimaryScreen();
+                }
+            }
+            finally {
+                _isApplyingPersistedWindowBounds = false;
+            }
+        }
+
+        private bool HasPersistedWindowBounds() {
+            return _settings.MainWindowLeft.HasValue &&
+                   _settings.MainWindowTop.HasValue &&
+                   _settings.MainWindowWidth.HasValue &&
+                   _settings.MainWindowHeight.HasValue &&
+                   _settings.MainWindowWidth.Value > 0 &&
+                   _settings.MainWindowHeight.Value > 0;
+        }
+
+        private bool IsWindowVisibleOnScreen() {
+            var windowBounds = GetWindowBoundsForPersistence();
+            var virtualScreenBounds = new Rect(
+                SystemParameters.VirtualScreenLeft,
+                SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth,
+                SystemParameters.VirtualScreenHeight);
+            var intersection = Rect.Intersect(windowBounds, virtualScreenBounds);
+            return !intersection.IsEmpty && intersection.Width >= 120 && intersection.Height >= 120;
+        }
+
+        private void CenterWindowOnPrimaryScreen() {
+            var workingArea = SystemParameters.WorkArea;
+            var width = Math.Max(MinWidth, Width);
+            var height = Math.Max(MinHeight, Height);
+
+            Left = workingArea.Left + Math.Max(0, (workingArea.Width - width) / 2);
+            Top = workingArea.Top + Math.Max(0, (workingArea.Height - height) / 2);
+            Width = width;
+            Height = height;
+        }
+
+        private Rect GetWindowBoundsForPersistence() {
+            if (WindowState == WindowState.Normal) {
+                return new Rect(
+                    Left,
+                    Top,
+                    ActualWidth > 0 ? ActualWidth : Width,
+                    ActualHeight > 0 ? ActualHeight : Height);
+            }
+
+            var restoreBounds = RestoreBounds;
+            if (restoreBounds.Width > 0 && restoreBounds.Height > 0) {
+                return restoreBounds;
+            }
+
+            return new Rect(
+                Left,
+                Top,
+                ActualWidth > 0 ? ActualWidth : Width,
+                ActualHeight > 0 ? ActualHeight : Height);
+        }
+
+        private void PersistWindowBounds() {
+            if (_isClosing || !_hasAppliedPersistedWindowBounds || _isApplyingPersistedWindowBounds) {
+                return;
+            }
+
+            var bounds = GetWindowBoundsForPersistence();
+            if (bounds.Width <= 0 || bounds.Height <= 0) {
+                return;
+            }
+
+            _settings.MainWindowLeft = bounds.Left;
+            _settings.MainWindowTop = bounds.Top;
+            _settings.MainWindowWidth = bounds.Width;
+            _settings.MainWindowHeight = bounds.Height;
+            SettingsStore.Save(_settings);
+        }
+
         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
             var cards = new[] { CameraCard1, CameraCard2, CameraCard3, CameraCard4 };
             var tileLabels = new[] { CameraTile1Label, CameraTile2Label, CameraTile3Label, CameraTile4Label };
@@ -97,7 +199,22 @@ namespace LocalCam {
                 tileLabels[i].Text = hasDetection
                     ? $"camera {i + 1} - live streaming ({detections[i].IpAddress})"
                     : string.Empty;
+                SetVideoSurfaceActive(i, isActive: false);
             }
+        }
+
+        private void SetVideoSurfaceActive(int index, bool isActive) {
+            var videoViews = new[] { VideoView1, VideoView2, VideoView3, VideoView4 };
+            var placeholders = new[] { CameraPlaceholder1, CameraPlaceholder2, CameraPlaceholder3, CameraPlaceholder4 };
+            var badges = new[] { CameraBadge1, CameraBadge2, CameraBadge3, CameraBadge4 };
+
+            if (index < 0 || index >= videoViews.Length) {
+                return;
+            }
+
+            videoViews[index].Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+            placeholders[index].Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+            badges[index].Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
@@ -119,6 +236,16 @@ namespace LocalCam {
                 return;
             }
 
+            JsonLogStore.Information(
+                eventName: "camera_search_requested",
+                message: "User requested a local network camera search.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["source"] = "main_window",
+                    ["isClosing"] = _isClosing,
+                    ["isScanning"] = _isScanning
+                });
+
             while (!_isClosing) {
                 _isScanning = true;
                 _scanCancellation = new CancellationTokenSource();
@@ -133,10 +260,22 @@ namespace LocalCam {
                     }
 
                     if (detections.Count > 0) {
+                        JsonLogStore.Information(
+                            eventName: "camera_search_detections_available",
+                            message: "Local network scan found one or more likely Tapo cameras.",
+                            category: "camera_search",
+                            data: new Dictionary<string, object?> {
+                                ["detectionCount"] = detections.Count,
+                                ["detectedIps"] = detections.Select(d => d.IpAddress.ToString()).ToArray()
+                            });
                         ShowDetections(detections);
                         return;
                     }
 
+                    JsonLogStore.Warning(
+                        eventName: "camera_search_no_detections",
+                        message: "Local network scan completed without any likely Tapo cameras.",
+                        category: "camera_search");
                     ShowNoDetections();
                 }
                 catch (OperationCanceledException) when (_isClosing) {
@@ -144,11 +283,20 @@ namespace LocalCam {
                 }
                 catch (OperationCanceledException) {
                     if (!_isClosing) {
+                        JsonLogStore.Warning(
+                            eventName: "camera_search_operation_canceled",
+                            message: "Local network search was canceled.",
+                            category: "camera_search");
                         ShowNoDetections("Scan canceled.");
                     }
                 }
                 catch (Exception ex) {
                     if (!_isClosing) {
+                        JsonLogStore.Error(
+                            eventName: "camera_search_operation_failed",
+                            message: "Local network search failed in the main window.",
+                            category: "camera_search",
+                            exception: ex);
                         ShowNoDetections($"Scan failed: {ex.Message}");
                     }
                 }
@@ -238,11 +386,19 @@ namespace LocalCam {
 
         private void StartStreams() {
             if (_libVlc is null) {
+                JsonLogStore.Warning(
+                    eventName: "camera_connect_blocked",
+                    message: "RTSP stream start was blocked because the video engine is unavailable.",
+                    category: "camera_connect");
                 StreamingStatusText.Text = "Cannot start streams: video engine is unavailable.";
                 return;
             }
 
             if (_detections.Count == 0) {
+                JsonLogStore.Warning(
+                    eventName: "camera_connect_blocked",
+                    message: "RTSP stream start was blocked because no cameras were detected.",
+                    category: "camera_connect");
                 StreamingStatusText.Text = "Cannot start streams: no cameras were detected.";
                 return;
             }
@@ -252,9 +408,27 @@ namespace LocalCam {
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
 
             if (!HasCompleteStreamingSettings(username, password)) {
+                JsonLogStore.Warning(
+                    eventName: "camera_connect_blocked",
+                    message: "RTSP stream start was blocked because credentials are incomplete.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["cameraCount"] = _detections.Count,
+                        ["streamPath"] = streamPath
+                    });
                 StreamingStatusText.Text = BuildMissingSettingsPrompt();
                 return;
             }
+
+            JsonLogStore.Information(
+                eventName: "camera_connect_requested",
+                message: "Starting RTSP connections for detected cameras.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraCount"] = _detections.Count,
+                    ["streamPath"] = streamPath,
+                    ["hasUsername"] = !string.IsNullOrWhiteSpace(username)
+                });
 
             StopStreams();
             UpdateActionButtons(canDetect: !_isScanning, canStart: false, canStop: false);
@@ -267,6 +441,16 @@ namespace LocalCam {
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
 
                 try {
+                    JsonLogStore.Information(
+                        eventName: "camera_connect_attempt",
+                        message: "Attempting to start an RTSP stream.",
+                        category: "camera_connect",
+                        data: new Dictionary<string, object?> {
+                            ["cameraIndex"] = i + 1,
+                            ["ipAddress"] = ipAddress,
+                            ["streamPath"] = streamPath
+                        });
+
                     using var media = new Media(_libVlc, streamUrl, FromType.FromLocation);
                     media.AddOption(":network-caching=300");
                     media.AddOption(":live-caching=300");
@@ -275,31 +459,85 @@ namespace LocalCam {
 
                     if (_mediaPlayers[i].Play(media)) {
                         startedCount++;
+                        SetVideoSurfaceActive(i, isActive: true);
+                        JsonLogStore.Information(
+                            eventName: "camera_connect_succeeded",
+                            message: "RTSP stream started successfully.",
+                            category: "camera_connect",
+                            data: new Dictionary<string, object?> {
+                                ["cameraIndex"] = i + 1,
+                                ["ipAddress"] = ipAddress,
+                                ["streamPath"] = streamPath
+                            });
                     }
                     else {
                         failedEndpoints.Add(ipAddress);
+                        SetVideoSurfaceActive(i, isActive: false);
+                        JsonLogStore.Warning(
+                            eventName: "camera_connect_failed",
+                            message: "RTSP stream failed to start.",
+                            category: "camera_connect",
+                            data: new Dictionary<string, object?> {
+                                ["cameraIndex"] = i + 1,
+                                ["ipAddress"] = ipAddress,
+                                ["streamPath"] = streamPath,
+                                ["reason"] = "media player returned false"
+                            });
                     }
                 }
-                catch {
+                catch (Exception ex) {
                     failedEndpoints.Add(ipAddress);
+                    SetVideoSurfaceActive(i, isActive: false);
+                    JsonLogStore.Error(
+                        eventName: "camera_connect_exception",
+                        message: "RTSP stream start threw an exception.",
+                        category: "camera_connect",
+                        exception: ex,
+                        data: new Dictionary<string, object?> {
+                            ["cameraIndex"] = i + 1,
+                            ["ipAddress"] = ipAddress,
+                            ["streamPath"] = streamPath
+                        });
                 }
             }
 
             _streamsRunning = startedCount > 0;
 
             if (failedEndpoints.Count == 0) {
+                JsonLogStore.Information(
+                    eventName: "camera_connect_completed",
+                    message: "RTSP connections started for all detected cameras.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["startedCount"] = startedCount,
+                        ["failedCount"] = 0,
+                        ["cameraCount"] = _detections.Count,
+                        ["streamPath"] = streamPath
+                    });
                 StreamingStatusText.Text = $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
                 UpdateActionButtons(canDetect: !_isScanning, canStart: true, canStop: true);
                 return;
             }
 
+            JsonLogStore.Warning(
+                eventName: "camera_connect_completed_with_failures",
+                message: "RTSP connections started with one or more failures.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["startedCount"] = startedCount,
+                    ["failedCount"] = failedEndpoints.Count,
+                    ["cameraCount"] = _detections.Count,
+                    ["failedEndpoints"] = failedEndpoints.ToArray(),
+                    ["streamPath"] = streamPath
+                });
             StreamingStatusText.Text =
                 $"Started {startedCount} {Pluralize(startedCount, "stream")}. Failed to start: {string.Join(", ", failedEndpoints)}.";
             UpdateActionButtons(canDetect: !_isScanning, canStart: _libVlc is not null && _detections.Count > 0, canStop: startedCount > 0);
         }
 
         private void StopStreams() {
-            foreach (var mediaPlayer in _mediaPlayers) {
+            for (var i = 0; i < _mediaPlayers.Length; i++) {
+                var mediaPlayer = _mediaPlayers[i];
                 if (mediaPlayer is null) {
                     continue;
                 }
@@ -307,6 +545,8 @@ namespace LocalCam {
                 if (mediaPlayer.IsPlaying) {
                     mediaPlayer.Stop();
                 }
+
+                SetVideoSurfaceActive(i, isActive: false);
             }
 
             _streamsRunning = false;
@@ -391,6 +631,7 @@ namespace LocalCam {
 
         private void Window_StateChanged(object sender, EventArgs e) {
             UpdateMaximizeButtonIcon();
+            PersistWindowBounds();
         }
 
         private void ToggleMaximizeRestore() {
@@ -416,7 +657,19 @@ namespace LocalCam {
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
             _isClosing = true;
             _scanCancellation?.Cancel();
+            PersistWindowBounds();
             base.OnClosing(e);
+        }
+
+        private void Window_LocationChanged(object? sender, EventArgs e) {
+            _ = sender;
+            PersistWindowBounds();
+        }
+
+        private void Window_SizeChanged(object? sender, SizeChangedEventArgs e) {
+            _ = sender;
+            _ = e;
+            PersistWindowBounds();
         }
     }
 }
