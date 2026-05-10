@@ -1,6 +1,7 @@
 <Window x:Class="LocalCam.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
         Title="LocalCam - Viewer for Tapo Security Cameras"
         Height="760"
@@ -8,15 +9,22 @@
         MinHeight="620"
         MinWidth="980"
         WindowStyle="None"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
-        Background="Transparent"
+        Background="#161B25"
         Icon="/Assets/icon.ico"
         StateChanged="Window_StateChanged"
         Loaded="Window_Loaded"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <SolidColorBrush x:Key="TitleBarIconBrush" Color="#E8EEF5" />
 
