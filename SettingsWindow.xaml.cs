@@ -1,0 +1,50 @@
+using System.Windows;
+using LocalCam.Models;
+
+namespace LocalCam {
+    public partial class SettingsWindow : Window {
+        public SettingsWindow(LocalCamSettings settings) {
+            InitializeComponent();
+
+            RtspUsernameTextBox.Text = settings.RtspUsername;
+            RtspPasswordBox.Password = settings.RtspPassword;
+            StreamPathTextBox.Text = settings.StreamPath;
+        }
+
+        public LocalCamSettings Settings { get; private set; } = new();
+
+        private void UpdateButton_Click(object sender, RoutedEventArgs e) {
+            Settings = new LocalCamSettings {
+                RtspUsername = RtspUsernameTextBox.Text.Trim(),
+                RtspPassword = RtspPasswordBox.Password,
+                StreamPath = NormalizeStreamPath(StreamPathTextBox.Text)
+            };
+
+            DialogResult = true;
+            Close();
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e) {
+            DialogResult = false;
+            Close();
+        }
+
+        private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) {
+            if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed) {
+                DragMove();
+            }
+        }
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e) {
+            DialogResult = false;
+            Close();
+        }
+
+        private static string NormalizeStreamPath(string? input) {
+            var normalized = (input ?? string.Empty).Trim().TrimStart('/');
+            return string.IsNullOrWhiteSpace(normalized)
+                ? "stream1"
+                : normalized;
+        }
+    }
+}

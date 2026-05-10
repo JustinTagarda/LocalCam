@@ -12,8 +12,9 @@
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
         Background="Transparent"
-        Icon="/Assets/security-camera.ico"
+        Icon="/Assets/icon.ico"
         StateChanged="Window_StateChanged"
+        Loaded="Window_Loaded"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <Window.Resources>
@@ -129,6 +130,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
@@ -143,7 +145,7 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                        <Image Source="/Assets/security-camera.png" Width="18" Height="18" Margin="0,0,8,0" />
+                        <Image Source="/Assets/icon.png" Width="20" Height="20" Margin="0,0,8,0" />
                         <TextBlock Text="LocalCam - Viewer for Tapo Security Cameras"
                                    Foreground="#E8EEF5"
                                    FontSize="13"
@@ -186,13 +188,50 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="1" Margin="12">
+            <Grid Grid.Row="1" Margin="6">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
+                        Background="Transparent"
+                        Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="DetectCameraButton"
+                                Style="{StaticResource PanelButtonStyle}"
+                                Content="Detect Camera"
+                                Width="118"
+                                Height="30"
+                                Margin="0,0,8,0"
+                                Click="DetectCameraButton_Click" />
+                        <Button x:Name="ToolbarStartStreamsButton"
+                                Style="{StaticResource PanelButtonStyle}"
+                                Content="Start Streams"
+                                Width="112"
+                                Height="30"
+                                Margin="0,0,8,0"
+                                IsEnabled="False"
+                                Click="ToolbarStartStreamsButton_Click" />
+                        <Button x:Name="ToolbarStopButton"
+                                Style="{StaticResource PanelButtonStyle}"
+                                Content="Stop"
+                                Width="72"
+                                Height="30"
+                                Margin="0,0,8,0"
+                                IsEnabled="False"
+                                Click="ToolbarStopButton_Click" />
+                        <Button x:Name="SettingsButton"
+                                Style="{StaticResource PanelButtonStyle}"
+                                Content="Settings"
+                                Width="88"
+                                Height="30"
+                                Click="SettingsButton_Click" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1"
                         Background="#1B2231"
                         BorderBrush="#2D3648"
                         BorderThickness="1"
@@ -200,70 +239,30 @@
                         Padding="10"
                         Margin="0,0,0,10">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-
-                        <WrapPanel Grid.Row="0" VerticalAlignment="Center">
-                            <TextBlock Text="RTSP Username"
-                                       Foreground="#A9B4C7"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,8,0" />
-                            <TextBox x:Name="RtspUsernameTextBox"
-                                     Style="{StaticResource PanelTextBoxStyle}"
-                                     Width="140"
-                                     Margin="0,0,12,0" />
-
-                            <TextBlock Text="RTSP Password"
-                                       Foreground="#A9B4C7"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,8,0" />
-                            <PasswordBox x:Name="RtspPasswordBox"
-                                         Width="160"
-                                         Height="28"
-                                         Background="#0F1624"
-                                         Foreground="#E8EEF5"
-                                         BorderBrush="#34405A"
-                                         BorderThickness="1"
-                                         Padding="8,4"
-                                         Margin="0,0,12,0" />
-
-                            <TextBlock Text="Stream Path"
-                                       Foreground="#A9B4C7"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,8,0" />
-                            <TextBox x:Name="StreamPathTextBox"
-                                     Style="{StaticResource PanelTextBoxStyle}"
-                                     Width="100"
-                                     Text="stream1"
-                                     Margin="0,0,12,0" />
-
-                            <Button x:Name="StartStreamsButton"
-                                    Style="{StaticResource PanelButtonStyle}"
-                                    Content="Start Streams"
-                                    Width="112"
-                                    Height="30"
-                                    Margin="0,0,8,0"
-                                    Click="StartStreamsButton_Click" />
-                            <Button x:Name="StopStreamsButton"
-                                    Style="{StaticResource PanelButtonStyle}"
-                                    Content="Stop"
-                                    Width="72"
-                                    Height="30"
-                                    Click="StopStreamsButton_Click" />
-                        </WrapPanel>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
                         <TextBlock x:Name="StreamingStatusText"
-                                   Grid.Row="1"
-                                   Margin="0,8,0,0"
+                                   Grid.Column="0"
                                    Foreground="#8FA2BE"
-                                   TextWrapping="Wrap"
-                                   Text="Detected cameras are ready. Enter RTSP credentials to start live streaming." />
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"
+                                   Text="Search local camera to populate the empty camera cards." />
+                        <ProgressBar x:Name="SearchProgressBar"
+                                     Grid.Column="1"
+                                     Width="120"
+                                     Height="4"
+                                     Margin="12,0,0,0"
+                                     VerticalAlignment="Center"
+                                     IsIndeterminate="True"
+                                     Visibility="Collapsed" />
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="1">
+                <Grid x:Name="CameraTilesPanel" Grid.Row="2" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="*" />
@@ -273,43 +272,75 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Row="0" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,0,6,6">
+                    <Border x:Name="CameraCard1" Grid.Row="0" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,0,6,6">
                         <Grid>
                             <vlc:VideoView x:Name="VideoView1" />
                             <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
-                                <TextBlock x:Name="CameraTile1Label" Foreground="#E4ECF7" FontSize="13" Text="camera 1" />
+                                <TextBlock x:Name="CameraTile1Label" Foreground="#E4ECF7" FontSize="13" Text="camera 1 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="0" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,0,0,6">
+                    <Border x:Name="CameraCard2" Grid.Row="0" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,0,0,6">
                         <Grid>
                             <vlc:VideoView x:Name="VideoView2" />
                             <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
-                                <TextBlock x:Name="CameraTile2Label" Foreground="#E4ECF7" FontSize="13" Text="camera 2" />
+                                <TextBlock x:Name="CameraTile2Label" Foreground="#E4ECF7" FontSize="13" Text="camera 2 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="1" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,6,6,0">
+                    <Border x:Name="CameraCard3" Grid.Row="1" Grid.Column="0" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="0,6,6,0">
                         <Grid>
                             <vlc:VideoView x:Name="VideoView3" />
                             <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
-                                <TextBlock x:Name="CameraTile3Label" Foreground="#E4ECF7" FontSize="13" Text="camera 3" />
+                                <TextBlock x:Name="CameraTile3Label" Foreground="#E4ECF7" FontSize="13" Text="camera 3 - empty" />
                             </Border>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="1" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,6,0,0">
+                    <Border x:Name="CameraCard4" Grid.Row="1" Grid.Column="1" Background="#202736" BorderBrush="#2D3648" BorderThickness="1" CornerRadius="8" Margin="6,6,0,0">
                         <Grid>
                             <vlc:VideoView x:Name="VideoView4" />
                             <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8" Padding="6,3" Background="#880B0F17" CornerRadius="4">
-                                <TextBlock x:Name="CameraTile4Label" Foreground="#E4ECF7" FontSize="13" Text="camera 4" />
+                                <TextBlock x:Name="CameraTile4Label" Foreground="#E4ECF7" FontSize="13" Text="camera 4 - empty" />
                             </Border>
                         </Grid>
                     </Border>
                 </Grid>
             </Grid>
+
+            <Border Grid.Row="2"
+                    Background="#101722"
+                    BorderBrush="#2A3242"
+                    BorderThickness="0,1,0,0"
+                    CornerRadius="0,0,6,6"
+                    Padding="10,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Foreground="#8FA2BE"
+                               FontSize="11"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Text="© 2026 JustinTagarda. All rights reserved." />
+
+                    <TextBlock x:Name="FooterVersionText"
+                               Grid.Column="1"
+                               Foreground="#8FA2BE"
+                               FontSize="11"
+                               TextWrapping="NoWrap"
+                               Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Text="v1.0.0.0" />
+                </Grid>
+            </Border>
+
         </Grid>
     </Border>
 </Window>

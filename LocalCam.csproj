@@ -6,12 +6,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <ApplicationIcon>Assets\security-camera.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\security-camera.ico" />
-    <Resource Include="Assets\security-camera.png" />
+    <Resource Include="Assets\icon.png" />
+    <Resource Include="Assets\icon.ico" />
   </ItemGroup>
 
   <ItemGroup>
