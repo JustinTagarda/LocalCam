@@ -1,22 +1,35 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Threading;
+using System.Windows.Interop;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using LocalCam.Networking;
 using LocalCam.Models;
 using LocalCam.Services;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Geometry = System.Windows.Media.Geometry;
 using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace LocalCam {
     public partial class MainWindow : Window {
+        private sealed class CameraTileControls {
+            public required Border Card { get; init; }
+            public required Border Placeholder { get; init; }
+            public required Border Badge { get; init; }
+            public required TextBlock Label { get; init; }
+            public required VideoView VideoView { get; init; }
+            public VlcMediaPlayer? MediaPlayer { get; set; }
+        }
+
         private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
         private static readonly Geometry RestoreGeometry = Geometry.Parse("M4,2 L12,2 12,10 M4,2 L4,10 12,10 M2,4 L10,4 10,12 2,12 Z");
+        private const int WmGetMinMaxInfo = 0x0024;
+        private const uint MonitorDefaultToNearest = 2;
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
-        private readonly VlcMediaPlayer[] _mediaPlayers = new VlcMediaPlayer[4];
+        private readonly List<CameraTileControls> _cameraTiles = new();
         private LibVLC? _libVlc;
         private CancellationTokenSource? _scanCancellation;
         private bool _isClosing;
@@ -25,8 +38,6 @@ namespace LocalCam {
         private bool _isStartingStreams;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
-        private double _activeCardAspectRatio = 16d / 9d;
-        private readonly DispatcherTimer _videoAspectProbeTimer;
         private LocalCamSettings _settings = new();
 
         public MainWindow()
@@ -34,9 +45,10 @@ namespace LocalCam {
         }
 
         public MainWindow(IReadOnlyList<TapoCameraDetection> detections) {
-            _detections = detections.Take(4).ToArray();
+            _detections = detections.ToArray();
 
             InitializeComponent();
+            SourceInitialized += MainWindow_SourceInitialized;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
             FooterVersionText.Text = $"v{GetStoreSubmissionVersion()}";
@@ -44,11 +56,6 @@ namespace LocalCam {
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
             PopulateCameraTiles(_detections);
-            CameraTilesPanel.SizeChanged += CameraTilesPanel_SizeChanged;
-            _videoAspectProbeTimer = new DispatcherTimer {
-                Interval = TimeSpan.FromMilliseconds(400)
-            };
-            _videoAspectProbeTimer.Tick += VideoAspectProbeTimer_Tick;
             var engineReady = InitializeStreamingEngine();
 
             if (engineReady) {
@@ -65,18 +72,7 @@ namespace LocalCam {
             try {
                 Core.Initialize();
                 _libVlc = new LibVLC("--network-caching=300", "--rtsp-tcp", "--no-video-title-show");
-
-                var views = new[] { VideoView1, VideoView2, VideoView3, VideoView4 };
-                for (var i = 0; i < views.Length; i++) {
-                    var mediaPlayer = new VlcMediaPlayer(_libVlc) {
-                        EnableHardwareDecoding = true,
-                        Mute = true
-                    };
-
-                    _mediaPlayers[i] = mediaPlayer;
-                    views[i].MediaPlayer = mediaPlayer;
-                }
-
+                EnsureCameraTileCount(_detections.Count);
                 return true;
             }
             catch (Exception ex) {
@@ -200,33 +196,104 @@ namespace LocalCam {
         }
 
         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
-            var cards = new[] { CameraCard1, CameraCard2, CameraCard3, CameraCard4 };
-            var tileLabels = new[] { CameraTile1Label, CameraTile2Label, CameraTile3Label, CameraTile4Label };
-
-            for (var i = 0; i < cards.Length; i++) {
-                var hasDetection = i < detections.Count;
-                cards[i].Visibility = hasDetection ? Visibility.Visible : Visibility.Collapsed;
-                tileLabels[i].Text = hasDetection
-                    ? $"camera {i + 1} - live streaming ({detections[i].IpAddress})"
-                    : string.Empty;
+            EnsureCameraTileCount(detections.Count);
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                _cameraTiles[i].Label.Text = $"camera {i + 1} - live streaming ({detections[i].IpAddress})";
                 SetVideoSurfaceActive(i, isActive: false);
             }
 
-            ApplyAspectLockedCameraCardLayout();
+            ApplyResponsiveCameraLayout();
         }
 
-        private void SetVideoSurfaceActive(int index, bool isActive) {
-            var videoViews = new[] { VideoView1, VideoView2, VideoView3, VideoView4 };
-            var placeholders = new[] { CameraPlaceholder1, CameraPlaceholder2, CameraPlaceholder3, CameraPlaceholder4 };
-            var badges = new[] { CameraBadge1, CameraBadge2, CameraBadge3, CameraBadge4 };
+        private void EnsureCameraTileCount(int count) {
+            count = Math.Max(0, count);
 
-            if (index < 0 || index >= videoViews.Length) {
+            while (_cameraTiles.Count > count) {
+                var tile = _cameraTiles[^1];
+                tile.MediaPlayer?.Stop();
+                tile.VideoView.MediaPlayer = null;
+                tile.MediaPlayer?.Dispose();
+                CameraTilesPanel.Children.Remove(tile.Card);
+                _cameraTiles.RemoveAt(_cameraTiles.Count - 1);
+            }
+
+            while (_cameraTiles.Count < count) {
+                var tile = CreateCameraTile(_cameraTiles.Count);
+                _cameraTiles.Add(tile);
+                CameraTilesPanel.Children.Add(tile.Card);
+                AttachMediaPlayer(tile);
+            }
+        }
+
+        private CameraTileControls CreateCameraTile(int tileIndex) {
+            var card = new Border {
+                Style = (Style)FindResource("CameraCardStyle")
+            };
+            var root = new Grid();
+
+            var placeholder = new Border {
+                Style = (Style)FindResource("CameraPlaceholderStyle"),
+                Margin = new Thickness(0)
+            };
+
+            var videoHost = new Border {
+                Style = (Style)FindResource("CameraVideoHostStyle")
+            };
+            var videoView = new VideoView {
+                Style = (Style)FindResource("CameraVideoViewStyle"),
+                Margin = new Thickness(0)
+            };
+            videoHost.Child = videoView;
+
+            var badge = new Border {
+                Style = (Style)FindResource("CameraBadgeStyle"),
+                VerticalAlignment = VerticalAlignment.Top,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            var label = new TextBlock {
+                Foreground = (System.Windows.Media.Brush)FindResource("TitleBarIconBrush"),
+                FontSize = 13,
+                Text = $"camera {tileIndex + 1} - empty"
+            };
+            badge.Child = label;
+
+            root.Children.Add(placeholder);
+            root.Children.Add(videoHost);
+            root.Children.Add(badge);
+            card.Child = root;
+
+            return new CameraTileControls {
+                Card = card,
+                Placeholder = placeholder,
+                Badge = badge,
+                Label = label,
+                VideoView = videoView
+            };
+        }
+
+        private void AttachMediaPlayer(CameraTileControls tile) {
+            if (_libVlc is null || tile.MediaPlayer is not null) {
                 return;
             }
 
-            videoViews[index].Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
-            placeholders[index].Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
-            badges[index].Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+            var mediaPlayer = new VlcMediaPlayer(_libVlc) {
+                EnableHardwareDecoding = true,
+                Mute = true
+            };
+
+            tile.MediaPlayer = mediaPlayer;
+            tile.VideoView.MediaPlayer = mediaPlayer;
+        }
+
+        private void SetVideoSurfaceActive(int index, bool isActive) {
+            if (index < 0 || index >= _cameraTiles.Count) {
+                return;
+            }
+
+            var tile = _cameraTiles[index];
+            tile.VideoView.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+            tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+            tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
@@ -273,34 +340,49 @@ namespace LocalCam {
             while (!_isClosing) {
                 _isScanning = true;
                 _scanCancellation = new CancellationTokenSource();
-                SetScanningState();
+                var progress = new Progress<TapoCameraScanActivity>(activity => {
+                    if (_isClosing || !_isScanning) {
+                        return;
+                    }
+
+                    StreamingStatusText.Text = activity.StatusMessage;
+                });
+                var preferredMethod = ResolvePreferredDetectionMethod();
+                SetScanningState(preferredMethod);
 
                 try {
-                    var detections = await TapoCameraScanner.ScanLocalNetworkForTapoCamerasAsync(
+                    var scanResult = await TapoCameraScanner.ScanLocalNetworkForTapoCamerasWithDiagnosticsAsync(
+                        preferredFirstMethod: preferredMethod,
+                        progress: progress,
                         cancellationToken: _scanCancellation.Token);
 
                     if (_isClosing) {
                         return;
                     }
 
-                    if (detections.Count > 0) {
+                    if (scanResult.Detections.Count > 0) {
+                        PersistSuccessfulDetectionMethod(scanResult.SuccessfulMethod);
                         JsonLogStore.Information(
                             eventName: "camera_search_detections_available",
                             message: "Local network scan found one or more likely Tapo cameras.",
                             category: "camera_search",
                             data: new Dictionary<string, object?> {
-                                ["detectionCount"] = detections.Count,
-                                ["detectedIps"] = detections.Select(d => d.IpAddress.ToString()).ToArray()
+                                ["detectionCount"] = scanResult.Detections.Count,
+                                ["detectedIps"] = scanResult.Detections.Select(d => d.IpAddress.ToString()).ToArray(),
+                                ["successfulMethod"] = scanResult.SuccessfulMethod?.ToString()
                             });
-                        ShowDetections(detections);
+                        ShowDetections(scanResult.Detections, scanResult.SuccessfulMethod);
                         return;
                     }
 
                     JsonLogStore.Warning(
                         eventName: "camera_search_no_detections",
                         message: "Local network scan completed without any likely Tapo cameras.",
-                        category: "camera_search");
-                    ShowNoDetections();
+                        category: "camera_search",
+                        data: new Dictionary<string, object?> {
+                            ["attemptedMethods"] = scanResult.AttemptedMethods.Select(a => a.Method.ToString()).ToArray()
+                        });
+                    ShowNoDetections(BuildNoDetectionsMessage(scanResult.AttemptedMethods));
                 }
                 catch (OperationCanceledException) when (_isClosing) {
                     return;
@@ -347,8 +429,10 @@ namespace LocalCam {
             }
         }
 
-        private void SetScanningState() {
-            StreamingStatusText.Text = "Searching local network for TAPO cameras...";
+        private void SetScanningState(TapoDetectionMethod? preferredMethod) {
+            StreamingStatusText.Text = preferredMethod is TapoDetectionMethod method
+                ? $"Trying last successful method: {GetDetectionMethodDisplayName(method)}..."
+                : "Searching local network for TAPO cameras...";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Visible;
@@ -361,14 +445,14 @@ namespace LocalCam {
             SearchProgressBar.Visibility = Visibility.Collapsed;
         }
 
-        private void ShowDetections(IReadOnlyList<TapoCameraDetection> detections) {
-            _detections = detections.Take(4).ToArray();
+        private void ShowDetections(IReadOnlyList<TapoCameraDetection> detections, TapoDetectionMethod? successfulMethod = null) {
+            _detections = detections.ToArray();
             CameraTilesPanel.Visibility = Visibility.Visible;
             PopulateCameraTiles(_detections);
-            StreamingStatusText.Text = BuildDetectionsStatusText(_detections.Count);
+            ApplyResponsiveCameraLayout();
+            StreamingStatusText.Text = BuildDetectionsStatusText(_detections.Count, successfulMethod);
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
-            ApplyAspectLockedCameraCardLayout();
             Dispatcher.BeginInvoke(TryAutoStartStreams, System.Windows.Threading.DispatcherPriority.Background);
         }
 
@@ -472,9 +556,16 @@ namespace LocalCam {
             var startedCount = 0;
             var failedEndpoints = new List<string>();
 
-            for (var i = 0; i < _mediaPlayers.Length && i < _detections.Count; i++) {
+            EnsureCameraTileCount(_detections.Count);
+            for (var i = 0; i < _cameraTiles.Count && i < _detections.Count; i++) {
                 var ipAddress = _detections[i].IpAddress.ToString();
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
+                var mediaPlayer = _cameraTiles[i].MediaPlayer;
+                if (mediaPlayer is null) {
+                    failedEndpoints.Add(ipAddress);
+                    SetVideoSurfaceActive(i, isActive: false);
+                    continue;
+                }
 
                 try {
                     JsonLogStore.Information(
@@ -493,7 +584,7 @@ namespace LocalCam {
                     media.AddOption(":clock-jitter=0");
                     media.AddOption(":clock-synchro=0");
 
-                    if (_mediaPlayers[i].Play(media)) {
+                    if (mediaPlayer.Play(media)) {
                         startedCount++;
                         SetVideoSurfaceActive(i, isActive: true);
                         JsonLogStore.Information(
@@ -539,15 +630,6 @@ namespace LocalCam {
 
             _isStartingStreams = false;
             _streamsRunning = startedCount > 0;
-            if (_streamsRunning) {
-                _videoAspectProbeTimer.Start();
-            }
-            else {
-                _videoAspectProbeTimer.Stop();
-                _activeCardAspectRatio = 16d / 9d;
-                ApplyAspectLockedCameraCardLayout();
-            }
-
             if (failedEndpoints.Count == 0) {
                 JsonLogStore.Information(
                     eventName: "camera_connect_completed",
@@ -597,10 +679,9 @@ namespace LocalCam {
         }
 
         private void StopStreams() {
-            _videoAspectProbeTimer.Stop();
             _isStartingStreams = false;
-            for (var i = 0; i < _mediaPlayers.Length; i++) {
-                var mediaPlayer = _mediaPlayers[i];
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                var mediaPlayer = _cameraTiles[i].MediaPlayer;
                 if (mediaPlayer is null) {
                     continue;
                 }
@@ -613,14 +694,12 @@ namespace LocalCam {
             }
 
             _streamsRunning = false;
-            _activeCardAspectRatio = 16d / 9d;
-            ApplyAspectLockedCameraCardLayout();
             UpdateActionButtons();
         }
 
         private bool IsAnyStreamRunning() {
-            for (var i = 0; i < _mediaPlayers.Length; i++) {
-                var mediaPlayer = _mediaPlayers[i];
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                var mediaPlayer = _cameraTiles[i].MediaPlayer;
                 if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
                     return true;
                 }
@@ -629,16 +708,91 @@ namespace LocalCam {
             return false;
         }
 
+        private void ApplyResponsiveCameraLayout() {
+            if (CameraTilesPanel is null) {
+                return;
+            }
+
+            var count = _cameraTiles.Count;
+            if (count == 0) {
+                CameraTilesPanel.RowDefinitions.Clear();
+                CameraTilesPanel.ColumnDefinitions.Clear();
+                return;
+            }
+
+            var (columns, rows) = CalculateGridDimensions(
+                count,
+                Math.Max(1, CameraTilesPanel.ActualWidth),
+                Math.Max(1, CameraTilesPanel.ActualHeight));
+
+            CameraTilesPanel.RowDefinitions.Clear();
+            for (var i = 0; i < rows; i++) {
+                CameraTilesPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            }
+
+            CameraTilesPanel.ColumnDefinitions.Clear();
+            for (var i = 0; i < columns; i++) {
+                CameraTilesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            }
+
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                var card = _cameraTiles[i].Card;
+                card.Width = double.NaN;
+                card.Height = double.NaN;
+                card.HorizontalAlignment = HorizontalAlignment.Stretch;
+                card.VerticalAlignment = VerticalAlignment.Stretch;
+                card.Margin = GetTileMargin(i, columns, rows);
+                var row = i / columns;
+                var column = i % columns;
+                Grid.SetRow(card, row);
+                Grid.SetColumn(card, column);
+            }
+        }
+
+        private static (int Columns, int Rows) CalculateGridDimensions(int count, double width, double height) {
+            const double targetAspect = 16d / 9d;
+            var bestColumns = 1;
+            var bestRows = count;
+            var bestScore = double.NegativeInfinity;
+
+            for (var columns = 1; columns <= count; columns++) {
+                var rows = (int)Math.Ceiling(count / (double)columns);
+                var tileWidth = width / columns;
+                var tileHeight = height / rows;
+                var tileArea = tileWidth * tileHeight;
+                var tileAspect = tileWidth / tileHeight;
+                var aspectPenalty = Math.Abs(Math.Log(tileAspect / targetAspect));
+
+                // Prefer larger tiles while keeping them near a 16:9 video aspect.
+                var score = tileArea - (aspectPenalty * 20000d);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestColumns = columns;
+                    bestRows = rows;
+                }
+            }
+
+            return (bestColumns, bestRows);
+        }
+
+        private static Thickness GetTileMargin(int index, int columns, int rows) {
+            const double gap = 6;
+            var row = index / columns;
+            var column = index % columns;
+            return new Thickness(
+                left: column == 0 ? 0 : gap,
+                top: row == 0 ? 0 : gap,
+                right: column == columns - 1 ? 0 : gap,
+                bottom: row == rows - 1 ? 0 : gap);
+        }
+
         private void ShutdownStreamingEngine() {
             StopStreams();
 
-            VideoView1.MediaPlayer = null;
-            VideoView2.MediaPlayer = null;
-            VideoView3.MediaPlayer = null;
-            VideoView4.MediaPlayer = null;
-
-            foreach (var mediaPlayer in _mediaPlayers) {
-                mediaPlayer?.Dispose();
+            foreach (var tile in _cameraTiles) {
+                tile.VideoView.MediaPlayer = null;
+                tile.MediaPlayer?.Dispose();
+                tile.MediaPlayer = null;
             }
 
             _libVlc?.Dispose();
@@ -666,14 +820,91 @@ namespace LocalCam {
             return "Open Settings and provide the RTSP username, password, and stream path before starting streams.";
         }
 
-        private string BuildDetectionsStatusText(int cameraCount) {
+        private string BuildDetectionsStatusText(int cameraCount, TapoDetectionMethod? successfulMethod = null) {
             if (cameraCount <= 0) {
                 return "No TAPO camera detected. Retry search?";
             }
 
+            var detectionPrefix = successfulMethod is TapoDetectionMethod method
+                ? $"Detected {cameraCount} {Pluralize(cameraCount, "camera")} using {GetDetectionMethodDisplayName(method)}."
+                : $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}.";
+
             return HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)
-                ? $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}. Click 'Start Streams'."
-                : $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}. Open Settings and provide the RTSP username, password, and stream path.";
+                ? $"{detectionPrefix} Click 'Start Streams'."
+                : $"{detectionPrefix} Open Settings and provide the RTSP username, password, and stream path.";
+        }
+
+        private TapoDetectionMethod? ResolvePreferredDetectionMethod() {
+            var storedMethod = _settings.LastSuccessfulDetectionMethod;
+            if (string.IsNullOrWhiteSpace(storedMethod)) {
+                return null;
+            }
+
+            if (TapoCameraScanner.TryParseDetectionMethod(storedMethod, out var preferredMethod)) {
+                JsonLogStore.Information(
+                    eventName: "camera_search_preferred_method_resolved",
+                    message: "Loaded the last successful camera detection method from settings.",
+                    category: "camera_search",
+                    data: new Dictionary<string, object?> {
+                        ["preferredMethod"] = preferredMethod.ToString()
+                    });
+                return preferredMethod;
+            }
+
+            JsonLogStore.Warning(
+                eventName: "camera_search_preferred_method_invalid",
+                message: "Ignoring an unknown persisted camera detection method.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["storedMethod"] = storedMethod
+                });
+            return null;
+        }
+
+        private void PersistSuccessfulDetectionMethod(TapoDetectionMethod? successfulMethod) {
+            if (successfulMethod is not TapoDetectionMethod method) {
+                return;
+            }
+
+            var persistedValue = method.ToString();
+            if (string.Equals(_settings.LastSuccessfulDetectionMethod, persistedValue, StringComparison.Ordinal)) {
+                return;
+            }
+
+            var previousValue = _settings.LastSuccessfulDetectionMethod;
+            _settings.LastSuccessfulDetectionMethod = persistedValue;
+            SettingsStore.Save(_settings);
+            JsonLogStore.Information(
+                eventName: "camera_search_preferred_method_saved",
+                message: "Saved the successful camera detection method to settings.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["previousMethod"] = previousValue,
+                    ["successfulMethod"] = persistedValue
+                });
+        }
+
+        private static string BuildNoDetectionsMessage(IReadOnlyList<TapoDetectionMethodAttempt> attemptedMethods) {
+            if (attemptedMethods.Count == 0) {
+                return "No TAPO camera detected.";
+            }
+
+            var attemptedNames = attemptedMethods
+                .Select(static attempt => GetDetectionMethodDisplayName(attempt.Method))
+                .ToArray();
+            return $"No TAPO camera detected. Tried: {string.Join(", ", attemptedNames)}.";
+        }
+
+        private static string GetDetectionMethodDisplayName(TapoDetectionMethod method) {
+            return method switch {
+                TapoDetectionMethod.OnvifWsDiscovery => "ONVIF",
+                TapoDetectionMethod.SsdpUpnpSearch => "SSDP",
+                TapoDetectionMethod.TapoUdpBroadcast => "Tapo UDP",
+                TapoDetectionMethod.MdnsDnsSdSweep => "mDNS",
+                TapoDetectionMethod.ArpSeededTargetProbe => "ARP probe",
+                TapoDetectionMethod.SubnetProbeFallback => "subnet probe",
+                _ => method.ToString()
+            };
         }
 
         private static string BuildRtspUrl(string host, string username, string password, string streamPath) {
@@ -722,6 +953,99 @@ namespace LocalCam {
                 : MaximizeGeometry;
         }
 
+        private static void ApplyMonitorWorkAreaToMinMaxInfo(IntPtr hwnd, IntPtr lParam) {
+            if (lParam == IntPtr.Zero) {
+                return;
+            }
+
+            var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+            if (monitor == IntPtr.Zero) {
+                return;
+            }
+
+            var monitorInfo = new MonitorInfo {
+                cbSize = Marshal.SizeOf<MonitorInfo>()
+            };
+            if (!GetMonitorInfo(monitor, ref monitorInfo)) {
+                return;
+            }
+
+            var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+
+            var workArea = monitorInfo.rcWork;
+            var monitorArea = monitorInfo.rcMonitor;
+
+            minMaxInfo.ptMaxPosition.x = workArea.Left - monitorArea.Left;
+            minMaxInfo.ptMaxPosition.y = workArea.Top - monitorArea.Top;
+            minMaxInfo.ptMaxSize.x = workArea.Right - workArea.Left;
+            minMaxInfo.ptMaxSize.y = workArea.Bottom - workArea.Top;
+            minMaxInfo.ptMaxTrackSize.x = minMaxInfo.ptMaxSize.x;
+            minMaxInfo.ptMaxTrackSize.y = minMaxInfo.ptMaxSize.y;
+
+            Marshal.StructureToPtr(minMaxInfo, lParam, true);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RectNative {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PointNative {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MinMaxInfo {
+            public PointNative ptReserved;
+            public PointNative ptMaxSize;
+            public PointNative ptMaxPosition;
+            public PointNative ptMinTrackSize;
+            public PointNative ptMaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct MonitorInfo {
+            public int cbSize;
+            public RectNative rcMonitor;
+            public RectNative rcWork;
+            public uint dwFlags;
+        }
+
+        private void MainWindow_SourceInitialized(object? sender, EventArgs e) {
+            _ = sender;
+            _ = e;
+
+            var handle = new WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) {
+                return;
+            }
+
+            var source = HwndSource.FromHwnd(handle);
+            source?.AddHook(WndProc);
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
+            _ = wParam;
+
+            if (msg == WmGetMinMaxInfo) {
+                ApplyMonitorWorkAreaToMinMaxInfo(hwnd, lParam);
+                handled = false;
+            }
+
+            return IntPtr.Zero;
+        }
+
         protected override void OnClosed(EventArgs e) {
             _isClosing = true;
             _scanCancellation?.Cancel();
@@ -746,103 +1070,7 @@ namespace LocalCam {
             _ = sender;
             _ = e;
             PersistWindowBounds();
-            ApplyAspectLockedCameraCardLayout();
-        }
-
-        private void CameraTilesPanel_SizeChanged(object sender, SizeChangedEventArgs e) {
-            _ = sender;
-            _ = e;
-            ApplyAspectLockedCameraCardLayout();
-        }
-
-        private void VideoAspectProbeTimer_Tick(object? sender, EventArgs e) {
-            _ = sender;
-
-            if (!_streamsRunning || _isClosing) {
-                _videoAspectProbeTimer.Stop();
-                return;
-            }
-
-            var updated = TryRefreshActiveCardAspectRatioFromPlayers();
-            if (updated) {
-                ApplyAspectLockedCameraCardLayout();
-            }
-        }
-
-        private bool TryRefreshActiveCardAspectRatioFromPlayers() {
-            const double epsilon = 0.0001;
-
-            for (var i = 0; i < _mediaPlayers.Length; i++) {
-                var mediaPlayer = _mediaPlayers[i];
-                if (mediaPlayer is null || !mediaPlayer.IsPlaying) {
-                    continue;
-                }
-
-                if (!TryGetVideoAspectRatio(mediaPlayer, out var ratio)) {
-                    continue;
-                }
-
-                if (Math.Abs(_activeCardAspectRatio - ratio) <= epsilon) {
-                    return false;
-                }
-
-                _activeCardAspectRatio = ratio;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryGetVideoAspectRatio(VlcMediaPlayer mediaPlayer, out double ratio) {
-            ratio = 0d;
-
-            try {
-                uint width = 0;
-                uint height = 0;
-                mediaPlayer.Size(0, ref width, ref height);
-                if (width == 0 || height == 0) {
-                    return false;
-                }
-
-                ratio = width / (double)height;
-                return ratio > 0d;
-            }
-            catch {
-                return false;
-            }
-        }
-
-        private void ApplyAspectLockedCameraCardLayout() {
-            var cards = new[] { CameraCard1, CameraCard2, CameraCard3, CameraCard4 };
-            var visibleCards = cards.Where(card => card.Visibility == Visibility.Visible).ToArray();
-            if (visibleCards.Length == 0 || CameraTilesPanel.ActualWidth <= 0 || CameraTilesPanel.ActualHeight <= 0) {
-                return;
-            }
-
-            var columns = visibleCards.Length <= 1 ? 1 : 2;
-            var rows = visibleCards.Length <= 2 ? 1 : 2;
-            var horizontalGap = columns == 2 ? 12d : 0d;
-            var verticalGap = rows == 2 ? 12d : 0d;
-
-            var cellWidth = Math.Max(0d, (CameraTilesPanel.ActualWidth - horizontalGap) / columns);
-            var cellHeight = Math.Max(0d, (CameraTilesPanel.ActualHeight - verticalGap) / rows);
-            if (cellWidth <= 0 || cellHeight <= 0) {
-                return;
-            }
-
-            var ratio = _activeCardAspectRatio > 0d ? _activeCardAspectRatio : 16d / 9d;
-            var widthFromHeight = cellHeight * ratio;
-            var heightFromWidth = cellWidth / ratio;
-
-            var targetWidth = widthFromHeight <= cellWidth ? widthFromHeight : cellWidth;
-            var targetHeight = widthFromHeight <= cellWidth ? cellHeight : heightFromWidth;
-
-            foreach (var card in visibleCards) {
-                card.Width = targetWidth;
-                card.Height = targetHeight;
-                card.HorizontalAlignment = HorizontalAlignment.Center;
-                card.VerticalAlignment = VerticalAlignment.Center;
-            }
+            ApplyResponsiveCameraLayout();
         }
     }
 }
