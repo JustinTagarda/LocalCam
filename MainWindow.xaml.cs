@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using LocalCam.Networking;
@@ -21,8 +22,11 @@ namespace LocalCam {
         private bool _isClosing;
         private bool _isScanning;
         private bool _streamsRunning;
+        private bool _isStartingStreams;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
+        private double _activeCardAspectRatio = 16d / 9d;
+        private readonly DispatcherTimer _videoAspectProbeTimer;
         private LocalCamSettings _settings = new();
 
         public MainWindow()
@@ -40,6 +44,11 @@ namespace LocalCam {
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
             PopulateCameraTiles(_detections);
+            CameraTilesPanel.SizeChanged += CameraTilesPanel_SizeChanged;
+            _videoAspectProbeTimer = new DispatcherTimer {
+                Interval = TimeSpan.FromMilliseconds(400)
+            };
+            _videoAspectProbeTimer.Tick += VideoAspectProbeTimer_Tick;
             var engineReady = InitializeStreamingEngine();
 
             if (engineReady) {
@@ -88,7 +97,8 @@ namespace LocalCam {
             _settings = new LocalCamSettings {
                 RtspUsername = defaultUser ?? string.Empty,
                 RtspPassword = defaultPassword ?? string.Empty,
-                StreamPath = "stream1"
+                StreamPath = "stream1",
+                AutoStreamVideo = false
             };
         }
 
@@ -201,6 +211,8 @@ namespace LocalCam {
                     : string.Empty;
                 SetVideoSurfaceActive(i, isActive: false);
             }
+
+            ApplyAspectLockedCameraCardLayout();
         }
 
         private void SetVideoSurfaceActive(int index, bool isActive) {
@@ -218,6 +230,7 @@ namespace LocalCam {
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
+            AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
             _ = StartLocalCameraSearchAsync();
         }
 
@@ -225,10 +238,21 @@ namespace LocalCam {
             return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0";
         }
 
-        private void UpdateActionButtons(bool canDetect, bool canStart, bool canStop) {
-            DetectCameraButton.IsEnabled = canDetect;
-            ToolbarStartStreamsButton.IsEnabled = canStart;
-            ToolbarStopButton.IsEnabled = canStop;
+        private void UpdateActionButtons() {
+            var hasDetections = _detections.Count > 0;
+            var hasCompleteSettings = HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword);
+            var hasRunningStream = IsAnyStreamRunning();
+            var streamSessionActive = _streamsRunning || _isStartingStreams || hasRunningStream;
+
+            DetectCameraButton.IsEnabled = !_isScanning && !streamSessionActive;
+            ToolbarStartStreamsButton.IsEnabled = !_isScanning &&
+                                                  !_isStartingStreams &&
+                                                  !_streamsRunning &&
+                                                  !hasRunningStream &&
+                                                  _libVlc is not null &&
+                                                  hasDetections &&
+                                                  hasCompleteSettings;
+            ToolbarStopButton.IsEnabled = !_isScanning && streamSessionActive;
         }
 
         private async Task StartLocalCameraSearchAsync() {
@@ -326,14 +350,14 @@ namespace LocalCam {
         private void SetScanningState() {
             StreamingStatusText.Text = "Searching local network for TAPO cameras...";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
-            UpdateActionButtons(canDetect: false, canStart: false, canStop: false);
+            UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Visible;
         }
 
         private void ShowEmptyCameraSlots() {
             StreamingStatusText.Text = "Search local camera to populate the empty camera cards.";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
-            UpdateActionButtons(canDetect: true, canStart: false, canStop: false);
+            UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
         }
 
@@ -342,13 +366,15 @@ namespace LocalCam {
             CameraTilesPanel.Visibility = Visibility.Visible;
             PopulateCameraTiles(_detections);
             StreamingStatusText.Text = BuildDetectionsStatusText(_detections.Count);
-            UpdateActionButtons(canDetect: true, canStart: _libVlc is not null && _detections.Count > 0, canStop: _streamsRunning);
+            UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
+            ApplyAspectLockedCameraCardLayout();
+            Dispatcher.BeginInvoke(TryAutoStartStreams, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void ShowNoDetections(string? prefixMessage = null) {
             CameraTilesPanel.Visibility = Visibility.Collapsed;
-            UpdateActionButtons(canDetect: true, canStart: false, canStop: false);
+            UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
 
             if (!string.IsNullOrWhiteSpace(prefixMessage)) {
@@ -370,7 +396,7 @@ namespace LocalCam {
         private void ToolbarStopButton_Click(object sender, RoutedEventArgs e) {
             StopStreams();
             StreamingStatusText.Text = "Streams stopped.";
-            UpdateActionButtons(canDetect: !_isScanning, canStart: _libVlc is not null && _detections.Count > 0, canStop: false);
+            UpdateActionButtons();
         }
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e) {
@@ -381,7 +407,14 @@ namespace LocalCam {
             if (dialog.ShowDialog() == true) {
                 _settings = dialog.Settings;
                 SettingsStore.Save(_settings);
+                TryAutoStartStreams();
             }
+        }
+
+        private void AutoStreamVideoCheckBox_Changed(object sender, RoutedEventArgs e) {
+            _settings.AutoStreamVideo = AutoStreamVideoCheckBox.IsChecked == true;
+            SettingsStore.Save(_settings);
+            TryAutoStartStreams();
         }
 
         private void StartStreams() {
@@ -431,7 +464,10 @@ namespace LocalCam {
                 });
 
             StopStreams();
-            UpdateActionButtons(canDetect: !_isScanning, canStart: false, canStop: false);
+            UpdateActionButtons();
+
+            _isStartingStreams = true;
+            UpdateActionButtons();
 
             var startedCount = 0;
             var failedEndpoints = new List<string>();
@@ -501,7 +537,16 @@ namespace LocalCam {
                 }
             }
 
+            _isStartingStreams = false;
             _streamsRunning = startedCount > 0;
+            if (_streamsRunning) {
+                _videoAspectProbeTimer.Start();
+            }
+            else {
+                _videoAspectProbeTimer.Stop();
+                _activeCardAspectRatio = 16d / 9d;
+                ApplyAspectLockedCameraCardLayout();
+            }
 
             if (failedEndpoints.Count == 0) {
                 JsonLogStore.Information(
@@ -515,7 +560,7 @@ namespace LocalCam {
                         ["streamPath"] = streamPath
                     });
                 StreamingStatusText.Text = $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
-                UpdateActionButtons(canDetect: !_isScanning, canStart: true, canStop: true);
+                UpdateActionButtons();
                 return;
             }
 
@@ -532,10 +577,28 @@ namespace LocalCam {
                 });
             StreamingStatusText.Text =
                 $"Started {startedCount} {Pluralize(startedCount, "stream")}. Failed to start: {string.Join(", ", failedEndpoints)}.";
-            UpdateActionButtons(canDetect: !_isScanning, canStart: _libVlc is not null && _detections.Count > 0, canStop: startedCount > 0);
+            UpdateActionButtons();
+        }
+
+        private void TryAutoStartStreams() {
+            if (_isClosing || _isScanning || _streamsRunning || !_settings.AutoStreamVideo) {
+                return;
+            }
+
+            if (_libVlc is null || _detections.Count == 0) {
+                return;
+            }
+
+            if (!HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)) {
+                return;
+            }
+
+            StartStreams();
         }
 
         private void StopStreams() {
+            _videoAspectProbeTimer.Stop();
+            _isStartingStreams = false;
             for (var i = 0; i < _mediaPlayers.Length; i++) {
                 var mediaPlayer = _mediaPlayers[i];
                 if (mediaPlayer is null) {
@@ -550,7 +613,20 @@ namespace LocalCam {
             }
 
             _streamsRunning = false;
-            UpdateActionButtons(canDetect: !_isScanning, canStart: _libVlc is not null && _detections.Count > 0, canStop: false);
+            _activeCardAspectRatio = 16d / 9d;
+            ApplyAspectLockedCameraCardLayout();
+            UpdateActionButtons();
+        }
+
+        private bool IsAnyStreamRunning() {
+            for (var i = 0; i < _mediaPlayers.Length; i++) {
+                var mediaPlayer = _mediaPlayers[i];
+                if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void ShutdownStreamingEngine() {
@@ -670,6 +746,103 @@ namespace LocalCam {
             _ = sender;
             _ = e;
             PersistWindowBounds();
+            ApplyAspectLockedCameraCardLayout();
+        }
+
+        private void CameraTilesPanel_SizeChanged(object sender, SizeChangedEventArgs e) {
+            _ = sender;
+            _ = e;
+            ApplyAspectLockedCameraCardLayout();
+        }
+
+        private void VideoAspectProbeTimer_Tick(object? sender, EventArgs e) {
+            _ = sender;
+
+            if (!_streamsRunning || _isClosing) {
+                _videoAspectProbeTimer.Stop();
+                return;
+            }
+
+            var updated = TryRefreshActiveCardAspectRatioFromPlayers();
+            if (updated) {
+                ApplyAspectLockedCameraCardLayout();
+            }
+        }
+
+        private bool TryRefreshActiveCardAspectRatioFromPlayers() {
+            const double epsilon = 0.0001;
+
+            for (var i = 0; i < _mediaPlayers.Length; i++) {
+                var mediaPlayer = _mediaPlayers[i];
+                if (mediaPlayer is null || !mediaPlayer.IsPlaying) {
+                    continue;
+                }
+
+                if (!TryGetVideoAspectRatio(mediaPlayer, out var ratio)) {
+                    continue;
+                }
+
+                if (Math.Abs(_activeCardAspectRatio - ratio) <= epsilon) {
+                    return false;
+                }
+
+                _activeCardAspectRatio = ratio;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetVideoAspectRatio(VlcMediaPlayer mediaPlayer, out double ratio) {
+            ratio = 0d;
+
+            try {
+                uint width = 0;
+                uint height = 0;
+                mediaPlayer.Size(0, ref width, ref height);
+                if (width == 0 || height == 0) {
+                    return false;
+                }
+
+                ratio = width / (double)height;
+                return ratio > 0d;
+            }
+            catch {
+                return false;
+            }
+        }
+
+        private void ApplyAspectLockedCameraCardLayout() {
+            var cards = new[] { CameraCard1, CameraCard2, CameraCard3, CameraCard4 };
+            var visibleCards = cards.Where(card => card.Visibility == Visibility.Visible).ToArray();
+            if (visibleCards.Length == 0 || CameraTilesPanel.ActualWidth <= 0 || CameraTilesPanel.ActualHeight <= 0) {
+                return;
+            }
+
+            var columns = visibleCards.Length <= 1 ? 1 : 2;
+            var rows = visibleCards.Length <= 2 ? 1 : 2;
+            var horizontalGap = columns == 2 ? 12d : 0d;
+            var verticalGap = rows == 2 ? 12d : 0d;
+
+            var cellWidth = Math.Max(0d, (CameraTilesPanel.ActualWidth - horizontalGap) / columns);
+            var cellHeight = Math.Max(0d, (CameraTilesPanel.ActualHeight - verticalGap) / rows);
+            if (cellWidth <= 0 || cellHeight <= 0) {
+                return;
+            }
+
+            var ratio = _activeCardAspectRatio > 0d ? _activeCardAspectRatio : 16d / 9d;
+            var widthFromHeight = cellHeight * ratio;
+            var heightFromWidth = cellWidth / ratio;
+
+            var targetWidth = widthFromHeight <= cellWidth ? widthFromHeight : cellWidth;
+            var targetHeight = widthFromHeight <= cellWidth ? cellHeight : heightFromWidth;
+
+            foreach (var card in visibleCards) {
+                card.Width = targetWidth;
+                card.Height = targetHeight;
+                card.HorizontalAlignment = HorizontalAlignment.Center;
+                card.VerticalAlignment = VerticalAlignment.Center;
+            }
         }
     }
 }

@@ -4,9 +4,9 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
         Title="LocalCam - Viewer for Tapo Security Cameras"
-        Height="760"
-        Width="1160"
-        MinHeight="620"
+        Height="722"
+        Width="980"
+        MinHeight="722"
         MinWidth="980"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -122,6 +122,57 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="ButtonBorder" Property="Background" Value="#37557A" />
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PanelCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E8EEF5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border x:Name="CheckBoxBorder"
+                                Background="{x:Null}"
+                                BorderBrush="{x:Null}"
+                                BorderThickness="0"
+                                CornerRadius="6"
+                                Padding="10,5">
+                            <StackPanel Orientation="Horizontal">
+                                <Border x:Name="Indicator"
+                                        Width="14"
+                                        Height="14"
+                                        CornerRadius="3"
+                                        Background="#0F1624"
+                                        BorderBrush="#365070"
+                                        BorderThickness="1"
+                                        Margin="0,0,8,0">
+                                    <Path x:Name="CheckGlyph"
+                                          Data="M2,7 L5,10 L11,3"
+                                          Stroke="#E8EEF5"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          Visibility="Collapsed" />
+                                </Border>
+                                <ContentPresenter VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Indicator" Property="Background" Value="#365070" />
+                                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.65" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -140,6 +191,13 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
             <Setter Property="Visibility" Value="Collapsed" />
+        </Style>
+
+        <Style x:Key="CameraVideoHostStyle" TargetType="Border">
+            <Setter Property="Margin" Value="2,4,2,4" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="Background" Value="#202736" />
         </Style>
 
         <Style x:Key="CameraBadgeStyle" TargetType="Border">
@@ -236,37 +294,51 @@
                 <Border Grid.Row="0"
                         Background="{x:Null}"
                         Margin="0,0,0,10">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="DetectCameraButton"
-                                Style="{StaticResource PanelButtonStyle}"
-                                Content="Detect Camera"
-                                Width="118"
-                                Height="30"
-                                Margin="0,0,8,0"
-                                Click="DetectCameraButton_Click" />
-                        <Button x:Name="ToolbarStartStreamsButton"
-                                Style="{StaticResource PanelButtonStyle}"
-                                Content="Start Streams"
-                                Width="112"
-                                Height="30"
-                                Margin="0,0,8,0"
-                                IsEnabled="False"
-                                Click="ToolbarStartStreamsButton_Click" />
-                        <Button x:Name="ToolbarStopButton"
-                                Style="{StaticResource PanelButtonStyle}"
-                                Content="Stop"
-                                Width="72"
-                                Height="30"
-                                Margin="0,0,8,0"
-                                IsEnabled="False"
-                                Click="ToolbarStopButton_Click" />
-                        <Button x:Name="SettingsButton"
-                                Style="{StaticResource PanelButtonStyle}"
-                                Content="Settings"
-                                Width="88"
-                                Height="30"
-                                Click="SettingsButton_Click" />
-                    </StackPanel>
+                    <Grid VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="DetectCameraButton"
+                                    Style="{StaticResource PanelButtonStyle}"
+                                    Content="Detect Camera"
+                                    Width="118"
+                                    Height="30"
+                                    Margin="0,0,8,0"
+                                    Click="DetectCameraButton_Click" />
+                            <Button x:Name="ToolbarStartStreamsButton"
+                                    Style="{StaticResource PanelButtonStyle}"
+                                    Content="Start Streams"
+                                    Width="112"
+                                    Height="30"
+                                    Margin="0,0,8,0"
+                                    IsEnabled="False"
+                                    Click="ToolbarStartStreamsButton_Click" />
+                            <Button x:Name="ToolbarStopButton"
+                                    Style="{StaticResource PanelButtonStyle}"
+                                    Content="Stop"
+                                    Width="72"
+                                    Height="30"
+                                    Margin="0,0,8,0"
+                                    IsEnabled="False"
+                                    Click="ToolbarStopButton_Click" />
+                            <Button x:Name="SettingsButton"
+                                    Style="{StaticResource PanelButtonStyle}"
+                                    Content="Settings"
+                                    Width="88"
+                                    Height="30"
+                                    Click="SettingsButton_Click" />
+                        </StackPanel>
+                        <CheckBox x:Name="AutoStreamVideoCheckBox"
+                                  Grid.Column="1"
+                                  Content="Auto stream video"
+                                  Style="{StaticResource PanelCheckBoxStyle}"
+                                  Margin="12,0,0,0"
+                                  IsChecked="False"
+                                  Checked="AutoStreamVideoCheckBox_Changed"
+                                  Unchecked="AutoStreamVideoCheckBox_Changed" />
+                    </Grid>
                 </Border>
 
                 <Border Grid.Row="1"
@@ -313,7 +385,9 @@
                     <Border x:Name="CameraCard1" Style="{StaticResource CameraCardStyle}" Grid.Row="0" Grid.Column="0" Margin="0,0,6,6">
                         <Grid>
                             <Border x:Name="CameraPlaceholder1" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
-                            <vlc:VideoView x:Name="VideoView1" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border Style="{StaticResource CameraVideoHostStyle}">
+                                <vlc:VideoView x:Name="VideoView1" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            </Border>
                             <Border x:Name="CameraBadge1" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile1Label" Foreground="#E4ECF7" FontSize="13" Text="camera 1 - empty" />
                             </Border>
@@ -323,7 +397,9 @@
                     <Border x:Name="CameraCard2" Style="{StaticResource CameraCardStyle}" Grid.Row="0" Grid.Column="1" Margin="6,0,0,6">
                         <Grid>
                             <Border x:Name="CameraPlaceholder2" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
-                            <vlc:VideoView x:Name="VideoView2" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border Style="{StaticResource CameraVideoHostStyle}">
+                                <vlc:VideoView x:Name="VideoView2" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            </Border>
                             <Border x:Name="CameraBadge2" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile2Label" Foreground="#E4ECF7" FontSize="13" Text="camera 2 - empty" />
                             </Border>
@@ -333,7 +409,9 @@
                     <Border x:Name="CameraCard3" Style="{StaticResource CameraCardStyle}" Grid.Row="1" Grid.Column="0" Margin="0,6,6,0">
                         <Grid>
                             <Border x:Name="CameraPlaceholder3" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
-                            <vlc:VideoView x:Name="VideoView3" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border Style="{StaticResource CameraVideoHostStyle}">
+                                <vlc:VideoView x:Name="VideoView3" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            </Border>
                             <Border x:Name="CameraBadge3" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile3Label" Foreground="#E4ECF7" FontSize="13" Text="camera 3 - empty" />
                             </Border>
@@ -343,7 +421,9 @@
                     <Border x:Name="CameraCard4" Style="{StaticResource CameraCardStyle}" Grid.Row="1" Grid.Column="1" Margin="6,6,0,0">
                         <Grid>
                             <Border x:Name="CameraPlaceholder4" Style="{StaticResource CameraPlaceholderStyle}" Margin="0" />
-                            <vlc:VideoView x:Name="VideoView4" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            <Border Style="{StaticResource CameraVideoHostStyle}">
+                                <vlc:VideoView x:Name="VideoView4" Style="{StaticResource CameraVideoViewStyle}" Margin="0" />
+                            </Border>
                             <Border x:Name="CameraBadge4" Style="{StaticResource CameraBadgeStyle}" VerticalAlignment="Top" HorizontalAlignment="Left">
                                 <TextBlock x:Name="CameraTile4Label" Foreground="#E4ECF7" FontSize="13" Text="camera 4 - empty" />
                             </Border>
