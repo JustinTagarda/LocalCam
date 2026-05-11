@@ -3,8 +3,11 @@ using LocalCam.Models;
 
 namespace LocalCam {
     public partial class SettingsWindow : Window {
+        private readonly LocalCamSettings _initialSettings;
+
         public SettingsWindow(LocalCamSettings settings) {
             InitializeComponent();
+            _initialSettings = settings;
 
             RtspUsernameTextBox.Text = settings.RtspUsername;
             RtspPasswordBox.Password = settings.RtspPassword;
@@ -17,7 +20,13 @@ namespace LocalCam {
             Settings = new LocalCamSettings {
                 RtspUsername = RtspUsernameTextBox.Text.Trim(),
                 RtspPassword = RtspPasswordBox.Password,
-                StreamPath = NormalizeStreamPath(StreamPathTextBox.Text)
+                StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
+                AutoStreamVideo = _initialSettings.AutoStreamVideo,
+                LastSuccessfulDetectionMethod = _initialSettings.LastSuccessfulDetectionMethod,
+                MainWindowLeft = _initialSettings.MainWindowLeft,
+                MainWindowTop = _initialSettings.MainWindowTop,
+                MainWindowWidth = _initialSettings.MainWindowWidth,
+                MainWindowHeight = _initialSettings.MainWindowHeight
             };
 
             DialogResult = true;

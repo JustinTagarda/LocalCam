@@ -2,31 +2,50 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using LocalCam.Networking;
 using LocalCam.Models;
 using LocalCam.Services;
-using System.Reflection;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Geometry = System.Windows.Media.Geometry;
+using IOPath = System.IO.Path;
 using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace LocalCam {
     public partial class MainWindow : Window {
+        private delegate IntPtr MouseHookProc(int nCode, IntPtr wParam, IntPtr lParam);
+
         private sealed class CameraTileControls {
             public required Border Card { get; init; }
             public required Border Placeholder { get; init; }
             public required Border Badge { get; init; }
             public required TextBlock Label { get; init; }
             public required VideoView VideoView { get; init; }
+            public required Button ExpandCollapseButton { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
         }
 
         private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
         private static readonly Geometry RestoreGeometry = Geometry.Parse("M4,2 L12,2 12,10 M4,2 L4,10 12,10 M2,4 L10,4 10,12 2,12 Z");
+        private const int WmMove = 0x0003;
+        private const int WmSize = 0x0005;
         private const int WmGetMinMaxInfo = 0x0024;
+        private const int WmWindowPosChanged = 0x0047;
+        private const int WmLButtonDown = 0x0201;
+        private const int WmLButtonUp = 0x0202;
+        private const int WmMoving = 0x0216;
+        private const int WhMouse = 7;
+        private const int WhMouseLl = 14;
+        private const int HcAction = 0;
+        private const int SmCxDoubleClk = 36;
+        private const int SmCyDoubleClk = 37;
         private const uint MonitorDefaultToNearest = 2;
+        private const string InputDiagnosticsCategory = "InputDiagnostics";
+        private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
         private readonly List<CameraTileControls> _cameraTiles = new();
@@ -38,7 +57,24 @@ namespace LocalCam {
         private bool _isStartingStreams;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
+        private bool _layoutRetryPending;
+        private bool _isSettingsDialogOpen;
+        private int? _expandedCameraIndex;
+        private IntPtr _mouseHookHandle;
+        private IntPtr _lowLevelMouseHookHandle;
+        private MouseHookProc? _mouseHookProc;
+        private MouseHookProc? _lowLevelMouseHookProc;
+        private int? _lastToggleTileIndex;
+        private long _lastToggleTicks;
+        private int? _lastDoubleClickTileIndex;
+        private long _lastDoubleClickTicks;
+        private long _lastUnmatchedMouseLogTicks;
+        private int _lastDoubleClickX;
+        private int _lastDoubleClickY;
         private LocalCamSettings _settings = new();
+        private readonly IAppVersionProvider _versionProvider = new AppVersionProvider();
+        private IAppUpdateService? _appUpdateService;
+        private CancellationTokenSource? _appUpdateCancellation;
 
         public MainWindow()
             : this(Array.Empty<TapoCameraDetection>()) {
@@ -51,7 +87,7 @@ namespace LocalCam {
             SourceInitialized += MainWindow_SourceInitialized;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
-            FooterVersionText.Text = $"v{GetStoreSubmissionVersion()}";
+            FooterVersionText.Text = $"v{_versionProvider.GetInstalledVersionText()}";
             LoadSettings();
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
@@ -196,6 +232,7 @@ namespace LocalCam {
         }
 
         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
+            _expandedCameraIndex = null;
             EnsureCameraTileCount(detections.Count);
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 _cameraTiles[i].Label.Text = $"camera {i + 1} - live streaming ({detections[i].IpAddress})";
@@ -257,9 +294,57 @@ namespace LocalCam {
             };
             badge.Child = label;
 
+            var expandButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 10, 10, 0),
+                ToolTip = "Expand"
+            };
+            expandButton.Content = CreateExpandButtonContent();
+            expandButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+            card.AddHandler(
+                UIElement.PreviewMouseLeftButtonDownEvent,
+                new MouseButtonEventHandler((_, e) => {
+                    var screenPoint = card.PointToScreen(e.GetPosition(card));
+                    LogCardMouseDown(
+                        "CardPreviewMouseDown",
+                        "WPF preview mouse down inside camera card.",
+                        tileIndex,
+                        (int)Math.Round(screenPoint.X),
+                        (int)Math.Round(screenPoint.Y),
+                        e.ClickCount,
+                        handledBefore: e.Handled);
+
+                    if (e.ClickCount == 2) {
+                        if (IsSettingsDialogOpen()) {
+                            return;
+                        }
+                        if (!IsCameraTileActive(tileIndex)) {
+                            return;
+                        }
+
+                        LogDoubleClickToggleAttempt("WpfCardPreview", tileIndex, (int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y));
+                        ToggleCameraTileExpandCollapse(tileIndex);
+                        e.Handled = true;
+                    }
+                }),
+                handledEventsToo: true);
+
+            var videoOverlay = new Grid {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            videoOverlay.Children.Add(expandButton);
+            Panel.SetZIndex(expandButton, 0);
+            videoView.Content = videoOverlay;
+
             root.Children.Add(placeholder);
+            Panel.SetZIndex(placeholder, 0);
             root.Children.Add(videoHost);
+            Panel.SetZIndex(videoHost, 1);
             root.Children.Add(badge);
+            Panel.SetZIndex(badge, 2);
             card.Child = root;
 
             return new CameraTileControls {
@@ -267,8 +352,72 @@ namespace LocalCam {
                 Placeholder = placeholder,
                 Badge = badge,
                 Label = label,
-                VideoView = videoView
+                VideoView = videoView,
+                ExpandCollapseButton = expandButton
             };
+        }
+
+        private static FrameworkElement CreateExpandButtonContent() {
+            var expandImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "expand.png");
+            return CreateButtonImageContentOrFallback(expandImagePath);
+        }
+
+        private static FrameworkElement CreateCollapseButtonContent() {
+            var collapseImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "collapse.png");
+            return CreateButtonImageContentOrFallback(collapseImagePath);
+        }
+
+        private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
+            if (!System.IO.File.Exists(imagePath)) {
+                return new System.Windows.Shapes.Path {
+                    Data = ExpandButtonGeometry,
+                    Fill = System.Windows.Media.Brushes.Transparent,
+                    Stroke = System.Windows.Media.Brushes.White,
+                    StrokeThickness = 1.6,
+                    StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                    StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+                    StrokeLineJoin = System.Windows.Media.PenLineJoin.Round
+                };
+            }
+
+            var imageSource = new BitmapImage();
+            imageSource.BeginInit();
+            imageSource.CacheOption = BitmapCacheOption.OnLoad;
+            imageSource.UriSource = new Uri(imagePath);
+            imageSource.EndInit();
+            imageSource.Freeze();
+
+            return new Image {
+                Source = imageSource,
+                Width = 16,
+                Height = 16,
+                Stretch = System.Windows.Media.Stretch.Uniform
+            };
+        }
+
+        private void UpdateExpandCollapseButtons() {
+            var expandedIndex = _expandedCameraIndex;
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                var tile = _cameraTiles[i];
+                var isExpanded = expandedIndex.HasValue && expandedIndex.Value == i;
+                var isActive = IsCameraTileActive(i);
+                var shouldShowButton = isActive && (!expandedIndex.HasValue || isExpanded);
+                tile.ExpandCollapseButton.Visibility = shouldShowButton ? Visibility.Visible : Visibility.Collapsed;
+                tile.ExpandCollapseButton.ToolTip = isExpanded ? "Collapse" : "Expand";
+                tile.ExpandCollapseButton.Content = isExpanded
+                    ? CreateCollapseButtonContent()
+                    : CreateExpandButtonContent();
+            }
+        }
+
+        private bool IsCameraTileActive(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return false;
+            }
+
+            var tile = _cameraTiles[tileIndex];
+            return tile.VideoView.Visibility == Visibility.Visible ||
+                   (tile.MediaPlayer is not null && tile.MediaPlayer.IsPlaying);
         }
 
         private void AttachMediaPlayer(CameraTileControls tile) {
@@ -278,6 +427,7 @@ namespace LocalCam {
 
             var mediaPlayer = new VlcMediaPlayer(_libVlc) {
                 EnableHardwareDecoding = true,
+                EnableMouseInput = false,
                 Mute = true
             };
 
@@ -294,15 +444,403 @@ namespace LocalCam {
             tile.VideoView.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
             tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+            UpdateExpandCollapseButtons();
+        }
+
+        private void ToggleCameraTileExpandCollapse(int tileIndex) {
+            if (IsSettingsDialogOpen()) {
+                JsonLogStore.Information(
+                    "ExpandCollapseToggleSuppressed",
+                    "Expand/collapse toggle suppressed because the settings dialog is open.",
+                    InputDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["expandedCameraIndex"] = _expandedCameraIndex
+                    });
+                return;
+            }
+
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                JsonLogStore.Warning(
+                    "ExpandCollapseToggleRejected",
+                    "Expand/collapse toggle rejected because the camera tile index is out of range.",
+                    InputDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["tileCount"] = _cameraTiles.Count
+                    });
+                return;
+            }
+
+            if (!IsCameraTileActive(tileIndex)) {
+                JsonLogStore.Information(
+                    "ExpandCollapseToggleSuppressed",
+                    "Expand/collapse toggle suppressed because the camera tile is not active.",
+                    InputDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["expandedCameraIndex"] = _expandedCameraIndex
+                    });
+                return;
+            }
+
+            var now = Environment.TickCount64;
+            if (_lastToggleTileIndex == tileIndex && now - _lastToggleTicks <= 150) {
+                JsonLogStore.Information(
+                    "ExpandCollapseToggleSuppressed",
+                    "Duplicate expand/collapse toggle suppressed.",
+                    InputDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["elapsedMs"] = now - _lastToggleTicks,
+                        ["expandedCameraIndex"] = _expandedCameraIndex
+                    });
+                return;
+            }
+
+            var previousExpandedIndex = _expandedCameraIndex;
+            _expandedCameraIndex = _expandedCameraIndex == tileIndex ? null : tileIndex;
+            _lastToggleTileIndex = tileIndex;
+            _lastToggleTicks = now;
+
+            JsonLogStore.Information(
+                "ExpandCollapseToggleApplied",
+                "Expand/collapse toggle applied.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["tileIndex"] = tileIndex,
+                    ["previousExpandedCameraIndex"] = previousExpandedIndex,
+                    ["newExpandedCameraIndex"] = _expandedCameraIndex,
+                    ["tileCount"] = _cameraTiles.Count
+                });
+
+            ApplyResponsiveCameraLayout();
+        }
+
+        private void InstallMouseHook() {
+            if (_mouseHookHandle != IntPtr.Zero && _lowLevelMouseHookHandle != IntPtr.Zero) {
+                JsonLogStore.Information(
+                    "MouseHookInstallSkipped",
+                    "Mouse hook install skipped because hooks are already active.",
+                    InputDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["hookHandle"] = _mouseHookHandle.ToInt64(),
+                        ["lowLevelHookHandle"] = _lowLevelMouseHookHandle.ToInt64(),
+                        ["threadId"] = GetCurrentThreadId()
+                    });
+                return;
+            }
+
+            var threadId = GetCurrentThreadId();
+            if (_mouseHookHandle == IntPtr.Zero) {
+                _mouseHookProc = MouseHookCallback;
+                _mouseHookHandle = SetWindowsHookEx(
+                    WhMouse,
+                    _mouseHookProc,
+                    IntPtr.Zero,
+                    threadId);
+            }
+
+            var mouseHookError = Marshal.GetLastWin32Error();
+            if (_lowLevelMouseHookHandle == IntPtr.Zero) {
+                _lowLevelMouseHookProc = LowLevelMouseHookCallback;
+                _lowLevelMouseHookHandle = SetWindowsHookEx(
+                    WhMouseLl,
+                    _lowLevelMouseHookProc,
+                    IntPtr.Zero,
+                    0);
+            }
+
+            var lowLevelHookError = Marshal.GetLastWin32Error();
+            JsonLogStore.Information(
+                _mouseHookHandle == IntPtr.Zero && _lowLevelMouseHookHandle == IntPtr.Zero
+                    ? "MouseHookInstallFailed"
+                    : "MouseHookInstalled",
+                "Mouse hook install attempted.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["hookHandle"] = _mouseHookHandle.ToInt64(),
+                    ["lowLevelHookHandle"] = _lowLevelMouseHookHandle.ToInt64(),
+                    ["threadId"] = threadId,
+                    ["mouseHookLastWin32Error"] = mouseHookError,
+                    ["lowLevelHookLastWin32Error"] = lowLevelHookError
+                });
+        }
+
+        private void UninstallMouseHook() {
+            var hookHandle = _mouseHookHandle;
+            var lowLevelHookHandle = _lowLevelMouseHookHandle;
+            if (_mouseHookHandle != IntPtr.Zero) {
+                UnhookWindowsHookEx(_mouseHookHandle);
+                _mouseHookHandle = IntPtr.Zero;
+                _mouseHookProc = null;
+            }
+
+            if (_lowLevelMouseHookHandle != IntPtr.Zero) {
+                UnhookWindowsHookEx(_lowLevelMouseHookHandle);
+                _lowLevelMouseHookHandle = IntPtr.Zero;
+                _lowLevelMouseHookProc = null;
+            }
+
+            JsonLogStore.Information(
+                "MouseHookUninstalled",
+                "Mouse hooks uninstalled.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["hookHandle"] = hookHandle.ToInt64(),
+                    ["lowLevelHookHandle"] = lowLevelHookHandle.ToInt64()
+                });
+        }
+
+        private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
+            if (nCode >= HcAction && wParam == WmLButtonDown) {
+                var mouseInfo = Marshal.PtrToStructure<MouseHookStruct>(lParam);
+                LogMouseHookDown(mouseInfo);
+                HandleThreadMouseDown(mouseInfo.pt.x, mouseInfo.pt.y);
+            }
+
+            return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+        }
+
+        private IntPtr LowLevelMouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
+            if (nCode >= HcAction && wParam == WmLButtonDown) {
+                var mouseInfo = Marshal.PtrToStructure<LowLevelMouseHookStruct>(lParam);
+                LogLowLevelMouseDown(mouseInfo);
+                HandleThreadMouseDown(mouseInfo.pt.x, mouseInfo.pt.y);
+            }
+
+            return CallNextHookEx(_lowLevelMouseHookHandle, nCode, wParam, lParam);
+        }
+
+        private void HandleThreadMouseDown(int screenX, int screenY) {
+            if (IsSettingsDialogOpen()) {
+                ResetDoubleClickTracking();
+                return;
+            }
+
+            var tileIndex = GetCameraTileIndexAtScreenPoint(screenX, screenY);
+            if (!tileIndex.HasValue) {
+                LogUnmatchedMouseDown(screenX, screenY);
+                ResetDoubleClickTracking();
+                return;
+            }
+            if (!IsCameraTileActive(tileIndex.Value)) {
+                ResetDoubleClickTracking();
+                return;
+            }
+
+            var now = Environment.TickCount64;
+            var isDoubleClick = _lastDoubleClickTileIndex == tileIndex.Value &&
+                                _lastDoubleClickTicks > 0 &&
+                                now - _lastDoubleClickTicks <= GetDoubleClickTime() &&
+                                Math.Abs(screenX - _lastDoubleClickX) <= GetSystemMetrics(SmCxDoubleClk) &&
+                                Math.Abs(screenY - _lastDoubleClickY) <= GetSystemMetrics(SmCyDoubleClk);
+
+            JsonLogStore.Information(
+                "MouseDownMatchedCameraCard",
+                "Mouse down matched a camera card.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["tileIndex"] = tileIndex.Value,
+                    ["screenX"] = screenX,
+                    ["screenY"] = screenY,
+                    ["previousTileIndex"] = _lastDoubleClickTileIndex,
+                    ["elapsedMs"] = _lastDoubleClickTicks > 0 ? now - _lastDoubleClickTicks : null,
+                    ["doubleClickTimeMs"] = GetDoubleClickTime(),
+                    ["doubleClickWidth"] = GetSystemMetrics(SmCxDoubleClk),
+                    ["doubleClickHeight"] = GetSystemMetrics(SmCyDoubleClk),
+                    ["isDoubleClick"] = isDoubleClick,
+                    ["expandedCameraIndex"] = _expandedCameraIndex
+                });
+
+            if (isDoubleClick) {
+                ResetDoubleClickTracking();
+                LogDoubleClickToggleAttempt("MouseHook", tileIndex.Value, screenX, screenY);
+                ToggleCameraTileExpandCollapse(tileIndex.Value);
+                return;
+            }
+
+            _lastDoubleClickTileIndex = tileIndex.Value;
+            _lastDoubleClickTicks = now;
+            _lastDoubleClickX = screenX;
+            _lastDoubleClickY = screenY;
+        }
+
+        private int? GetCameraTileIndexAtScreenPoint(int screenX, int screenY) {
+            var screenPoint = new Point(screenX, screenY);
+            for (var i = 0; i < _cameraTiles.Count; i++) {
+                var card = _cameraTiles[i].Card;
+                if (!card.IsVisible || card.ActualWidth <= 0 || card.ActualHeight <= 0) {
+                    continue;
+                }
+
+                var cardPoint = card.PointFromScreen(screenPoint);
+                if (cardPoint.X >= 0 &&
+                    cardPoint.Y >= 0 &&
+                    cardPoint.X <= card.ActualWidth &&
+                    cardPoint.Y <= card.ActualHeight) {
+                    return i;
+                }
+            }
+
+            return null;
+        }
+
+        private void ResetDoubleClickTracking() {
+            _lastDoubleClickTileIndex = null;
+            _lastDoubleClickTicks = 0;
+        }
+
+        private void LogMouseHookDown(MouseHookStruct mouseInfo) {
+            JsonLogStore.Information(
+                "MouseHookLeftButtonDown",
+                "UI-thread mouse hook observed left button down.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["screenX"] = mouseInfo.pt.x,
+                    ["screenY"] = mouseInfo.pt.y,
+                    ["hwnd"] = mouseInfo.hwnd.ToInt64(),
+                    ["hitTestCode"] = mouseInfo.wHitTestCode,
+                    ["tileCount"] = _cameraTiles.Count,
+                    ["expandedCameraIndex"] = _expandedCameraIndex
+                });
+        }
+
+        private void LogLowLevelMouseDown(LowLevelMouseHookStruct mouseInfo) {
+            var tileIndex = GetCameraTileIndexAtScreenPoint(mouseInfo.pt.x, mouseInfo.pt.y);
+            JsonLogStore.Information(
+                "LowLevelMouseHookLeftButtonDown",
+                "Low-level mouse hook observed left button down.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["screenX"] = mouseInfo.pt.x,
+                    ["screenY"] = mouseInfo.pt.y,
+                    ["mouseData"] = mouseInfo.mouseData,
+                    ["flags"] = mouseInfo.flags,
+                    ["time"] = mouseInfo.time,
+                    ["matchedTileIndex"] = tileIndex,
+                    ["tileCount"] = _cameraTiles.Count,
+                    ["expandedCameraIndex"] = _expandedCameraIndex
+                });
+        }
+
+        private void LogCardMouseDown(
+            string eventName,
+            string message,
+            int tileIndex,
+            int screenX,
+            int screenY,
+            int clickCount,
+            bool handledBefore) {
+            JsonLogStore.Information(
+                eventName,
+                message,
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["tileIndex"] = tileIndex,
+                    ["screenX"] = screenX,
+                    ["screenY"] = screenY,
+                    ["clickCount"] = clickCount,
+                    ["handledBefore"] = handledBefore,
+                    ["expandedCameraIndex"] = _expandedCameraIndex
+                });
+        }
+
+        private void LogDoubleClickToggleAttempt(string source, int tileIndex, int screenX, int screenY) {
+            JsonLogStore.Information(
+                "DoubleClickToggleAttempt",
+                "Double-click detection is attempting to toggle expand/collapse.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["source"] = source,
+                    ["tileIndex"] = tileIndex,
+                    ["screenX"] = screenX,
+                    ["screenY"] = screenY,
+                    ["expandedCameraIndex"] = _expandedCameraIndex
+                });
+        }
+
+        private void LogUnmatchedMouseDown(int screenX, int screenY) {
+            var now = Environment.TickCount64;
+            if (now - _lastUnmatchedMouseLogTicks < 1000) {
+                return;
+            }
+
+            _lastUnmatchedMouseLogTicks = now;
+            JsonLogStore.Information(
+                "MouseDownDidNotMatchCameraCard",
+                "Mouse hook observed left button down, but no visible camera card contained the screen point.",
+                InputDiagnosticsCategory,
+                new Dictionary<string, object?> {
+                    ["screenX"] = screenX,
+                    ["screenY"] = screenY,
+                    ["tileCount"] = _cameraTiles.Count,
+                    ["expandedCameraIndex"] = _expandedCameraIndex,
+                    ["visibleTileCount"] = _cameraTiles.Count(tile => tile.Card.IsVisible)
+                });
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
             AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
+            InitializeUpdater();
             _ = StartLocalCameraSearchAsync();
         }
 
-        private static string GetStoreSubmissionVersion() {
-            return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0";
+        private void InitializeUpdater() {
+            _appUpdateCancellation = new CancellationTokenSource();
+            _appUpdateService = new AppUpdateService(_versionProvider, new StoreUpdateClient(_versionProvider.IsPackaged()), IsUpdateInstallBusy);
+            _appUpdateService.SnapshotChanged += OnUpdateSnapshotChanged;
+            ApplyUpdateSnapshot(_appUpdateService.Snapshot);
+            _ = _appUpdateService.StartAsync(_appUpdateCancellation.Token);
+        }
+
+        private bool IsUpdateInstallBusy() {
+            return _isScanning || _isStartingStreams || IsAnyStreamRunning() || _isSettingsDialogOpen;
+        }
+
+        private void OnUpdateSnapshotChanged(AppUpdateSnapshot snapshot) {
+            try {
+                Dispatcher.Invoke(() => ApplyUpdateSnapshot(snapshot));
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error("updater_ui_dispatch_failed", "Failed to dispatch updater snapshot to UI thread.", "updater", ex);
+            }
+        }
+
+        private void ApplyUpdateSnapshot(AppUpdateSnapshot snapshot) {
+            FooterVersionText.Text = $"v{snapshot.InstalledVersion}";
+
+            var showUpdatePanel = snapshot.State is AppUpdateState.Downloading or AppUpdateState.Installing or AppUpdateState.Completed or AppUpdateState.Deferred or AppUpdateState.Failed or AppUpdateState.Checking;
+            FooterDefaultPanel.Visibility = showUpdatePanel ? Visibility.Collapsed : Visibility.Visible;
+            FooterUpdatePanel.Visibility = showUpdatePanel ? Visibility.Visible : Visibility.Collapsed;
+
+            UpdateStatusText.Text = snapshot.IsMandatoryUpdateAvailable
+                ? $"{snapshot.StageText}: {snapshot.StatusMessage} (mandatory)"
+                : $"{snapshot.StageText}: {snapshot.StatusMessage}";
+
+            UpdateProgressBar.Visibility = snapshot.IsProgressVisible ? Visibility.Visible : Visibility.Collapsed;
+            UpdateProgressBar.Value = Math.Clamp(snapshot.ProgressValue, 0, 1);
+            RestartForUpdateButton.Visibility = snapshot.State == AppUpdateState.Completed ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RestartForUpdateButton_Click(object sender, RoutedEventArgs e) {
+            _ = sender;
+            _ = e;
+
+            try {
+                var executablePath = Environment.ProcessPath;
+                if (!string.IsNullOrWhiteSpace(executablePath)) {
+                    Process.Start(new ProcessStartInfo {
+                        FileName = executablePath,
+                        UseShellExecute = true
+                    });
+                }
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error("updater_restart_failed", "Failed to launch restart after update installation.", "updater", ex);
+            }
+
+            Close();
         }
 
         private void UpdateActionButtons() {
@@ -457,6 +995,7 @@ namespace LocalCam {
         }
 
         private void ShowNoDetections(string? prefixMessage = null) {
+            _expandedCameraIndex = null;
             CameraTilesPanel.Visibility = Visibility.Collapsed;
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
@@ -488,11 +1027,32 @@ namespace LocalCam {
                 Owner = this
             };
 
-            if (dialog.ShowDialog() == true) {
-                _settings = dialog.Settings;
-                SettingsStore.Save(_settings);
-                TryAutoStartStreams();
+            _isSettingsDialogOpen = true;
+            try {
+                if (dialog.ShowDialog() == true) {
+                    _settings = dialog.Settings;
+                    SettingsStore.Save(_settings);
+                    TryAutoStartStreams();
+                }
             }
+            finally {
+                _isSettingsDialogOpen = false;
+                ResetDoubleClickTracking();
+            }
+        }
+
+        private bool IsSettingsDialogOpen() {
+            if (_isSettingsDialogOpen) {
+                return true;
+            }
+
+            foreach (Window ownedWindow in OwnedWindows) {
+                if (ownedWindow is SettingsWindow && ownedWindow.IsVisible) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void AutoStreamVideoCheckBox_Changed(object sender, RoutedEventArgs e) {
@@ -717,13 +1277,58 @@ namespace LocalCam {
             if (count == 0) {
                 CameraTilesPanel.RowDefinitions.Clear();
                 CameraTilesPanel.ColumnDefinitions.Clear();
+                UpdateExpandCollapseButtons();
                 return;
             }
 
-            var (columns, rows) = CalculateGridDimensions(
+            if (CameraTilesPanel.ActualWidth <= 1 || CameraTilesPanel.ActualHeight <= 1) {
+                if (!_layoutRetryPending) {
+                    _layoutRetryPending = true;
+                    Dispatcher.BeginInvoke(new Action(() => {
+                        _layoutRetryPending = false;
+                        ApplyResponsiveCameraLayout();
+                    }), System.Windows.Threading.DispatcherPriority.Render);
+                }
+
+                return;
+            }
+
+            if (_expandedCameraIndex is int expandedIndex) {
+                if (expandedIndex < 0 || expandedIndex >= count) {
+                    _expandedCameraIndex = null;
+                }
+                else {
+                    CameraTilesPanel.RowDefinitions.Clear();
+                    CameraTilesPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                    CameraTilesPanel.ColumnDefinitions.Clear();
+                    CameraTilesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    for (var i = 0; i < _cameraTiles.Count; i++) {
+                        var card = _cameraTiles[i].Card;
+                        if (i == expandedIndex) {
+                            card.Visibility = Visibility.Visible;
+                            card.Width = double.NaN;
+                            card.Height = double.NaN;
+                            card.HorizontalAlignment = HorizontalAlignment.Stretch;
+                            card.VerticalAlignment = VerticalAlignment.Stretch;
+                            card.Margin = new Thickness(0);
+                            Grid.SetRow(card, 0);
+                            Grid.SetColumn(card, 0);
+                        }
+                        else {
+                            card.Visibility = Visibility.Collapsed;
+                        }
+                    }
+
+                    UpdateExpandCollapseButtons();
+                    return;
+                }
+            }
+
+            var (columns, rows, cardWidth, cardHeight) = CalculateVideoDrivenGrid(
                 count,
-                Math.Max(1, CameraTilesPanel.ActualWidth),
-                Math.Max(1, CameraTilesPanel.ActualHeight));
+                CameraTilesPanel.ActualWidth,
+                CameraTilesPanel.ActualHeight);
 
             CameraTilesPanel.RowDefinitions.Clear();
             for (var i = 0; i < rows; i++) {
@@ -737,42 +1342,67 @@ namespace LocalCam {
 
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var card = _cameraTiles[i].Card;
-                card.Width = double.NaN;
-                card.Height = double.NaN;
-                card.HorizontalAlignment = HorizontalAlignment.Stretch;
-                card.VerticalAlignment = VerticalAlignment.Stretch;
+                card.Visibility = Visibility.Visible;
+                card.Width = cardWidth;
+                card.Height = cardHeight;
+                card.HorizontalAlignment = HorizontalAlignment.Center;
+                card.VerticalAlignment = VerticalAlignment.Center;
                 card.Margin = GetTileMargin(i, columns, rows);
                 var row = i / columns;
                 var column = i % columns;
                 Grid.SetRow(card, row);
                 Grid.SetColumn(card, column);
             }
+
+            UpdateExpandCollapseButtons();
         }
 
-        private static (int Columns, int Rows) CalculateGridDimensions(int count, double width, double height) {
-            const double targetAspect = 16d / 9d;
+        private static (int Columns, int Rows, double CardWidth, double CardHeight) CalculateVideoDrivenGrid(
+            int count,
+            double panelWidth,
+            double panelHeight) {
+            const double videoAspect = 16d / 9d;
+            const double gridGap = 6d;
+            const double cardChromeHorizontal = 8d;
+            const double cardChromeVertical = 8d;
+
             var bestColumns = 1;
             var bestRows = count;
-            var bestScore = double.NegativeInfinity;
+            var bestCardWidth = panelWidth;
+            var bestCardHeight = panelHeight / Math.Max(1, count);
+            var bestVideoArea = double.NegativeInfinity;
 
             for (var columns = 1; columns <= count; columns++) {
                 var rows = (int)Math.Ceiling(count / (double)columns);
-                var tileWidth = width / columns;
-                var tileHeight = height / rows;
-                var tileArea = tileWidth * tileHeight;
-                var tileAspect = tileWidth / tileHeight;
-                var aspectPenalty = Math.Abs(Math.Log(tileAspect / targetAspect));
+                var totalGapWidth = Math.Max(0, columns - 1) * (2d * gridGap);
+                var totalGapHeight = Math.Max(0, rows - 1) * (2d * gridGap);
+                var slotWidth = Math.Max(1d, (panelWidth - totalGapWidth) / columns);
+                var slotHeight = Math.Max(1d, (panelHeight - totalGapHeight) / rows);
+                var maxVideoWidth = Math.Max(1d, slotWidth - cardChromeHorizontal);
+                var maxVideoHeight = Math.Max(1d, slotHeight - cardChromeVertical);
 
-                // Prefer larger tiles while keeping them near a 16:9 video aspect.
-                var score = tileArea - (aspectPenalty * 20000d);
-                if (score > bestScore) {
-                    bestScore = score;
+                var videoWidth = Math.Min(maxVideoWidth, maxVideoHeight * videoAspect);
+                var videoHeight = videoWidth / videoAspect;
+
+                if (videoHeight > maxVideoHeight) {
+                    videoHeight = maxVideoHeight;
+                    videoWidth = videoHeight * videoAspect;
+                }
+
+                var cardWidth = Math.Max(1d, videoWidth + cardChromeHorizontal);
+                var cardHeight = Math.Max(1d, videoHeight + cardChromeVertical);
+                var videoArea = videoWidth * videoHeight;
+
+                if (videoArea > bestVideoArea) {
+                    bestVideoArea = videoArea;
                     bestColumns = columns;
                     bestRows = rows;
+                    bestCardWidth = cardWidth;
+                    bestCardHeight = cardHeight;
                 }
             }
 
-            return (bestColumns, bestRows);
+            return (bestColumns, bestRows, bestCardWidth, bestCardHeight);
         }
 
         private static Thickness GetTileMargin(int index, int columns, int rows) {
@@ -991,6 +1621,49 @@ namespace LocalCam {
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
 
+        [DllImport("user32.dll")]
+        private static extern uint GetDoubleClickTime();
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(
+            int idHook,
+            MouseHookProc lpfn,
+            IntPtr hmod,
+            uint dwThreadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(
+            IntPtr hhk,
+            int nCode,
+            IntPtr wParam,
+            IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MouseHookStruct {
+            public PointNative pt;
+            public IntPtr hwnd;
+            public uint wHitTestCode;
+            public UIntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LowLevelMouseHookStruct {
+            public PointNative pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct RectNative {
             public int Left;
@@ -1033,6 +1706,7 @@ namespace LocalCam {
 
             var source = HwndSource.FromHwnd(handle);
             source?.AddHook(WndProc);
+            InstallMouseHook();
         }
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
@@ -1048,7 +1722,12 @@ namespace LocalCam {
 
         protected override void OnClosed(EventArgs e) {
             _isClosing = true;
+            UninstallMouseHook();
             _scanCancellation?.Cancel();
+            _appUpdateCancellation?.Cancel();
+            if (_appUpdateService is not null) {
+                _appUpdateService.SnapshotChanged -= OnUpdateSnapshotChanged;
+            }
             ShutdownStreamingEngine();
 
             base.OnClosed(e);

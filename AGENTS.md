@@ -50,6 +50,35 @@
 - Prefer the project’s required toolchain when builds are needed.
 - A task is not done unless the code builds, fits the project structure, has no obvious dead code, has sensible behavior, handles failures reasonably, and remains maintainable.
 
+## Current Implementation Snapshot
+
+- Runtime/UI:
+  - Single-window WPF desktop app (`MainWindow`) with custom window chrome.
+  - Camera discovery runs on load and can be retried from the same window.
+  - Up to 4 camera tiles are shown with expand/collapse behavior and responsive layout.
+  - Settings dialog is available for RTSP credentials and stream path.
+  - Auto-stream toggle is supported and persisted.
+
+- Discovery:
+  - Local-network discovery is heuristic and best-effort.
+  - Scanner uses multi-method probing with persisted preferred detection method.
+  - Detection and scan lifecycle statuses are surfaced in the main window.
+
+- Streaming:
+  - RTSP playback uses LibVLCSharp.
+  - Start/stop controls are state-gated by scan state, stream state, and credentials.
+  - Stream resources are cleaned up on stop/close.
+
+- Persistence and diagnostics:
+  - App settings persist at `%LocalAppData%\\LocalCam\\settings.json`.
+  - Structured JSONL app diagnostics are written under `%LocalAppData%\\LocalCam\\logs`.
+
+- Microsoft Store readiness:
+  - Packaging project exists: `LocalCam.Package.wapproj`.
+  - Manifest identity is configured for Store upload.
+  - Store updater workflow is implemented in-app using `Windows.Services.Store` through service abstractions.
+  - Footer update surface includes update state, progress, and restart affordance after install completion.
+
 ## Project Specification
 
 - See [SPECIFICATION.md](D:\Projects\LocalCam\SPECIFICATION.md) for the current project behavior, scope, and implementation-based product spec.

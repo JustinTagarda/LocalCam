@@ -1,0 +1,114 @@
+Microsoft Store Packaging Process Log
+Date: 2026-05-11
+Workspace: D:\Projects\LocalCam
+Requested by: user
+
+Summary
+- Goal: Create Microsoft Store submission package(s) for LocalCam.
+- Build mode: FULL-BUILD path (Store packaging workflow).
+- Result: Architecture-specific MSIX packages were generated successfully for x64 and ARM64.
+- Remaining issue: Upload package generation step (.msixupload path) failed due to generated upload-manifest token issue.
+
+Process Timeline
+
+1) Request intake and instruction loading
+- Confirmed request is for Microsoft Store submission packaging.
+- Loaded and followed:
+  - D:\Projects\AGENTS.md
+  - D:\Projects\LocalCam\AGENTS.md
+  - D:\Projects\MSSTORE-UPDATER.md
+  - D:\Projects\MSSTORE-PACKAGING.md
+- Determined workflow must use FULL-BUILD (not FAST-BUILD).
+
+2) Project discovery
+- Checked repository structure and project files.
+- Found:
+  - LocalCam.csproj
+  - LocalCam.slnx
+- Did not find pre-existing packaging project files:
+  - no .wapproj
+  - no Package.appxmanifest
+
+3) Initial packaging scaffold creation
+- Created packaging project:
+  - D:\Projects\LocalCam\LocalCam.Package.wapproj
+- Created Store manifest:
+  - D:\Projects\LocalCam\Package.appxmanifest
+- Added packaging project to solution file:
+  - D:\Projects\LocalCam\LocalCam.slnx
+- Set manifest identity values per packaging rules:
+  - Name: JustinTagardaSoftware.LocalCam
+  - Publisher: CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F
+  - Version: 1.0.1.0
+
+4) Toolchain verification
+- Verified Visual Studio 2026 installation via vswhere.
+- Resolved MSBuild path:
+  - C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe
+
+5) First build attempts and fixes
+- Build error: DesktopBridge import path unresolved.
+- Fix applied:
+  - Changed imports to use:
+    - $(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props
+    - $(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets
+
+- Build error: incorrect project reference path in .wapproj.
+- Fix applied:
+  - Corrected ProjectReference path from ..\LocalCam.csproj to LocalCam.csproj.
+
+- Build error: restore/assets conflicts and missing runtime targets.
+- Fixes applied:
+  - Added RuntimeIdentifiers to LocalCam.csproj:
+    - win-x64;win-arm64
+  - Isolated packaging obj path in .wapproj:
+    - BaseIntermediateOutputPath = obj\wapproj\
+    - MSBuildProjectExtensionsPath = obj\wapproj\
+
+6) Manifest asset validation failures and fixes
+- Build failed on APPX1619 due to invalid image dimensions.
+- Generated correctly sized Store assets from existing icon.png:
+  - StoreLogo.png (50x50)
+  - Square44x44Logo.png (44x44)
+  - Square71x71Logo.png (71x71)
+  - Square150x150Logo.png (150x150)
+  - Wide310x150Logo.png (310x150)
+  - SplashScreen.png (620x300)
+- Added Square71x71Logo asset inclusion in .wapproj.
+- Updated manifest to reference Square71x71Logo.png.
+- Corrected manifest path escaping issues introduced during edits.
+
+7) Executable mapping issues in manifest
+- Build reached MakeAppx but failed on executable mapping/token resolution.
+- Investigated generated package map and generated manifests.
+- Observed staged app executable path in package map:
+  - LocalCam\LocalCam.exe
+- Applied manifest alignment updates and retries.
+- Removed manual fullTrust extension block after confirming upload-manifest generation still injected tokenized executable.
+
+8) Final build state
+- Standard architecture package creation succeeded:
+  - D:\Projects\LocalCam\AppPackages\LocalCam.Package_1.0.1.0_x64_Test\LocalCam.Package_1.0.1.0_x64.msix
+  - D:\Projects\LocalCam\AppPackages\LocalCam.Package_1.0.1.0_ARM64_Test\LocalCam.Package_1.0.1.0_ARM64.msix
+- Upload package generation step remained failing with MakeAppx manifest validation errors referencing tokenized executable in generated upload manifest.
+
+Artifacts Created/Updated
+- Created:
+  - D:\Projects\LocalCam\LocalCam.Package.wapproj
+  - D:\Projects\LocalCam\Package.appxmanifest
+  - D:\Projects\LocalCam\Assets\StoreLogo.png
+  - D:\Projects\LocalCam\Assets\Square44x44Logo.png
+  - D:\Projects\LocalCam\Assets\Square71x71Logo.png
+  - D:\Projects\LocalCam\Assets\Square150x150Logo.png
+  - D:\Projects\LocalCam\Assets\Wide310x150Logo.png
+  - D:\Projects\LocalCam\Assets\SplashScreen.png
+- Modified:
+  - D:\Projects\LocalCam\LocalCam.csproj
+  - D:\Projects\LocalCam\LocalCam.slnx
+
+Final Outcome
+- Store MSIX packages for x64 and ARM64 were produced successfully.
+- Store upload package generation path still needs a follow-up fix/workaround for generated upload manifest token handling.
+
+
+[See latest detailed run in MSSTORE_PROCESS_LOG.txt created on 2026-05-11 11:46:33 +08:00]
