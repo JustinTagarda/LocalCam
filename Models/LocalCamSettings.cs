@@ -5,6 +5,7 @@ namespace LocalCam.Models {
         public string StreamPath { get; set; } = "stream1";
         public bool AutoStreamVideo { get; set; }
         public string? SnapshotSaveFolder { get; set; }
+        public string? RecordingSaveFolder { get; set; }
         public string? LastSuccessfulDetectionMethod { get; set; }
         public double? MainWindowLeft { get; set; }
         public double? MainWindowTop { get; set; }

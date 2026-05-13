@@ -202,6 +202,8 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
@@ -271,7 +273,7 @@
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="6" Margin="0,0,0,0">
+                <Grid Grid.Row="6" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -322,7 +324,65 @@
                     </Grid>
                 </Grid>
 
-                <StackPanel Grid.Row="7"
+                <TextBlock Grid.Row="7"
+                           Text="Recording"
+                           Foreground="#E8EEF5"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,10" />
+
+                <Grid Grid.Row="8" Margin="0,0,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Recording Folder"
+                               Foreground="#A9B4C7"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0" />
+                    <Grid Grid.Column="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="RecordingFolderTextBox"
+                                 Style="{StaticResource DialogTextBoxStyle}"
+                                 IsReadOnly="True"
+                                 MinWidth="0"
+                                 Margin="0,0,8,0"
+                                 TextChanged="InputChanged"
+                                 ToolTip="If empty, default is Videos\\LocalCam." />
+                        <Button x:Name="BrowseRecordingFolderButton"
+                                Grid.Column="1"
+                                Style="{StaticResource DialogIconButtonStyle}"
+                                Margin="0,0,8,0"
+                                ToolTip="Browse recording folder"
+                                Click="BrowseRecordingFolderButton_Click">
+                            <Path Data="M2,6 L6,6 L8,4 L14,4 L14,12 L2,12 Z"
+                                  Stroke="#E8EEF5"
+                                  StrokeThickness="1.3"
+                                  Fill="Transparent"
+                                  StrokeLineJoin="Round" />
+                        </Button>
+                        <Button x:Name="ResetRecordingFolderButton"
+                                Grid.Column="2"
+                                Style="{StaticResource DialogIconButtonStyle}"
+                                ToolTip="Reset to default (Videos\\LocalCam)"
+                                Click="ResetRecordingFolderButton_Click">
+                            <Path Data="M4,4 A4,4 0 1 1 3.9,4 M4,1 L4,4 L7,4"
+                                  Stroke="#E8EEF5"
+                                  StrokeThickness="1.3"
+                                  Fill="Transparent"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Button>
+                    </Grid>
+                </Grid>
+
+                <StackPanel Grid.Row="9"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
                             Margin="0,20,0,0">

@@ -195,3 +195,60 @@
 - Create `%UserProfile%\\Pictures\\LocalCam` if it does not exist when Pictures is the active folder.
 - Keep snapshot filenames unique to avoid collisions.
 - Show a concise user-facing error and structured diagnostic log if the target folder is unavailable or inaccessible at save time.
+
+## Video Recording Policy (Per Card)
+
+- Scope:
+- Applies to per-card manual video recording from active RTSP playback cards.
+
+- Recording mode and concurrency:
+- Manual recording only.
+- Exactly one active recording session is allowed across all cards at a time.
+- If a user starts recording on a different card while another card is recording, the current recording must auto-stop first, then recording starts on the requested card.
+- This cross-card switch must be non-blocking and must report activity through the existing status/activity panel (`StreamingStatusText`).
+
+- Recording lifecycle:
+- Treat LibVLC recorder events as authoritative for recording state.
+- If the recording media player reports stopped, ended, or encountered error unexpectedly, clear the active recording state, hide the recording badge, restore the button to `Record`, and report status through `StreamingStatusText`.
+- Do not leave a card in `Recording` UI state after the recorder has stopped or failed.
+- Segment rollover must log and present success only when the next segment actually starts.
+- Stopping playback on the recording card must also stop recording for that card.
+
+- Format and segmentation:
+- Recording output format is `.ts`.
+- No remux and no transcoding in this policy scope.
+- Maximum segment duration is 60 minutes per file.
+- When the 60-minute limit is reached during an active recording, the app should continue recording by rolling to a new segment file for the same card when playback is still active.
+
+- Per-card toolbar button behavior:
+- Add a `Record` button to each card toolbar.
+- Place the `Record` button immediately after `Snapshot`.
+- Visibility and enablement baseline must match `Snapshot` behavior:
+- visible only when video is playing
+- hidden otherwise
+- disable while a recording start/stop operation is processing
+- enable when processing completes (success or failure)
+- Icon and tooltip states are mandatory:
+- `Play`: green triangle icon, tooltip `Play`
+- `Stop Stream`: white square icon, tooltip `Stop Stream`
+- `Record` (idle): red circle icon, tooltip `Record`
+- `Record` (active stop state): red square icon, tooltip `Stop Recording`
+- Reject static `Record` meaning during active recording; explicit stop-recording state is mandatory.
+
+- Recording status surface:
+- Recording-scope user feedback must use the existing status/activity panel (`StreamingStatusText`).
+- Do not use toast messages for recording start/stop/switch/failure/output-validation events.
+
+- Save location and settings:
+- Add a Settings option for recording save folder selection using a folder picker (`Recording Save Folder`).
+- Persist the selected folder path in `%LocalAppData%\\LocalCam\\settings.json` and load it on startup.
+- Default effective recording save folder is `%UserProfile%\\Videos\\LocalCam` (shown as `Videos` in UI when applicable).
+- Effective save path rule:
+- if the active folder is the user's Videos folder, save to `%UserProfile%\\Videos\\LocalCam`
+- if the active folder is any other user-selected folder, save directly in that folder (no forced `LocalCam` subfolder)
+- Create `%UserProfile%\\Videos\\LocalCam` if it does not exist when Videos is the active folder.
+- Keep recording filenames unique to avoid collisions.
+- Show a concise user-facing error and structured diagnostic log if the target folder is unavailable or inaccessible at save time.
+
+- Guardrail:
+- Do not alter these recording rules without explicit user instruction that clearly requests a behavior change.

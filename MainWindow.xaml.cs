@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using LocalCam.Networking;
@@ -30,6 +31,9 @@ namespace LocalCam {
             public required Button PlayButton { get; init; }
             public required Button StopButton { get; init; }
             public required Button SnapshotButton { get; init; }
+            public required Button RecordButton { get; init; }
+            public required Border RecordingBadge { get; init; }
+            public required TextBlock RecordingElapsedText { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
             public bool IsSnapshotSaving { get; set; }
         }
@@ -51,6 +55,8 @@ namespace LocalCam {
         private const uint MonitorDefaultToNearest = 2;
         private const string InputDiagnosticsCategory = "InputDiagnostics";
         private const string SnapshotDiagnosticsCategory = "SnapshotDiagnostics";
+        private const string RecordingDiagnosticsCategory = "RecordingDiagnostics";
+        private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
         private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
@@ -81,6 +87,17 @@ namespace LocalCam {
         private readonly IAppVersionProvider _versionProvider = new AppVersionProvider();
         private IAppUpdateService? _appUpdateService;
         private CancellationTokenSource? _appUpdateCancellation;
+        private VlcMediaPlayer? _recordingMediaPlayer;
+        private int? _activeRecordingTileIndex;
+        private int _recordingSegmentNumber;
+        private long _recordingSessionId;
+        private long _nextRecordingSessionId = 1;
+        private bool _isRecordingOperationProcessing;
+        private DateTimeOffset? _recordingSegmentStartedAt;
+        private string? _recordingOutputPath;
+        private DispatcherTimer? _recordingElapsedTimer;
+        private DispatcherTimer? _recordingSegmentTimer;
+        private CancellationTokenSource? _recordingOutputValidationCts;
 
         public MainWindow()
             : this(Array.Empty<TapoCameraDetection>()) {
@@ -253,6 +270,9 @@ namespace LocalCam {
 
             while (_cameraTiles.Count > count) {
                 var tile = _cameraTiles[^1];
+                if (_activeRecordingTileIndex == _cameraTiles.Count - 1) {
+                    StopRecordingSession("camera_removed", updateStatus: false);
+                }
                 tile.MediaPlayer?.Stop();
                 tile.VideoView.MediaPlayer = null;
                 tile.MediaPlayer?.Dispose();
@@ -352,7 +372,7 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 6, 0),
-                ToolTip = "Stop",
+                ToolTip = "Stop Stream",
                 Content = CreateStopButtonContent(),
                 Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
                 BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
@@ -379,12 +399,28 @@ namespace LocalCam {
                 await SaveSnapshotAsync(tileIndex);
             };
 
+            var recordButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Record",
+                Content = CreateRecordStartButtonContent(),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
+            };
+            recordButton.Click += async (_, _) => {
+                await ToggleRecordingAsync(tileIndex);
+            };
+
             card.AddHandler(
                 UIElement.PreviewMouseLeftButtonDownEvent,
                 new MouseButtonEventHandler((_, e) => {
                     if (IsEventFromControl(e.OriginalSource as DependencyObject, playButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, stopButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, snapshotButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, recordButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, expandButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, collapseButton)) {
                         return;
@@ -427,6 +463,7 @@ namespace LocalCam {
             overlayToolbarButtons.Children.Add(playButton);
             overlayToolbarButtons.Children.Add(stopButton);
             overlayToolbarButtons.Children.Add(snapshotButton);
+            overlayToolbarButtons.Children.Add(recordButton);
             overlayToolbarButtons.Children.Add(expandButton);
             overlayToolbarButtons.Children.Add(collapseButton);
             var overlayToolbar = new Border {
@@ -441,6 +478,23 @@ namespace LocalCam {
             };
             overlayToolbar.Child = overlayToolbarButtons;
             videoOverlay.Children.Add(overlayToolbar);
+            var recordingElapsedText = new TextBlock {
+                Foreground = System.Windows.Media.Brushes.White,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Text = "REC 00:00"
+            };
+            var recordingBadge = new Border {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(4, 4, 0, 0),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CCB91C1C")!,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(8, 4, 8, 4),
+                Child = recordingElapsedText,
+                Visibility = Visibility.Collapsed
+            };
+            videoOverlay.Children.Add(recordingBadge);
             videoView.Content = videoOverlay;
 
             root.Children.Add(placeholder);
@@ -461,7 +515,10 @@ namespace LocalCam {
                 CollapseButton = collapseButton,
                 PlayButton = playButton,
                 StopButton = stopButton,
-                SnapshotButton = snapshotButton
+                SnapshotButton = snapshotButton,
+                RecordButton = recordButton,
+                RecordingBadge = recordingBadge,
+                RecordingElapsedText = recordingElapsedText
             };
         }
 
@@ -478,7 +535,7 @@ namespace LocalCam {
         private static FrameworkElement CreateStartButtonContent() {
             return new Path {
                 Data = Geometry.Parse("M4,3 L13,8 L4,13 Z"),
-                Fill = System.Windows.Media.Brushes.White,
+                Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#22C55E")!,
                 Stretch = System.Windows.Media.Stretch.Uniform,
                 Width = 14,
                 Height = 14
@@ -522,6 +579,42 @@ namespace LocalCam {
             return root;
         }
 
+        private static FrameworkElement CreateRecordStartButtonContent() {
+            return new Grid {
+                Width = 16,
+                Height = 16,
+                Children = {
+                    new Ellipse {
+                        Width = 12,
+                        Height = 12,
+                        Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#E11D48")!,
+                        Stroke = System.Windows.Media.Brushes.White,
+                        StrokeThickness = 1.2,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
+            };
+        }
+
+        private static FrameworkElement CreateRecordStopButtonContent() {
+            return new Grid {
+                Width = 16,
+                Height = 16,
+                Children = {
+                    new Rectangle {
+                        Width = 10,
+                        Height = 10,
+                        RadiusX = 1.5,
+                        RadiusY = 1.5,
+                        Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#E11D48")!,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
+            };
+        }
+
         private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
             if (!System.IO.File.Exists(imagePath)) {
                 return new System.Windows.Shapes.Path {
@@ -562,9 +655,17 @@ namespace LocalCam {
                 tile.PlayButton.Visibility = isCardVisible && isDetectedCard && !isRunning ? Visibility.Visible : Visibility.Collapsed;
                 tile.StopButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
                 tile.SnapshotButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
+                tile.RecordButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
                 tile.PlayButton.IsEnabled = true;
                 tile.StopButton.IsEnabled = true;
                 tile.SnapshotButton.IsEnabled = !tile.IsSnapshotSaving;
+                var isRecordingThisTile = _activeRecordingTileIndex == i;
+                tile.RecordButton.IsEnabled = !_isRecordingOperationProcessing;
+                tile.RecordButton.Content = isRecordingThisTile
+                    ? CreateRecordStopButtonContent()
+                    : CreateRecordStartButtonContent();
+                tile.RecordButton.ToolTip = isRecordingThisTile ? "Stop Recording" : "Record";
+                tile.RecordingBadge.Visibility = isCardVisible && isRecordingThisTile ? Visibility.Visible : Visibility.Collapsed;
 
                 tile.ExpandButton.Visibility = isCardVisible && isRunning && !isExpanded ? Visibility.Visible : Visibility.Collapsed;
                 tile.CollapseButton.Visibility = isCardVisible && isRunning && isExpanded ? Visibility.Visible : Visibility.Collapsed;
@@ -601,14 +702,26 @@ namespace LocalCam {
                 UpdateActionButtons();
             }));
             mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                var tileIndex = _cameraTiles.IndexOf(tile);
+                if (_activeRecordingTileIndex == tileIndex) {
+                    StopRecordingSession("stream_stopped", updateStatus: true);
+                }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
             }));
             mediaPlayer.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                var tileIndex = _cameraTiles.IndexOf(tile);
+                if (_activeRecordingTileIndex == tileIndex) {
+                    StopRecordingSession("stream_ended", updateStatus: true);
+                }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
             }));
             mediaPlayer.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                var tileIndex = _cameraTiles.IndexOf(tile);
+                if (_activeRecordingTileIndex == tileIndex) {
+                    StopRecordingSession("stream_error", updateStatus: true);
+                }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
             }));
@@ -813,6 +926,7 @@ namespace LocalCam {
             if (IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].PlayButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].StopButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].SnapshotButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].RecordButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].ExpandButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].CollapseButton, screenX, screenY)) {
                 ResetDoubleClickTracking();
@@ -1432,6 +1546,7 @@ namespace LocalCam {
         private void StopAllStreams() {
             _isStartingStreams = false;
             _expandedCameraIndex = null;
+            StopRecordingSession("all_streams_stopped", updateStatus: false);
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
                 if (mediaPlayer is null) {
@@ -1503,6 +1618,10 @@ namespace LocalCam {
         private void StopSingleStream(int tileIndex) {
             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
                 return;
+            }
+
+            if (_activeRecordingTileIndex == tileIndex) {
+                StopRecordingSession("stream_stopped", updateStatus: false);
             }
 
             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
@@ -1644,6 +1763,549 @@ namespace LocalCam {
                 : configuredPath;
             error = string.Empty;
             return true;
+        }
+
+        private async Task ToggleRecordingAsync(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count || _isRecordingOperationProcessing) {
+                LogRecordingWarning(
+                    "RecordingToggleIgnored",
+                    "Recording toggle request ignored because state was invalid.",
+                    tileIndex,
+                    reason: "invalid_tile_or_operation_in_progress");
+                return;
+            }
+
+            _isRecordingOperationProcessing = true;
+            LogRecordingInfo(
+                "RecordingToggleRequested",
+                "Recording toggle requested from card toolbar.",
+                tileIndex);
+            UpdateTileButtonStates();
+            try {
+                if (_activeRecordingTileIndex == tileIndex) {
+                    StopRecordingSession("user_stop", updateStatus: true);
+                    return;
+                }
+
+                string? successStatusMessage = null;
+                if (_activeRecordingTileIndex is int previousTileIndex) {
+                    StopRecordingSession("switched", updateStatus: false);
+                    successStatusMessage = $"Recording switched from camera {previousTileIndex + 1} to camera {tileIndex + 1}.";
+                    LogRecordingInfo(
+                        "RecordingSwitched",
+                        "Recording switched from one camera card to another.",
+                        tileIndex,
+                        data: new Dictionary<string, object?> {
+                            ["previousTileIndex"] = previousTileIndex,
+                            ["newTileIndex"] = tileIndex
+                        });
+                }
+
+                await StartRecordingSessionAsync(tileIndex, segmentNumber: 1, reason: "user_start", successStatusMessage);
+            }
+            finally {
+                _isRecordingOperationProcessing = false;
+                UpdateTileButtonStates();
+            }
+        }
+
+        private async Task<bool> StartRecordingSessionAsync(
+            int tileIndex,
+            int segmentNumber,
+            string reason,
+            string? successStatusMessage = null) {
+            if (_libVlc is null) {
+                ReportRecordingActivity("Recording failed: video engine is unavailable.");
+                LogRecordingWarning(
+                    "RecordingStartRejected",
+                    "Recording start rejected because the video engine is unavailable.",
+                    tileIndex,
+                    reason: "video_engine_unavailable");
+                return false;
+            }
+
+            if (!IsStreamRunning(tileIndex)) {
+                ReportRecordingActivity($"Recording failed: camera {tileIndex + 1} is not playing.");
+                LogRecordingWarning(
+                    "RecordingStartRejected",
+                    "Recording start rejected because the camera stream is not playing.",
+                    tileIndex,
+                    reason: "stream_not_playing");
+                return false;
+            }
+
+            if (!TryGetEffectiveRecordingDirectory(out var targetDirectory, out var resolutionError)) {
+                ReportRecordingActivity($"Recording failed: {resolutionError}");
+                LogRecordingWarning(
+                    "RecordingStartRejected",
+                    "Recording start rejected because recording folder resolution failed.",
+                    tileIndex,
+                    reason: resolutionError);
+                return false;
+            }
+
+            var username = _settings.RtspUsername.Trim();
+            var password = _settings.RtspPassword;
+            var streamPath = NormalizeStreamPath(_settings.StreamPath);
+            if (!HasCompleteStreamingSettings(username, password)) {
+                ReportRecordingActivity(BuildMissingSettingsPrompt());
+                LogRecordingWarning(
+                    "RecordingStartRejected",
+                    "Recording start rejected because streaming credentials are incomplete.",
+                    tileIndex,
+                    reason: "incomplete_streaming_settings");
+                return false;
+            }
+
+            var ipAddress = _detections[tileIndex].IpAddress.ToString();
+            var recordingPath = CreateUniqueRecordingPath(targetDirectory, tileIndex, segmentNumber);
+
+            try {
+                await Task.Run(() => System.IO.Directory.CreateDirectory(targetDirectory));
+
+                var recorder = new VlcMediaPlayer(_libVlc) {
+                    EnableHardwareDecoding = true,
+                    EnableMouseInput = false,
+                    Mute = true
+                };
+                AttachRecordingEventHandlers(recorder, tileIndex, recordingPath);
+
+                using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
+                media.AddOption(":network-caching=300");
+                media.AddOption(":live-caching=300");
+                media.AddOption(":clock-jitter=0");
+                media.AddOption(":clock-synchro=0");
+                media.AddOption(BuildRecordingSoutOption(recordingPath));
+
+                if (!recorder.Play(media)) {
+                    recorder.Dispose();
+                    throw new InvalidOperationException("Media player recording start returned false.");
+                }
+
+                _recordingMediaPlayer = recorder;
+                _activeRecordingTileIndex = tileIndex;
+                _recordingSegmentNumber = segmentNumber;
+                _recordingSessionId = _nextRecordingSessionId++;
+                _recordingOutputPath = recordingPath;
+                _recordingSegmentStartedAt = DateTimeOffset.Now;
+                StartRecordingTimers();
+                UpdateRecordingElapsedText();
+                StartRecordingOutputValidation(tileIndex, recordingPath, segmentNumber);
+                ReportRecordingActivity(successStatusMessage ?? (segmentNumber == 1
+                    ? $"Recording camera {tileIndex + 1} to {recordingPath}."
+                    : $"Recording camera {tileIndex + 1} segment {segmentNumber}."));
+
+                LogRecordingInfo(
+                    "RecordingStarted",
+                    "Video recording started.",
+                    tileIndex,
+                    data: new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["ipAddress"] = ipAddress,
+                        ["streamPath"] = streamPath,
+                        ["path"] = recordingPath,
+                        ["segmentNumber"] = segmentNumber,
+                        ["reason"] = reason
+                    });
+                return true;
+            }
+            catch (Exception ex) {
+                ReportRecordingActivity($"Recording failed for camera {tileIndex + 1}: {ex.Message}");
+                LogRecordingWarning(
+                    "RecordingStartFailed",
+                    "Video recording start failed.",
+                    tileIndex,
+                    data: new Dictionary<string, object?> {
+                        ["ipAddress"] = ipAddress,
+                        ["streamPath"] = streamPath,
+                        ["path"] = recordingPath,
+                        ["exceptionType"] = ex.GetType().FullName,
+                        ["exceptionMessage"] = ex.Message
+                    });
+                return false;
+            }
+        }
+
+        private void AttachRecordingEventHandlers(VlcMediaPlayer recorder, int tileIndex, string recordingPath) {
+            recorder.Playing += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                if (!ReferenceEquals(_recordingMediaPlayer, recorder)) {
+                    return;
+                }
+
+                LogRecordingInfo(
+                    "RecordingPlaybackConfirmed",
+                    "LibVLC reported that the recording media player is playing.",
+                    tileIndex,
+                    data: new Dictionary<string, object?> {
+                        ["path"] = recordingPath
+                    });
+            }));
+
+            recorder.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                if (ReferenceEquals(_recordingMediaPlayer, recorder)) {
+                    StopRecordingSession("recording_stopped", updateStatus: true);
+                }
+            }));
+
+            recorder.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                if (ReferenceEquals(_recordingMediaPlayer, recorder)) {
+                    StopRecordingSession("recording_ended", updateStatus: true);
+                }
+            }));
+
+            recorder.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                if (ReferenceEquals(_recordingMediaPlayer, recorder)) {
+                    StopRecordingSession("recording_error", updateStatus: true);
+                }
+            }));
+        }
+
+        private void StopRecordingSession(string reason, bool updateStatus) {
+            var recorder = _recordingMediaPlayer;
+            var tileIndex = _activeRecordingTileIndex;
+            var outputPath = _recordingOutputPath;
+            var startedAt = _recordingSegmentStartedAt;
+            var sessionId = _recordingSessionId;
+            StopRecordingTimers();
+
+            _recordingMediaPlayer = null;
+            _activeRecordingTileIndex = null;
+            _recordingOutputPath = null;
+            _recordingSegmentStartedAt = null;
+            _recordingSegmentNumber = 0;
+            _recordingSessionId = 0;
+            CancelRecordingOutputValidation();
+
+            try {
+                if (recorder is not null) {
+                    if (recorder.IsPlaying) {
+                        recorder.Stop();
+                    }
+
+                    recorder.Dispose();
+                }
+            }
+            catch (Exception ex) {
+                LogRecordingWarning(
+                    "RecordingStopFailed",
+                    "Video recording stop failed.",
+                    tileIndex,
+                    data: new Dictionary<string, object?> {
+                        ["path"] = outputPath,
+                        ["reason"] = reason,
+                        ["sessionId"] = sessionId,
+                        ["exceptionType"] = ex.GetType().FullName,
+                        ["exceptionMessage"] = ex.Message
+                    });
+            }
+
+            if (tileIndex is int stoppedTileIndex) {
+                var duration = startedAt.HasValue ? DateTimeOffset.Now - startedAt.Value : TimeSpan.Zero;
+                LogRecordingInfo(
+                    "RecordingStopped",
+                    "Video recording stopped.",
+                    stoppedTileIndex,
+                    data: new Dictionary<string, object?> {
+                        ["path"] = outputPath,
+                        ["reason"] = reason,
+                        ["sessionId"] = sessionId,
+                        ["durationSeconds"] = Math.Round(duration.TotalSeconds, 1)
+                    });
+
+                if (updateStatus) {
+                    ReportRecordingActivity(reason switch {
+                        "stream_stopped" => $"Recording stopped because camera {stoppedTileIndex + 1} stopped.",
+                        "stream_ended" => $"Recording stopped because camera {stoppedTileIndex + 1} ended.",
+                        "stream_error" => $"Recording stopped because camera {stoppedTileIndex + 1} had a stream error.",
+                        "recording_stopped" => $"Recording stopped for camera {stoppedTileIndex + 1}.",
+                        "recording_ended" => $"Recording ended for camera {stoppedTileIndex + 1}.",
+                        "recording_error" => $"Recording failed for camera {stoppedTileIndex + 1}.",
+                        _ => $"Stopped recording camera {stoppedTileIndex + 1}."
+                    });
+                }
+            }
+
+            UpdateTileButtonStates();
+        }
+
+        private async void RecordingSegmentTimer_Tick(object? sender, EventArgs e) {
+            if (_isRecordingOperationProcessing || _activeRecordingTileIndex is not int tileIndex) {
+                return;
+            }
+
+            if (!IsStreamRunning(tileIndex)) {
+                StopRecordingSession("stream_stopped", updateStatus: true);
+                return;
+            }
+
+            _isRecordingOperationProcessing = true;
+            UpdateTileButtonStates();
+            try {
+                var nextSegmentNumber = _recordingSegmentNumber + 1;
+                StopRecordingSession("segment_limit_reached", updateStatus: false);
+                var started = await StartRecordingSessionAsync(tileIndex, nextSegmentNumber, reason: "segment_rollover");
+                if (started) {
+                    LogRecordingInfo(
+                        "RecordingSegmentRolled",
+                        "Video recording rolled to a new segment after reaching the segment duration limit.",
+                        tileIndex,
+                        data: new Dictionary<string, object?> {
+                            ["segmentNumber"] = nextSegmentNumber,
+                            ["segmentDurationMinutes"] = RecordingSegmentDuration.TotalMinutes
+                        });
+                }
+            }
+            finally {
+                _isRecordingOperationProcessing = false;
+                UpdateTileButtonStates();
+            }
+        }
+
+        private void StartRecordingTimers() {
+            StopRecordingTimers();
+
+            _recordingElapsedTimer = new DispatcherTimer {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _recordingElapsedTimer.Tick += (_, _) => UpdateRecordingElapsedText();
+            _recordingElapsedTimer.Start();
+
+            _recordingSegmentTimer = new DispatcherTimer {
+                Interval = RecordingSegmentDuration
+            };
+            _recordingSegmentTimer.Tick += RecordingSegmentTimer_Tick;
+            _recordingSegmentTimer.Start();
+        }
+
+        private void StartRecordingOutputValidation(int tileIndex, string recordingPath, int segmentNumber) {
+            CancelRecordingOutputValidation();
+            var cts = new CancellationTokenSource();
+            _recordingOutputValidationCts = cts;
+            _ = ValidateRecordingOutputAsync(tileIndex, recordingPath, segmentNumber, cts.Token);
+        }
+
+        private void CancelRecordingOutputValidation() {
+            if (_recordingOutputValidationCts is null) {
+                return;
+            }
+
+            _recordingOutputValidationCts.Cancel();
+            _recordingOutputValidationCts.Dispose();
+            _recordingOutputValidationCts = null;
+        }
+
+        private async Task ValidateRecordingOutputAsync(int tileIndex, string recordingPath, int segmentNumber, CancellationToken cancellationToken) {
+            try {
+                await Task.Delay(1200, cancellationToken);
+                for (var attempt = 0; attempt < 6; attempt++) {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var hasOutput = false;
+                    try {
+                        if (System.IO.File.Exists(recordingPath)) {
+                            var info = new System.IO.FileInfo(recordingPath);
+                            hasOutput = info.Exists && info.Length > 0;
+                        }
+                    }
+                    catch {
+                        hasOutput = false;
+                    }
+
+                    if (hasOutput) {
+                        LogRecordingInfo(
+                            "RecordingOutputConfirmed",
+                            "Recording output file was confirmed after start.",
+                            tileIndex,
+                            data: new Dictionary<string, object?> {
+                                ["path"] = recordingPath,
+                                ["segmentNumber"] = segmentNumber
+                            });
+                        return;
+                    }
+
+                    await Task.Delay(600, cancellationToken);
+                }
+
+                await Dispatcher.InvokeAsync(() => {
+                    if (_activeRecordingTileIndex != tileIndex || !string.Equals(_recordingOutputPath, recordingPath, StringComparison.Ordinal)) {
+                        return;
+                    }
+
+                    StopRecordingSession("recording_output_unavailable", updateStatus: false);
+                    ReportRecordingActivity($"Recording failed for camera {tileIndex + 1}: output file was not created.");
+                    LogRecordingWarning(
+                        "RecordingOutputMissing",
+                        "Recording output file was not created after recorder start.",
+                        tileIndex,
+                        data: new Dictionary<string, object?> {
+                            ["path"] = recordingPath,
+                            ["segmentNumber"] = segmentNumber
+                        });
+                });
+            }
+            catch (OperationCanceledException) {
+                // Expected when recording stops or switches.
+            }
+            catch (Exception ex) {
+                await Dispatcher.InvokeAsync(() => {
+                    LogRecordingWarning(
+                        "RecordingOutputValidationFailed",
+                        "Recording output validation failed unexpectedly.",
+                        tileIndex,
+                        data: new Dictionary<string, object?> {
+                            ["path"] = recordingPath,
+                            ["segmentNumber"] = segmentNumber,
+                            ["exceptionType"] = ex.GetType().FullName,
+                            ["exceptionMessage"] = ex.Message
+                        });
+                });
+            }
+        }
+
+        private void StopRecordingTimers() {
+            if (_recordingElapsedTimer is not null) {
+                _recordingElapsedTimer.Stop();
+                _recordingElapsedTimer = null;
+            }
+
+            if (_recordingSegmentTimer is not null) {
+                _recordingSegmentTimer.Stop();
+                _recordingSegmentTimer.Tick -= RecordingSegmentTimer_Tick;
+                _recordingSegmentTimer = null;
+            }
+        }
+
+        private void UpdateRecordingElapsedText() {
+            if (_activeRecordingTileIndex is not int tileIndex ||
+                tileIndex < 0 ||
+                tileIndex >= _cameraTiles.Count ||
+                !_recordingSegmentStartedAt.HasValue) {
+                return;
+            }
+
+            var elapsed = DateTimeOffset.Now - _recordingSegmentStartedAt.Value;
+            var text = elapsed.TotalHours >= 1
+                ? $"REC {(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}"
+                : $"REC {elapsed.Minutes:00}:{elapsed.Seconds:00}";
+            _cameraTiles[tileIndex].RecordingElapsedText.Text = text;
+        }
+
+        private bool TryGetEffectiveRecordingDirectory(out string directoryPath, out string error) {
+            var videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+            if (string.IsNullOrWhiteSpace(videosPath)) {
+                directoryPath = string.Empty;
+                error = "Videos folder path is unavailable.";
+                return false;
+            }
+
+            var configuredPath = (_settings.RecordingSaveFolder ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(configuredPath)) {
+                directoryPath = IOPath.Combine(videosPath, "LocalCam");
+                error = string.Empty;
+                return true;
+            }
+
+            string configuredFullPath;
+            string videosFullPath;
+            try {
+                configuredFullPath = IOPath.GetFullPath(configuredPath)
+                    .TrimEnd(IOPath.DirectorySeparatorChar, IOPath.AltDirectorySeparatorChar);
+                videosFullPath = IOPath.GetFullPath(videosPath)
+                    .TrimEnd(IOPath.DirectorySeparatorChar, IOPath.AltDirectorySeparatorChar);
+            }
+            catch {
+                directoryPath = string.Empty;
+                error = "Recording folder path is invalid.";
+                return false;
+            }
+
+            var sameAsVideos = string.Equals(
+                configuredFullPath,
+                videosFullPath,
+                StringComparison.OrdinalIgnoreCase);
+
+            directoryPath = sameAsVideos
+                ? IOPath.Combine(videosPath, "LocalCam")
+                : configuredPath;
+            error = string.Empty;
+            return true;
+        }
+
+        private static string CreateUniqueRecordingPath(string directoryPath, int tileIndex, int segmentNumber) {
+            var baseFileName = $"camera-{tileIndex + 1}-{DateTime.Now:yyyyMMdd-HHmmss}";
+            if (segmentNumber > 1) {
+                baseFileName = $"{baseFileName}-part-{segmentNumber:00}";
+            }
+
+            var candidate = IOPath.Combine(directoryPath, $"{baseFileName}.ts");
+            var suffix = 1;
+            while (System.IO.File.Exists(candidate)) {
+                candidate = IOPath.Combine(directoryPath, $"{baseFileName}-{suffix}.ts");
+                suffix++;
+            }
+
+            return candidate;
+        }
+
+        private static string BuildRecordingSoutOption(string recordingPath) {
+            var escapedPath = IOPath.GetFullPath(recordingPath)
+                .Replace('\\', '/')
+                .Replace("'", "\\'", StringComparison.Ordinal);
+            return $":sout=#std{{access=file,mux=ts,dst='{escapedPath}'}}";
+        }
+
+        private void LogRecordingInfo(
+            string eventName,
+            string message,
+            int? tileIndex = null,
+            string? reason = null,
+            IReadOnlyDictionary<string, object?>? data = null) {
+            var payload = BuildRecordingLogPayload(tileIndex, reason, data);
+            JsonLogStore.Information(eventName, message, RecordingDiagnosticsCategory, payload);
+        }
+
+        private void LogRecordingWarning(
+            string eventName,
+            string message,
+            int? tileIndex = null,
+            string? reason = null,
+            IReadOnlyDictionary<string, object?>? data = null) {
+            var payload = BuildRecordingLogPayload(tileIndex, reason, data);
+            JsonLogStore.Warning(eventName, message, RecordingDiagnosticsCategory, payload);
+        }
+
+        private Dictionary<string, object?> BuildRecordingLogPayload(
+            int? tileIndex = null,
+            string? reason = null,
+            IReadOnlyDictionary<string, object?>? data = null) {
+            var payload = new Dictionary<string, object?> {
+                ["sessionId"] = _recordingSessionId == 0 ? null : _recordingSessionId,
+                ["activeRecordingTileIndex"] = _activeRecordingTileIndex,
+                ["activeRecordingCameraIndex"] = _activeRecordingTileIndex.HasValue ? _activeRecordingTileIndex.Value + 1 : null,
+                ["segmentNumber"] = _recordingSegmentNumber,
+                ["isRecordingOperationProcessing"] = _isRecordingOperationProcessing
+            };
+
+            if (tileIndex.HasValue) {
+                payload["tileIndex"] = tileIndex.Value;
+                payload["cameraIndex"] = tileIndex.Value + 1;
+            }
+
+            if (!string.IsNullOrWhiteSpace(reason)) {
+                payload["reason"] = reason;
+            }
+
+            if (data is not null) {
+                foreach (var pair in data) {
+                    payload[pair.Key] = pair.Value;
+                }
+            }
+
+            return payload;
+        }
+
+        private void ReportRecordingActivity(string message) {
+            StreamingStatusText.Text = message;
         }
 
         private bool IsAnyStreamRunning() {

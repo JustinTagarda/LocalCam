@@ -10,6 +10,7 @@ namespace LocalCam {
         private bool _isDirty;
         private bool _allowClose;
         private string? _snapshotFolderPathValue;
+        private string? _recordingFolderPathValue;
         public bool DidSave { get; private set; }
 
         public SettingsWindow(LocalCamSettings settings) {
@@ -21,7 +22,9 @@ namespace LocalCam {
             RtspPasswordBox.Password = settings.RtspPassword;
             StreamPathTextBox.Text = settings.StreamPath;
             _snapshotFolderPathValue = NormalizeSnapshotSaveFolder(settings.SnapshotSaveFolder);
+            _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
             RefreshSnapshotFolderDisplay();
+            RefreshRecordingFolderDisplay();
             UpdateCommitState();
         }
 
@@ -69,6 +72,33 @@ namespace LocalCam {
         private void ResetSnapshotFolderButton_Click(object sender, RoutedEventArgs e) {
             _snapshotFolderPathValue = null;
             RefreshSnapshotFolderDisplay();
+            UpdateCommitState();
+        }
+
+        private void BrowseRecordingFolderButton_Click(object sender, RoutedEventArgs e) {
+            var picker = new OpenFolderDialog {
+                Title = "Select recording save folder",
+                Multiselect = false
+            };
+
+            if (!string.IsNullOrWhiteSpace(_recordingFolderPathValue)) {
+                picker.InitialDirectory = _recordingFolderPathValue;
+            }
+            else {
+                picker.InitialDirectory = GetDefaultRecordingFolderPath();
+            }
+
+            var result = picker.ShowDialog(this);
+            if (result == true && !string.IsNullOrWhiteSpace(picker.FolderName)) {
+                _recordingFolderPathValue = NormalizeRecordingSaveFolder(picker.FolderName.Trim());
+                RefreshRecordingFolderDisplay();
+                UpdateCommitState();
+            }
+        }
+
+        private void ResetRecordingFolderButton_Click(object sender, RoutedEventArgs e) {
+            _recordingFolderPathValue = null;
+            RefreshRecordingFolderDisplay();
             UpdateCommitState();
         }
 
@@ -171,6 +201,7 @@ namespace LocalCam {
                 StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
                 AutoStreamVideo = _initialSettings.AutoStreamVideo,
                 SnapshotSaveFolder = _snapshotFolderPathValue,
+                RecordingSaveFolder = _recordingFolderPathValue,
                 LastSuccessfulDetectionMethod = _initialSettings.LastSuccessfulDetectionMethod,
                 MainWindowLeft = _initialSettings.MainWindowLeft,
                 MainWindowTop = _initialSettings.MainWindowTop,
@@ -191,12 +222,19 @@ namespace LocalCam {
         }
 
         private static string? NormalizeSnapshotSaveFolder(string? input) {
+            return NormalizeKnownDefaultFolder(input, GetDefaultSnapshotFolderPath());
+        }
+
+        private static string? NormalizeRecordingSaveFolder(string? input) {
+            return NormalizeKnownDefaultFolder(input, GetDefaultRecordingFolderPath());
+        }
+
+        private static string? NormalizeKnownDefaultFolder(string? input, string defaultPath) {
             var normalized = (input ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(normalized)) {
                 return null;
             }
 
-            var defaultPath = GetDefaultSnapshotFolderPath();
             var normalizedFullPath = GetNormalizedFullPath(normalized);
             var defaultFullPath = GetNormalizedFullPath(defaultPath);
             return string.Equals(normalizedFullPath, defaultFullPath, StringComparison.OrdinalIgnoreCase)
@@ -211,11 +249,25 @@ namespace LocalCam {
                 : System.IO.Path.Combine(pictures, "LocalCam");
         }
 
+        private static string GetDefaultRecordingFolderPath() {
+            var videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+            return string.IsNullOrWhiteSpace(videos)
+                ? "Videos\\LocalCam"
+                : System.IO.Path.Combine(videos, "LocalCam");
+        }
+
         private void RefreshSnapshotFolderDisplay() {
             var effectivePath = _snapshotFolderPathValue ?? GetDefaultSnapshotFolderPath();
             var displayText = GetUserFolderDisplayText(effectivePath);
             SnapshotFolderTextBox.Text = displayText;
             SnapshotFolderTextBox.ToolTip = effectivePath;
+        }
+
+        private void RefreshRecordingFolderDisplay() {
+            var effectivePath = _recordingFolderPathValue ?? GetDefaultRecordingFolderPath();
+            var displayText = GetUserFolderDisplayText(effectivePath);
+            RecordingFolderTextBox.Text = displayText;
+            RecordingFolderTextBox.ToolTip = effectivePath;
         }
 
         private static string GetUserFolderDisplayText(string fullPath) {
@@ -224,6 +276,12 @@ namespace LocalCam {
             if (!string.IsNullOrWhiteSpace(pictures) &&
                 string.Equals(normalized, GetNormalizedFullPath(System.IO.Path.Combine(pictures, "LocalCam")), StringComparison.OrdinalIgnoreCase)) {
                 return "Pictures";
+            }
+
+            var videos = GetNormalizedFullPath(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos));
+            if (!string.IsNullOrWhiteSpace(videos) &&
+                string.Equals(normalized, GetNormalizedFullPath(System.IO.Path.Combine(videos, "LocalCam")), StringComparison.OrdinalIgnoreCase)) {
+                return "Videos";
             }
 
             var knownFolders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
@@ -260,6 +318,7 @@ namespace LocalCam {
                    string.Equals(a.RtspPassword, b.RtspPassword, StringComparison.Ordinal) &&
                    string.Equals(NormalizeStreamPath(a.StreamPath), NormalizeStreamPath(b.StreamPath), StringComparison.Ordinal) &&
                    string.Equals(NormalizeSnapshotSaveFolder(a.SnapshotSaveFolder), NormalizeSnapshotSaveFolder(b.SnapshotSaveFolder), StringComparison.Ordinal) &&
+                   string.Equals(NormalizeRecordingSaveFolder(a.RecordingSaveFolder), NormalizeRecordingSaveFolder(b.RecordingSaveFolder), StringComparison.Ordinal) &&
                    a.AutoStreamVideo == b.AutoStreamVideo &&
                    string.Equals(a.LastSuccessfulDetectionMethod, b.LastSuccessfulDetectionMethod, StringComparison.Ordinal) &&
                    a.MainWindowLeft == b.MainWindowLeft &&
@@ -275,6 +334,7 @@ namespace LocalCam {
                 StreamPath = settings.StreamPath,
                 AutoStreamVideo = settings.AutoStreamVideo,
                 SnapshotSaveFolder = settings.SnapshotSaveFolder,
+                RecordingSaveFolder = settings.RecordingSaveFolder,
                 LastSuccessfulDetectionMethod = settings.LastSuccessfulDetectionMethod,
                 MainWindowLeft = settings.MainWindowLeft,
                 MainWindowTop = settings.MainWindowTop,
