@@ -7,11 +7,11 @@ namespace LocalCam.Services {
         private static readonly JsonSerializerOptions JsonOptions = new() {
             WriteIndented = false
         };
+        private static readonly bool IsLoggingEnabled = DetermineLoggingEnabled();
 
         private static string LogDirectory {
             get {
-                var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                return Path.Combine(root, "LocalCam", "logs");
+                return AppContext.BaseDirectory;
             }
         }
 
@@ -20,6 +20,10 @@ namespace LocalCam.Services {
         }
 
         public static void Initialize() {
+            if (!IsLoggingEnabled) {
+                return;
+            }
+
             try {
                 Directory.CreateDirectory(LogDirectory);
             }
@@ -60,6 +64,10 @@ namespace LocalCam.Services {
             string category,
             IReadOnlyDictionary<string, object?>? data,
             Exception? exception) {
+            if (!IsLoggingEnabled) {
+                return;
+            }
+
             try {
                 Initialize();
 
@@ -83,6 +91,51 @@ namespace LocalCam.Services {
             catch {
                 // Logging is best-effort only.
             }
+        }
+
+        private static bool DetermineLoggingEnabled() {
+#if !DEBUG
+            return false;
+#else
+            return !IsInstalledDistribution();
+#endif
+        }
+
+        private static bool IsInstalledDistribution() {
+            if (IsPackagedProcess()) {
+                return true;
+            }
+
+            var startupDirectory = Path.GetFullPath(AppContext.BaseDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            return IsUnderPath(startupDirectory, programFiles)
+                || IsUnderPath(startupDirectory, programFilesX86);
+        }
+
+        private static bool IsPackagedProcess() {
+            var packageFamilyName = Environment.GetEnvironmentVariable("PACKAGE_FAMILY_NAME");
+            if (!string.IsNullOrWhiteSpace(packageFamilyName)) {
+                return true;
+            }
+
+            var appxPackageFamilyName = Environment.GetEnvironmentVariable("APPX_PACKAGE_FAMILY_NAME");
+            return !string.IsNullOrWhiteSpace(appxPackageFamilyName);
+        }
+
+        private static bool IsUnderPath(string candidate, string root) {
+            if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(root)) {
+                return false;
+            }
+
+            var comparison = StringComparison.OrdinalIgnoreCase;
+            return candidate.Equals(root, comparison)
+                || candidate.StartsWith(root + Path.DirectorySeparatorChar, comparison)
+                || candidate.StartsWith(root + Path.AltDirectorySeparatorChar, comparison);
         }
 
         private sealed record JsonLogEntry(

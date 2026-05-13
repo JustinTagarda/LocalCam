@@ -1,0 +1,1887 @@
+    1: using System.Windows;
+    2: using System.Windows.Controls;
+    3: using System.Windows.Input;
+    4: using System.Windows.Interop;
+    5: using System.Windows.Media.Imaging;
+    6: using System.Windows.Shapes;
+    7: using LibVLCSharp.Shared;
+    8: using LibVLCSharp.WPF;
+    9: using LocalCam.Networking;
+   10: using LocalCam.Models;
+   11: using LocalCam.Services;
+   12: using System.Diagnostics;
+   13: using System.Runtime.InteropServices;
+   14: using Geometry = System.Windows.Media.Geometry;
+   15: using IOPath = System.IO.Path;
+   16: using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
+   17: 
+   18: namespace LocalCam {
+   19:     public partial class MainWindow : Window {
+   20:         private delegate IntPtr MouseHookProc(int nCode, IntPtr wParam, IntPtr lParam);
+   21: 
+   22:         private sealed class CameraTileControls {
+   23:             public required Border Card { get; init; }
+   24:             public required Border Placeholder { get; init; }
+   25:             public required Border Badge { get; init; }
+   26:             public required TextBlock Label { get; init; }
+   27:             public required VideoView VideoView { get; init; }
+   28:             public required Button ExpandCollapseButton { get; init; }
+   29:             public required Button StreamToggleButton { get; init; }
+   30:             public VlcMediaPlayer? MediaPlayer { get; set; }
+   31:         }
+   32: 
+   33:         private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
+   34:         private static readonly Geometry RestoreGeometry = Geometry.Parse("M4,2 L12,2 12,10 M4,2 L4,10 12,10 M2,4 L10,4 10,12 2,12 Z");
+   35:         private const int WmMove = 0x0003;
+   36:         private const int WmSize = 0x0005;
+   37:         private const int WmGetMinMaxInfo = 0x0024;
+   38:         private const int WmWindowPosChanged = 0x0047;
+   39:         private const int WmLButtonDown = 0x0201;
+   40:         private const int WmLButtonUp = 0x0202;
+   41:         private const int WmMoving = 0x0216;
+   42:         private const int WhMouse = 7;
+   43:         private const int WhMouseLl = 14;
+   44:         private const int HcAction = 0;
+   45:         private const int SmCxDoubleClk = 36;
+   46:         private const int SmCyDoubleClk = 37;
+   47:         private const uint MonitorDefaultToNearest = 2;
+   48:         private const string InputDiagnosticsCategory = "InputDiagnostics";
+   49:         private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
+   50: 
+   51:         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
+   52:         private readonly List<CameraTileControls> _cameraTiles = new();
+   53:         private LibVLC? _libVlc;
+   54:         private CancellationTokenSource? _scanCancellation;
+   55:         private bool _isClosing;
+   56:         private bool _isScanning;
+   57:         private bool _streamsRunning;
+   58:         private bool _isStartingStreams;
+   59:         private bool _isApplyingPersistedWindowBounds;
+   60:         private bool _hasAppliedPersistedWindowBounds;
+   61:         private bool _layoutRetryPending;
+   62:         private bool _isSettingsDialogOpen;
+   63:         private int? _expandedCameraIndex;
+   64:         private IntPtr _mouseHookHandle;
+   65:         private IntPtr _lowLevelMouseHookHandle;
+   66:         private MouseHookProc? _mouseHookProc;
+   67:         private MouseHookProc? _lowLevelMouseHookProc;
+   68:         private int? _lastToggleTileIndex;
+   69:         private long _lastToggleTicks;
+   70:         private int? _lastDoubleClickTileIndex;
+   71:         private long _lastDoubleClickTicks;
+   72:         private long _lastUnmatchedMouseLogTicks;
+   73:         private int _lastDoubleClickX;
+   74:         private int _lastDoubleClickY;
+   75:         private LocalCamSettings _settings = new();
+   76:         private readonly IAppVersionProvider _versionProvider = new AppVersionProvider();
+   77:         private IAppUpdateService? _appUpdateService;
+   78:         private CancellationTokenSource? _appUpdateCancellation;
+   79: 
+   80:         public MainWindow()
+   81:             : this(Array.Empty<TapoCameraDetection>()) {
+   82:         }
+   83: 
+   84:         public MainWindow(IReadOnlyList<TapoCameraDetection> detections) {
+   85:             _detections = detections.ToArray();
+   86: 
+   87:             InitializeComponent();
+   88:             SourceInitialized += MainWindow_SourceInitialized;
+   89:             LocationChanged += Window_LocationChanged;
+   90:             SizeChanged += Window_SizeChanged;
+   91:             FooterVersionText.Text = $"v{_versionProvider.GetInstalledVersionText()}";
+   92:             LoadSettings();
+   93:             ApplyPersistedWindowBounds();
+   94:             UpdateMaximizeButtonIcon();
+   95:             PopulateCameraTiles(_detections);
+   96:             var engineReady = InitializeStreamingEngine();
+   97: 
+   98:             if (engineReady) {
+   99:                 if (_detections.Count > 0) {
+  100:                     ShowDetections(_detections);
+  101:                 }
+  102:                 else {
+  103:                     ShowEmptyCameraSlots();
+  104:                 }
+  105:             }
+  106:         }
+  107: 
+  108:         private bool InitializeStreamingEngine() {
+  109:             try {
+  110:                 Core.Initialize();
+  111:                 _libVlc = new LibVLC("--network-caching=300", "--rtsp-tcp", "--no-video-title-show");
+  112:                 EnsureCameraTileCount(_detections.Count);
+  113:                 return true;
+  114:             }
+  115:             catch (Exception ex) {
+  116:                 StreamingStatusText.Text = $"Video engine initialization failed: {ex.Message}";
+  117:                 return false;
+  118:             }
+  119:         }
+  120: 
+  121:         private void LoadSettings() {
+  122:             if (SettingsStore.TryLoad(out var savedSettings)) {
+  123:                 _settings = savedSettings;
+  124:                 return;
+  125:             }
+  126: 
+  127:             var defaultUser = Environment.GetEnvironmentVariable("LOCALCAM_RTSP_USERNAME");
+  128:             var defaultPassword = Environment.GetEnvironmentVariable("LOCALCAM_RTSP_PASSWORD");
+  129: 
+  130:             _settings = new LocalCamSettings {
+  131:                 RtspUsername = defaultUser ?? string.Empty,
+  132:                 RtspPassword = defaultPassword ?? string.Empty,
+  133:                 StreamPath = "stream1",
+  134:                 AutoStreamVideo = false
+  135:             };
+  136:         }
+  137: 
+  138:         private void ApplyPersistedWindowBounds() {
+  139:             if (_hasAppliedPersistedWindowBounds) {
+  140:                 return;
+  141:             }
+  142: 
+  143:             _hasAppliedPersistedWindowBounds = true;
+  144: 
+  145:             if (!HasPersistedWindowBounds()) {
+  146:                 CenterWindowOnPrimaryScreen();
+  147:                 return;
+  148:             }
+  149: 
+  150:             _isApplyingPersistedWindowBounds = true;
+  151:             try {
+  152:                 Left = _settings.MainWindowLeft ?? Left;
+  153:                 Top = _settings.MainWindowTop ?? Top;
+  154:                 Width = Math.Max(MinWidth, _settings.MainWindowWidth ?? Width);
+  155:                 Height = Math.Max(MinHeight, _settings.MainWindowHeight ?? Height);
+  156: 
+  157:                 if (!IsWindowVisibleOnScreen()) {
+  158:                     CenterWindowOnPrimaryScreen();
+  159:                 }
+  160:             }
+  161:             finally {
+  162:                 _isApplyingPersistedWindowBounds = false;
+  163:             }
+  164:         }
+  165: 
+  166:         private bool HasPersistedWindowBounds() {
+  167:             return _settings.MainWindowLeft.HasValue &&
+  168:                    _settings.MainWindowTop.HasValue &&
+  169:                    _settings.MainWindowWidth.HasValue &&
+  170:                    _settings.MainWindowHeight.HasValue &&
+  171:                    _settings.MainWindowWidth.Value > 0 &&
+  172:                    _settings.MainWindowHeight.Value > 0;
+  173:         }
+  174: 
+  175:         private bool IsWindowVisibleOnScreen() {
+  176:             var windowBounds = GetWindowBoundsForPersistence();
+  177:             var virtualScreenBounds = new Rect(
+  178:                 SystemParameters.VirtualScreenLeft,
+  179:                 SystemParameters.VirtualScreenTop,
+  180:                 SystemParameters.VirtualScreenWidth,
+  181:                 SystemParameters.VirtualScreenHeight);
+  182:             var intersection = Rect.Intersect(windowBounds, virtualScreenBounds);
+  183:             return !intersection.IsEmpty && intersection.Width >= 120 && intersection.Height >= 120;
+  184:         }
+  185: 
+  186:         private void CenterWindowOnPrimaryScreen() {
+  187:             var workingArea = SystemParameters.WorkArea;
+  188:             var width = Math.Max(MinWidth, Width);
+  189:             var height = Math.Max(MinHeight, Height);
+  190: 
+  191:             Left = workingArea.Left + Math.Max(0, (workingArea.Width - width) / 2);
+  192:             Top = workingArea.Top + Math.Max(0, (workingArea.Height - height) / 2);
+  193:             Width = width;
+  194:             Height = height;
+  195:         }
+  196: 
+  197:         private Rect GetWindowBoundsForPersistence() {
+  198:             if (WindowState == WindowState.Normal) {
+  199:                 return new Rect(
+  200:                     Left,
+  201:                     Top,
+  202:                     ActualWidth > 0 ? ActualWidth : Width,
+  203:                     ActualHeight > 0 ? ActualHeight : Height);
+  204:             }
+  205: 
+  206:             var restoreBounds = RestoreBounds;
+  207:             if (restoreBounds.Width > 0 && restoreBounds.Height > 0) {
+  208:                 return restoreBounds;
+  209:             }
+  210: 
+  211:             return new Rect(
+  212:                 Left,
+  213:                 Top,
+  214:                 ActualWidth > 0 ? ActualWidth : Width,
+  215:                 ActualHeight > 0 ? ActualHeight : Height);
+  216:         }
+  217: 
+  218:         private void PersistWindowBounds() {
+  219:             if (_isClosing || !_hasAppliedPersistedWindowBounds || _isApplyingPersistedWindowBounds) {
+  220:                 return;
+  221:             }
+  222: 
+  223:             var bounds = GetWindowBoundsForPersistence();
+  224:             if (bounds.Width <= 0 || bounds.Height <= 0) {
+  225:                 return;
+  226:             }
+  227: 
+  228:             _settings.MainWindowLeft = bounds.Left;
+  229:             _settings.MainWindowTop = bounds.Top;
+  230:             _settings.MainWindowWidth = bounds.Width;
+  231:             _settings.MainWindowHeight = bounds.Height;
+  232:             SettingsStore.Save(_settings);
+  233:         }
+  234: 
+  235:         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
+  236:             _expandedCameraIndex = null;
+  237:             EnsureCameraTileCount(detections.Count);
+  238:             for (var i = 0; i < _cameraTiles.Count; i++) {
+  239:                 _cameraTiles[i].Label.Text = $"camera {i + 1} - live streaming ({detections[i].IpAddress})";
+  240:                 SetVideoSurfaceActive(i, isActive: false);
+  241:             }
+  242: 
+  243:             ApplyResponsiveCameraLayout();
+  244:         }
+  245: 
+  246:         private void EnsureCameraTileCount(int count) {
+  247:             count = Math.Max(0, count);
+  248: 
+  249:             while (_cameraTiles.Count > count) {
+  250:                 var tile = _cameraTiles[^1];
+  251:                 tile.MediaPlayer?.Stop();
+  252:                 tile.VideoView.MediaPlayer = null;
+  253:                 tile.MediaPlayer?.Dispose();
+  254:                 CameraTilesPanel.Children.Remove(tile.Card);
+  255:                 _cameraTiles.RemoveAt(_cameraTiles.Count - 1);
+  256:             }
+  257: 
+  258:             while (_cameraTiles.Count < count) {
+  259:                 var tile = CreateCameraTile(_cameraTiles.Count);
+  260:                 _cameraTiles.Add(tile);
+  261:                 CameraTilesPanel.Children.Add(tile.Card);
+  262:                 AttachMediaPlayer(tile);
+  263:             }
+  264:         }
+  265: 
+  266:         private CameraTileControls CreateCameraTile(int tileIndex) {
+  267:             var card = new Border {
+  268:                 Style = (Style)FindResource("CameraCardStyle")
+  269:             };
+  270:             var root = new Grid();
+  271: 
+  272:             var placeholder = new Border {
+  273:                 Style = (Style)FindResource("CameraPlaceholderStyle"),
+  274:                 Margin = new Thickness(0)
+  275:             };
+  276: 
+  277:             var videoHost = new Border {
+  278:                 Style = (Style)FindResource("CameraVideoHostStyle")
+  279:             };
+  280:             var videoView = new VideoView {
+  281:                 Style = (Style)FindResource("CameraVideoViewStyle"),
+  282:                 Margin = new Thickness(0)
+  283:             };
+  284:             videoHost.Child = videoView;
+  285: 
+  286:             var badge = new Border {
+  287:                 Style = (Style)FindResource("CameraBadgeStyle"),
+  288:                 VerticalAlignment = VerticalAlignment.Top,
+  289:                 HorizontalAlignment = HorizontalAlignment.Left
+  290:             };
+  291:             var label = new TextBlock {
+  292:                 Foreground = (System.Windows.Media.Brush)FindResource("TitleBarIconBrush"),
+  293:                 FontSize = 13,
+  294:                 Text = $"camera {tileIndex + 1} - empty"
+  295:             };
+  296:             badge.Child = label;
+  297: 
+  298:             var expandButton = new Button {
+  299:                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+  300:                 HorizontalAlignment = HorizontalAlignment.Right,
+  301:                 VerticalAlignment = VerticalAlignment.Top,
+  302:                 Margin = new Thickness(0, 10, 10, 0),
+  303:                 ToolTip = "Expand"
+  304:             };
+  305:             expandButton.Content = CreateExpandButtonContent();
+  306:             expandButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+  307: 
+  308:             var streamToggleButton = new Button {
+  309:                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+  310:                 HorizontalAlignment = HorizontalAlignment.Right,
+  311:                 VerticalAlignment = VerticalAlignment.Top,
+  312:                 Margin = new Thickness(0, 10, 46, 0),
+  313:                 ToolTip = "Start",
+  314:                 Content = "▶"
+  315:             };
+  316:             streamToggleButton.Click += (_, _) => ToggleSingleCameraStream(tileIndex);
+  317:             card.AddHandler(
+  318:                 UIElement.PreviewMouseLeftButtonDownEvent,
+  319:                 new MouseButtonEventHandler((_, e) => {
+  320:                     var screenPoint = card.PointToScreen(e.GetPosition(card));
+  321:                     LogCardMouseDown(
+  322:                         "CardPreviewMouseDown",
+  323:                         "WPF preview mouse down inside camera card.",
+  324:                         tileIndex,
+  325:                         (int)Math.Round(screenPoint.X),
+  326:                         (int)Math.Round(screenPoint.Y),
+  327:                         e.ClickCount,
+  328:                         handledBefore: e.Handled);
+  329: 
+  330:                     if (e.ClickCount == 2) {
+  331:                         if (IsSettingsDialogOpen()) {
+  332:                             return;
+  333:                         }
+  334:                         if (!IsCameraTileActive(tileIndex)) {
+  335:                             return;
+  336:                         }
+  337: 
+  338:                         LogDoubleClickToggleAttempt("WpfCardPreview", tileIndex, (int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y));
+  339:                         ToggleCameraTileExpandCollapse(tileIndex);
+  340:                         e.Handled = true;
+  341:                     }
+  342:                 }),
+  343:                 handledEventsToo: true);
+  344: 
+  345:             var videoOverlay = new Grid {
+  346:                 HorizontalAlignment = HorizontalAlignment.Stretch,
+  347:                 VerticalAlignment = VerticalAlignment.Stretch
+  348:             };
+  349:             videoOverlay.Children.Add(expandButton);
+  350:             videoOverlay.Children.Add(streamToggleButton);
+  351:             Panel.SetZIndex(expandButton, 0);
+  352:             Panel.SetZIndex(streamToggleButton, 0);
+  353:             videoView.Content = videoOverlay;
+  354: 
+  355:             root.Children.Add(placeholder);
+  356:             Panel.SetZIndex(placeholder, 0);
+  357:             root.Children.Add(videoHost);
+  358:             Panel.SetZIndex(videoHost, 1);
+  359:             root.Children.Add(badge);
+  360:             Panel.SetZIndex(badge, 2);
+  361:             card.Child = root;
+  362: 
+  363:             return new CameraTileControls {
+  364:                 Card = card,
+  365:                 Placeholder = placeholder,
+  366:                 Badge = badge,
+  367:                 Label = label,
+  368:                 VideoView = videoView,
+  369:                 ExpandCollapseButton = expandButton,
+  370:                 StreamToggleButton = streamToggleButton
+  371:             };
+  372:         }
+  373: 
+  374:         private static FrameworkElement CreateExpandButtonContent() {
+  375:             var expandImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "expand.png");
+  376:             return CreateButtonImageContentOrFallback(expandImagePath);
+  377:         }
+  378: 
+  379:         private static FrameworkElement CreateCollapseButtonContent() {
+  380:             var collapseImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "collapse.png");
+  381:             return CreateButtonImageContentOrFallback(collapseImagePath);
+  382:         }
+  383: 
+  384:         private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
+  385:             if (!System.IO.File.Exists(imagePath)) {
+  386:                 return new System.Windows.Shapes.Path {
+  387:                     Data = ExpandButtonGeometry,
+  388:                     Fill = System.Windows.Media.Brushes.Transparent,
+  389:                     Stroke = System.Windows.Media.Brushes.White,
+  390:                     StrokeThickness = 1.6,
+  391:                     StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+  392:                     StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+  393:                     StrokeLineJoin = System.Windows.Media.PenLineJoin.Round
+  394:                 };
+  395:             }
+  396: 
+  397:             var imageSource = new BitmapImage();
+  398:             imageSource.BeginInit();
+  399:             imageSource.CacheOption = BitmapCacheOption.OnLoad;
+  400:             imageSource.UriSource = new Uri(imagePath);
+  401:             imageSource.EndInit();
+  402:             imageSource.Freeze();
+  403: 
+  404:             return new Image {
+  405:                 Source = imageSource,
+  406:                 Width = 16,
+  407:                 Height = 16,
+  408:                 Stretch = System.Windows.Media.Stretch.Uniform
+  409:             };
+  410:         }
+  411: 
+  412:         private void UpdateExpandCollapseButtons() {
+  413:             var expandedIndex = _expandedCameraIndex;
+  414:             for (var i = 0; i < _cameraTiles.Count; i++) {
+  415:                 var tile = _cameraTiles[i];
+  416:                 var isExpanded = expandedIndex.HasValue && expandedIndex.Value == i;
+  417:                 var isActive = IsCameraTileActive(i);
+  418:                 var shouldShowButton = isActive && (!expandedIndex.HasValue || isExpanded);
+  419:                 tile.ExpandCollapseButton.Visibility = shouldShowButton ? Visibility.Visible : Visibility.Collapsed;
+  420:                 tile.ExpandCollapseButton.ToolTip = isExpanded ? "Collapse" : "Expand";
+  421:                 tile.ExpandCollapseButton.Content = isExpanded
+  422:                     ? CreateCollapseButtonContent()
+  423:                     : CreateExpandButtonContent();
+  424:                 tile.StreamToggleButton.Visibility = Visibility.Visible;
+  425:             }
+  426:         }
+  427: 
+  428:         private bool IsCameraTileActive(int tileIndex) {
+  429:             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+  430:                 return false;
+  431:             }
+  432: 
+  433:             var tile = _cameraTiles[tileIndex];
+  434:             return tile.VideoView.Visibility == Visibility.Visible ||
+  435:                    (tile.MediaPlayer is not null && tile.MediaPlayer.IsPlaying);
+  436:         }
+  437: 
+  438:         private void AttachMediaPlayer(CameraTileControls tile) {
+  439:             if (_libVlc is null || tile.MediaPlayer is not null) {
+  440:                 return;
+  441:             }
+  442: 
+  443:             var mediaPlayer = new VlcMediaPlayer(_libVlc) {
+  444:                 EnableHardwareDecoding = true,
+  445:                 EnableMouseInput = false,
+  446:                 Mute = true
+  447:             };
+  448: 
+  449:             tile.MediaPlayer = mediaPlayer;
+  450:             tile.VideoView.MediaPlayer = mediaPlayer;
+  451:         }
+  452: 
+  453:         private void SetVideoSurfaceActive(int index, bool isActive) {
+  454:             if (index < 0 || index >= _cameraTiles.Count) {
+  455:                 return;
+  456:             }
+  457: 
+  458:             var tile = _cameraTiles[index];
+  459:             tile.VideoView.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+  460:             tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+  461:             tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+  462:             UpdateExpandCollapseButtons();
+  463:         }
+  464: 
+  465:         private void ToggleCameraTileExpandCollapse(int tileIndex) {
+  466:             if (IsSettingsDialogOpen()) {
+  467:                 JsonLogStore.Information(
+  468:                     "ExpandCollapseToggleSuppressed",
+  469:                     "Expand/collapse toggle suppressed because the settings dialog is open.",
+  470:                     InputDiagnosticsCategory,
+  471:                     new Dictionary<string, object?> {
+  472:                         ["tileIndex"] = tileIndex,
+  473:                         ["expandedCameraIndex"] = _expandedCameraIndex
+  474:                     });
+  475:                 return;
+  476:             }
+  477: 
+  478:             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+  479:                 JsonLogStore.Warning(
+  480:                     "ExpandCollapseToggleRejected",
+  481:                     "Expand/collapse toggle rejected because the camera tile index is out of range.",
+  482:                     InputDiagnosticsCategory,
+  483:                     new Dictionary<string, object?> {
+  484:                         ["tileIndex"] = tileIndex,
+  485:                         ["tileCount"] = _cameraTiles.Count
+  486:                     });
+  487:                 return;
+  488:             }
+  489: 
+  490:             if (!IsCameraTileActive(tileIndex)) {
+  491:                 JsonLogStore.Information(
+  492:                     "ExpandCollapseToggleSuppressed",
+  493:                     "Expand/collapse toggle suppressed because the camera tile is not active.",
+  494:                     InputDiagnosticsCategory,
+  495:                     new Dictionary<string, object?> {
+  496:                         ["tileIndex"] = tileIndex,
+  497:                         ["expandedCameraIndex"] = _expandedCameraIndex
+  498:                     });
+  499:                 return;
+  500:             }
+  501: 
+  502:             var now = Environment.TickCount64;
+  503:             if (_lastToggleTileIndex == tileIndex && now - _lastToggleTicks <= 150) {
+  504:                 JsonLogStore.Information(
+  505:                     "ExpandCollapseToggleSuppressed",
+  506:                     "Duplicate expand/collapse toggle suppressed.",
+  507:                     InputDiagnosticsCategory,
+  508:                     new Dictionary<string, object?> {
+  509:                         ["tileIndex"] = tileIndex,
+  510:                         ["elapsedMs"] = now - _lastToggleTicks,
+  511:                         ["expandedCameraIndex"] = _expandedCameraIndex
+  512:                     });
+  513:                 return;
+  514:             }
+  515: 
+  516:             var previousExpandedIndex = _expandedCameraIndex;
+  517:             _expandedCameraIndex = _expandedCameraIndex == tileIndex ? null : tileIndex;
+  518:             _lastToggleTileIndex = tileIndex;
+  519:             _lastToggleTicks = now;
+  520: 
+  521:             JsonLogStore.Information(
+  522:                 "ExpandCollapseToggleApplied",
+  523:                 "Expand/collapse toggle applied.",
+  524:                 InputDiagnosticsCategory,
+  525:                 new Dictionary<string, object?> {
+  526:                     ["tileIndex"] = tileIndex,
+  527:                     ["previousExpandedCameraIndex"] = previousExpandedIndex,
+  528:                     ["newExpandedCameraIndex"] = _expandedCameraIndex,
+  529:                     ["tileCount"] = _cameraTiles.Count
+  530:                 });
+  531: 
+  532:             ApplyResponsiveCameraLayout();
+  533:         }
+  534: 
+  535:         private void InstallMouseHook() {
+  536:             if (_mouseHookHandle != IntPtr.Zero && _lowLevelMouseHookHandle != IntPtr.Zero) {
+  537:                 JsonLogStore.Information(
+  538:                     "MouseHookInstallSkipped",
+  539:                     "Mouse hook install skipped because hooks are already active.",
+  540:                     InputDiagnosticsCategory,
+  541:                     new Dictionary<string, object?> {
+  542:                         ["hookHandle"] = _mouseHookHandle.ToInt64(),
+  543:                         ["lowLevelHookHandle"] = _lowLevelMouseHookHandle.ToInt64(),
+  544:                         ["threadId"] = GetCurrentThreadId()
+  545:                     });
+  546:                 return;
+  547:             }
+  548: 
+  549:             var threadId = GetCurrentThreadId();
+  550:             if (_mouseHookHandle == IntPtr.Zero) {
+  551:                 _mouseHookProc = MouseHookCallback;
+  552:                 _mouseHookHandle = SetWindowsHookEx(
+  553:                     WhMouse,
+  554:                     _mouseHookProc,
+  555:                     IntPtr.Zero,
+  556:                     threadId);
+  557:             }
+  558: 
+  559:             var mouseHookError = Marshal.GetLastWin32Error();
+  560:             if (_lowLevelMouseHookHandle == IntPtr.Zero) {
+  561:                 _lowLevelMouseHookProc = LowLevelMouseHookCallback;
+  562:                 _lowLevelMouseHookHandle = SetWindowsHookEx(
+  563:                     WhMouseLl,
+  564:                     _lowLevelMouseHookProc,
+  565:                     IntPtr.Zero,
+  566:                     0);
+  567:             }
+  568: 
+  569:             var lowLevelHookError = Marshal.GetLastWin32Error();
+  570:             JsonLogStore.Information(
+  571:                 _mouseHookHandle == IntPtr.Zero && _lowLevelMouseHookHandle == IntPtr.Zero
+  572:                     ? "MouseHookInstallFailed"
+  573:                     : "MouseHookInstalled",
+  574:                 "Mouse hook install attempted.",
+  575:                 InputDiagnosticsCategory,
+  576:                 new Dictionary<string, object?> {
+  577:                     ["hookHandle"] = _mouseHookHandle.ToInt64(),
+  578:                     ["lowLevelHookHandle"] = _lowLevelMouseHookHandle.ToInt64(),
+  579:                     ["threadId"] = threadId,
+  580:                     ["mouseHookLastWin32Error"] = mouseHookError,
+  581:                     ["lowLevelHookLastWin32Error"] = lowLevelHookError
+  582:                 });
+  583:         }
+  584: 
+  585:         private void UninstallMouseHook() {
+  586:             var hookHandle = _mouseHookHandle;
+  587:             var lowLevelHookHandle = _lowLevelMouseHookHandle;
+  588:             if (_mouseHookHandle != IntPtr.Zero) {
+  589:                 UnhookWindowsHookEx(_mouseHookHandle);
+  590:                 _mouseHookHandle = IntPtr.Zero;
+  591:                 _mouseHookProc = null;
+  592:             }
+  593: 
+  594:             if (_lowLevelMouseHookHandle != IntPtr.Zero) {
+  595:                 UnhookWindowsHookEx(_lowLevelMouseHookHandle);
+  596:                 _lowLevelMouseHookHandle = IntPtr.Zero;
+  597:                 _lowLevelMouseHookProc = null;
+  598:             }
+  599: 
+  600:             JsonLogStore.Information(
+  601:                 "MouseHookUninstalled",
+  602:                 "Mouse hooks uninstalled.",
+  603:                 InputDiagnosticsCategory,
+  604:                 new Dictionary<string, object?> {
+  605:                     ["hookHandle"] = hookHandle.ToInt64(),
+  606:                     ["lowLevelHookHandle"] = lowLevelHookHandle.ToInt64()
+  607:                 });
+  608:         }
+  609: 
+  610:         private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
+  611:             if (nCode >= HcAction && wParam == WmLButtonDown) {
+  612:                 var mouseInfo = Marshal.PtrToStructure<MouseHookStruct>(lParam);
+  613:                 LogMouseHookDown(mouseInfo);
+  614:                 HandleThreadMouseDown(mouseInfo.pt.x, mouseInfo.pt.y);
+  615:             }
+  616: 
+  617:             return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+  618:         }
+  619: 
+  620:         private IntPtr LowLevelMouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
+  621:             if (nCode >= HcAction && wParam == WmLButtonDown) {
+  622:                 var mouseInfo = Marshal.PtrToStructure<LowLevelMouseHookStruct>(lParam);
+  623:                 LogLowLevelMouseDown(mouseInfo);
+  624:                 HandleThreadMouseDown(mouseInfo.pt.x, mouseInfo.pt.y);
+  625:             }
+  626: 
+  627:             return CallNextHookEx(_lowLevelMouseHookHandle, nCode, wParam, lParam);
+  628:         }
+  629: 
+  630:         private void HandleThreadMouseDown(int screenX, int screenY) {
+  631:             if (IsSettingsDialogOpen()) {
+  632:                 ResetDoubleClickTracking();
+  633:                 return;
+  634:             }
+  635: 
+  636:             var tileIndex = GetCameraTileIndexAtScreenPoint(screenX, screenY);
+  637:             if (!tileIndex.HasValue) {
+  638:                 LogUnmatchedMouseDown(screenX, screenY);
+  639:                 ResetDoubleClickTracking();
+  640:                 return;
+  641:             }
+  642:             if (!IsCameraTileActive(tileIndex.Value)) {
+  643:                 ResetDoubleClickTracking();
+  644:                 return;
+  645:             }
+  646: 
+  647:             var now = Environment.TickCount64;
+  648:             var isDoubleClick = _lastDoubleClickTileIndex == tileIndex.Value &&
+  649:                                 _lastDoubleClickTicks > 0 &&
+  650:                                 now - _lastDoubleClickTicks <= GetDoubleClickTime() &&
+  651:                                 Math.Abs(screenX - _lastDoubleClickX) <= GetSystemMetrics(SmCxDoubleClk) &&
+  652:                                 Math.Abs(screenY - _lastDoubleClickY) <= GetSystemMetrics(SmCyDoubleClk);
+  653: 
+  654:             JsonLogStore.Information(
+  655:                 "MouseDownMatchedCameraCard",
+  656:                 "Mouse down matched a camera card.",
+  657:                 InputDiagnosticsCategory,
+  658:                 new Dictionary<string, object?> {
+  659:                     ["tileIndex"] = tileIndex.Value,
+  660:                     ["screenX"] = screenX,
+  661:                     ["screenY"] = screenY,
+  662:                     ["previousTileIndex"] = _lastDoubleClickTileIndex,
+  663:                     ["elapsedMs"] = _lastDoubleClickTicks > 0 ? now - _lastDoubleClickTicks : null,
+  664:                     ["doubleClickTimeMs"] = GetDoubleClickTime(),
+  665:                     ["doubleClickWidth"] = GetSystemMetrics(SmCxDoubleClk),
+  666:                     ["doubleClickHeight"] = GetSystemMetrics(SmCyDoubleClk),
+  667:                     ["isDoubleClick"] = isDoubleClick,
+  668:                     ["expandedCameraIndex"] = _expandedCameraIndex
+  669:                 });
+  670: 
+  671:             if (isDoubleClick) {
+  672:                 ResetDoubleClickTracking();
+  673:                 LogDoubleClickToggleAttempt("MouseHook", tileIndex.Value, screenX, screenY);
+  674:                 ToggleCameraTileExpandCollapse(tileIndex.Value);
+  675:                 return;
+  676:             }
+  677: 
+  678:             _lastDoubleClickTileIndex = tileIndex.Value;
+  679:             _lastDoubleClickTicks = now;
+  680:             _lastDoubleClickX = screenX;
+  681:             _lastDoubleClickY = screenY;
+  682:         }
+  683: 
+  684:         private int? GetCameraTileIndexAtScreenPoint(int screenX, int screenY) {
+  685:             var screenPoint = new Point(screenX, screenY);
+  686:             for (var i = 0; i < _cameraTiles.Count; i++) {
+  687:                 var card = _cameraTiles[i].Card;
+  688:                 if (!card.IsVisible || card.ActualWidth <= 0 || card.ActualHeight <= 0) {
+  689:                     continue;
+  690:                 }
+  691: 
+  692:                 var cardPoint = card.PointFromScreen(screenPoint);
+  693:                 if (cardPoint.X >= 0 &&
+  694:                     cardPoint.Y >= 0 &&
+  695:                     cardPoint.X <= card.ActualWidth &&
+  696:                     cardPoint.Y <= card.ActualHeight) {
+  697:                     return i;
+  698:                 }
+  699:             }
+  700: 
+  701:             return null;
+  702:         }
+  703: 
+  704:         private void ResetDoubleClickTracking() {
+  705:             _lastDoubleClickTileIndex = null;
+  706:             _lastDoubleClickTicks = 0;
+  707:         }
+  708: 
+  709:         private void LogMouseHookDown(MouseHookStruct mouseInfo) {
+  710:             JsonLogStore.Information(
+  711:                 "MouseHookLeftButtonDown",
+  712:                 "UI-thread mouse hook observed left button down.",
+  713:                 InputDiagnosticsCategory,
+  714:                 new Dictionary<string, object?> {
+  715:                     ["screenX"] = mouseInfo.pt.x,
+  716:                     ["screenY"] = mouseInfo.pt.y,
+  717:                     ["hwnd"] = mouseInfo.hwnd.ToInt64(),
+  718:                     ["hitTestCode"] = mouseInfo.wHitTestCode,
+  719:                     ["tileCount"] = _cameraTiles.Count,
+  720:                     ["expandedCameraIndex"] = _expandedCameraIndex
+  721:                 });
+  722:         }
+  723: 
+  724:         private void LogLowLevelMouseDown(LowLevelMouseHookStruct mouseInfo) {
+  725:             var tileIndex = GetCameraTileIndexAtScreenPoint(mouseInfo.pt.x, mouseInfo.pt.y);
+  726:             JsonLogStore.Information(
+  727:                 "LowLevelMouseHookLeftButtonDown",
+  728:                 "Low-level mouse hook observed left button down.",
+  729:                 InputDiagnosticsCategory,
+  730:                 new Dictionary<string, object?> {
+  731:                     ["screenX"] = mouseInfo.pt.x,
+  732:                     ["screenY"] = mouseInfo.pt.y,
+  733:                     ["mouseData"] = mouseInfo.mouseData,
+  734:                     ["flags"] = mouseInfo.flags,
+  735:                     ["time"] = mouseInfo.time,
+  736:                     ["matchedTileIndex"] = tileIndex,
+  737:                     ["tileCount"] = _cameraTiles.Count,
+  738:                     ["expandedCameraIndex"] = _expandedCameraIndex
+  739:                 });
+  740:         }
+  741: 
+  742:         private void LogCardMouseDown(
+  743:             string eventName,
+  744:             string message,
+  745:             int tileIndex,
+  746:             int screenX,
+  747:             int screenY,
+  748:             int clickCount,
+  749:             bool handledBefore) {
+  750:             JsonLogStore.Information(
+  751:                 eventName,
+  752:                 message,
+  753:                 InputDiagnosticsCategory,
+  754:                 new Dictionary<string, object?> {
+  755:                     ["tileIndex"] = tileIndex,
+  756:                     ["screenX"] = screenX,
+  757:                     ["screenY"] = screenY,
+  758:                     ["clickCount"] = clickCount,
+  759:                     ["handledBefore"] = handledBefore,
+  760:                     ["expandedCameraIndex"] = _expandedCameraIndex
+  761:                 });
+  762:         }
+  763: 
+  764:         private void LogDoubleClickToggleAttempt(string source, int tileIndex, int screenX, int screenY) {
+  765:             JsonLogStore.Information(
+  766:                 "DoubleClickToggleAttempt",
+  767:                 "Double-click detection is attempting to toggle expand/collapse.",
+  768:                 InputDiagnosticsCategory,
+  769:                 new Dictionary<string, object?> {
+  770:                     ["source"] = source,
+  771:                     ["tileIndex"] = tileIndex,
+  772:                     ["screenX"] = screenX,
+  773:                     ["screenY"] = screenY,
+  774:                     ["expandedCameraIndex"] = _expandedCameraIndex
+  775:                 });
+  776:         }
+  777: 
+  778:         private void LogUnmatchedMouseDown(int screenX, int screenY) {
+  779:             var now = Environment.TickCount64;
+  780:             if (now - _lastUnmatchedMouseLogTicks < 1000) {
+  781:                 return;
+  782:             }
+  783: 
+  784:             _lastUnmatchedMouseLogTicks = now;
+  785:             JsonLogStore.Information(
+  786:                 "MouseDownDidNotMatchCameraCard",
+  787:                 "Mouse hook observed left button down, but no visible camera card contained the screen point.",
+  788:                 InputDiagnosticsCategory,
+  789:                 new Dictionary<string, object?> {
+  790:                     ["screenX"] = screenX,
+  791:                     ["screenY"] = screenY,
+  792:                     ["tileCount"] = _cameraTiles.Count,
+  793:                     ["expandedCameraIndex"] = _expandedCameraIndex,
+  794:                     ["visibleTileCount"] = _cameraTiles.Count(tile => tile.Card.IsVisible)
+  795:                 });
+  796:         }
+  797: 
+  798:         private void Window_Loaded(object sender, RoutedEventArgs e) {
+  799:             AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
+  800:             InitializeUpdater();
+  801:             _ = StartLocalCameraSearchAsync();
+  802:         }
+  803: 
+  804:         private void InitializeUpdater() {
+  805:             _appUpdateCancellation = new CancellationTokenSource();
+  806:             _appUpdateService = new AppUpdateService(_versionProvider, new StoreUpdateClient(_versionProvider.IsPackaged()), IsUpdateInstallBusy);
+  807:             _appUpdateService.SnapshotChanged += OnUpdateSnapshotChanged;
+  808:             ApplyUpdateSnapshot(_appUpdateService.Snapshot);
+  809:             _ = _appUpdateService.StartAsync(_appUpdateCancellation.Token);
+  810:         }
+  811: 
+  812:         private bool IsUpdateInstallBusy() {
+  813:             return _isScanning || _isStartingStreams || IsAnyStreamRunning() || _isSettingsDialogOpen;
+  814:         }
+  815: 
+  816:         private void OnUpdateSnapshotChanged(AppUpdateSnapshot snapshot) {
+  817:             try {
+  818:                 Dispatcher.Invoke(() => ApplyUpdateSnapshot(snapshot));
+  819:             }
+  820:             catch (Exception ex) {
+  821:                 JsonLogStore.Error("updater_ui_dispatch_failed", "Failed to dispatch updater snapshot to UI thread.", "updater", ex);
+  822:             }
+  823:         }
+  824: 
+  825:         private void ApplyUpdateSnapshot(AppUpdateSnapshot snapshot) {
+  826:             FooterVersionText.Text = $"v{snapshot.InstalledVersion}";
+  827: 
+  828:             var showUpdatePanel = snapshot.State is AppUpdateState.Downloading or AppUpdateState.Installing or AppUpdateState.Completed or AppUpdateState.Deferred or AppUpdateState.Failed or AppUpdateState.Checking;
+  829:             FooterDefaultPanel.Visibility = showUpdatePanel ? Visibility.Collapsed : Visibility.Visible;
+  830:             FooterUpdatePanel.Visibility = showUpdatePanel ? Visibility.Visible : Visibility.Collapsed;
+  831: 
+  832:             UpdateStatusText.Text = snapshot.IsMandatoryUpdateAvailable
+  833:                 ? $"{snapshot.StageText}: {snapshot.StatusMessage} (mandatory)"
+  834:                 : $"{snapshot.StageText}: {snapshot.StatusMessage}";
+  835: 
+  836:             UpdateProgressBar.Visibility = snapshot.IsProgressVisible ? Visibility.Visible : Visibility.Collapsed;
+  837:             UpdateProgressBar.Value = Math.Clamp(snapshot.ProgressValue, 0, 1);
+  838:             RestartForUpdateButton.Visibility = snapshot.State == AppUpdateState.Completed ? Visibility.Visible : Visibility.Collapsed;
+  839:         }
+  840: 
+  841:         private void RestartForUpdateButton_Click(object sender, RoutedEventArgs e) {
+  842:             _ = sender;
+  843:             _ = e;
+  844: 
+  845:             try {
+  846:                 var executablePath = Environment.ProcessPath;
+  847:                 if (!string.IsNullOrWhiteSpace(executablePath)) {
+  848:                     Process.Start(new ProcessStartInfo {
+  849:                         FileName = executablePath,
+  850:                         UseShellExecute = true
+  851:                     });
+  852:                 }
+  853:             }
+  854:             catch (Exception ex) {
+  855:                 JsonLogStore.Error("updater_restart_failed", "Failed to launch restart after update installation.", "updater", ex);
+  856:             }
+  857: 
+  858:             Close();
+  859:         }
+  860: 
+  861:         private void UpdateActionButtons() {
+  862:             var hasDetections = _detections.Count > 0;
+  863:             var hasCompleteSettings = HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword);
+  864:             var hasRunningStream = IsAnyStreamRunning();
+  865:             var hasAnyStoppedDetection = HasAnyStoppedDetectedCamera();
+  866: 
+  867:             DetectCameraButton.IsEnabled = !_isScanning && !hasRunningStream && !_isStartingStreams;
+  868:             ToolbarStartStreamsButton.IsEnabled = !_isScanning &&
+  869:                                                   !_isStartingStreams &&
+  870:                                                   _libVlc is not null &&
+  871:                                                   hasDetections &&
+  872:                                                   hasCompleteSettings &&
+  873:                                                   hasAnyStoppedDetection;
+  874:             ToolbarStopButton.IsEnabled = !_isScanning && hasDetections && hasRunningStream;
+  875: 
+  876:             for (var i = 0; i < _cameraTiles.Count; i++) {
+  877:                 var canToggle = !_isScanning &&
+  878:                                 !_isStartingStreams &&
+  879:                                 _libVlc is not null &&
+  880:                                 i < _detections.Count &&
+  881:                                 hasCompleteSettings;
+  882:                 var isRunning = IsStreamRunning(i);
+  883:                 var toggleButton = _cameraTiles[i].StreamToggleButton;
+  884:                 toggleButton.IsEnabled = canToggle;
+  885:                 toggleButton.ToolTip = isRunning ? "Stop" : "Start";
+  886:                 toggleButton.Content = isRunning ? "■" : "▶";
+  887:             }
+  888:         }
+  889: 
+  890:         private async Task StartLocalCameraSearchAsync() {
+  891:             if (_isClosing || _isScanning) {
+  892:                 return;
+  893:             }
+  894: 
+  895:             JsonLogStore.Information(
+  896:                 eventName: "camera_search_requested",
+  897:                 message: "User requested a local network camera search.",
+  898:                 category: "camera_search",
+  899:                 data: new Dictionary<string, object?> {
+  900:                     ["source"] = "main_window",
+  901:                     ["isClosing"] = _isClosing,
+  902:                     ["isScanning"] = _isScanning
+  903:                 });
+  904: 
+  905:             while (!_isClosing) {
+  906:                 _isScanning = true;
+  907:                 _scanCancellation = new CancellationTokenSource();
+  908:                 var progress = new Progress<TapoCameraScanActivity>(activity => {
+  909:                     if (_isClosing || !_isScanning) {
+  910:                         return;
+  911:                     }
+  912: 
+  913:                     StreamingStatusText.Text = activity.StatusMessage;
+  914:                 });
+  915:                 var preferredMethod = ResolvePreferredDetectionMethod();
+  916:                 SetScanningState(preferredMethod);
+  917: 
+  918:                 try {
+  919:                     var scanResult = await TapoCameraScanner.ScanLocalNetworkForTapoCamerasWithDiagnosticsAsync(
+  920:                         preferredFirstMethod: preferredMethod,
+  921:                         progress: progress,
+  922:                         cancellationToken: _scanCancellation.Token);
+  923: 
+  924:                     if (_isClosing) {
+  925:                         return;
+  926:                     }
+  927: 
+  928:                     if (scanResult.Detections.Count > 0) {
+  929:                         PersistSuccessfulDetectionMethod(scanResult.SuccessfulMethod);
+  930:                         JsonLogStore.Information(
+  931:                             eventName: "camera_search_detections_available",
+  932:                             message: "Local network scan found one or more likely Tapo cameras.",
+  933:                             category: "camera_search",
+  934:                             data: new Dictionary<string, object?> {
+  935:                                 ["detectionCount"] = scanResult.Detections.Count,
+  936:                                 ["detectedIps"] = scanResult.Detections.Select(d => d.IpAddress.ToString()).ToArray(),
+  937:                                 ["successfulMethod"] = scanResult.SuccessfulMethod?.ToString()
+  938:                             });
+  939:                         ShowDetections(scanResult.Detections, scanResult.SuccessfulMethod);
+  940:                         return;
+  941:                     }
+  942: 
+  943:                     JsonLogStore.Warning(
+  944:                         eventName: "camera_search_no_detections",
+  945:                         message: "Local network scan completed without any likely Tapo cameras.",
+  946:                         category: "camera_search",
+  947:                         data: new Dictionary<string, object?> {
+  948:                             ["attemptedMethods"] = scanResult.AttemptedMethods.Select(a => a.Method.ToString()).ToArray()
+  949:                         });
+  950:                     ShowNoDetections(BuildNoDetectionsMessage(scanResult.AttemptedMethods));
+  951:                 }
+  952:                 catch (OperationCanceledException) when (_isClosing) {
+  953:                     return;
+  954:                 }
+  955:                 catch (OperationCanceledException) {
+  956:                     if (!_isClosing) {
+  957:                         JsonLogStore.Warning(
+  958:                             eventName: "camera_search_operation_canceled",
+  959:                             message: "Local network search was canceled.",
+  960:                             category: "camera_search");
+  961:                         ShowNoDetections("Scan canceled.");
+  962:                     }
+  963:                 }
+  964:                 catch (Exception ex) {
+  965:                     if (!_isClosing) {
+  966:                         JsonLogStore.Error(
+  967:                             eventName: "camera_search_operation_failed",
+  968:                             message: "Local network search failed in the main window.",
+  969:                             category: "camera_search",
+  970:                             exception: ex);
+  971:                         ShowNoDetections($"Scan failed: {ex.Message}");
+  972:                     }
+  973:                 }
+  974:                 finally {
+  975:                     _scanCancellation?.Dispose();
+  976:                     _scanCancellation = null;
+  977:                     _isScanning = false;
+  978:                 }
+  979: 
+  980:                 if (_isClosing) {
+  981:                     return;
+  982:                 }
+  983: 
+  984:                 var retry = MessageBox.Show(
+  985:                     this,
+  986:                     "No local camera was found. Retry search?",
+  987:                     "LocalCam",
+  988:                     MessageBoxButton.YesNo,
+  989:                     MessageBoxImage.Question);
+  990: 
+  991:                 if (retry != MessageBoxResult.Yes) {
+  992:                     return;
+  993:                 }
+  994:             }
+  995:         }
+  996: 
+  997:         private void SetScanningState(TapoDetectionMethod? preferredMethod) {
+  998:             StreamingStatusText.Text = preferredMethod is TapoDetectionMethod method
+  999:                 ? $"Trying last successful method: {GetDetectionMethodDisplayName(method)}..."
+ 1000:                 : "Searching local network for TAPO cameras...";
+ 1001:             CameraTilesPanel.Visibility = Visibility.Collapsed;
+ 1002:             UpdateActionButtons();
+ 1003:             SearchProgressBar.Visibility = Visibility.Visible;
+ 1004:         }
+ 1005: 
+ 1006:         private void ShowEmptyCameraSlots() {
+ 1007:             StreamingStatusText.Text = "Search local camera to populate the empty camera cards.";
+ 1008:             CameraTilesPanel.Visibility = Visibility.Collapsed;
+ 1009:             UpdateActionButtons();
+ 1010:             SearchProgressBar.Visibility = Visibility.Collapsed;
+ 1011:         }
+ 1012: 
+ 1013:         private void ShowDetections(IReadOnlyList<TapoCameraDetection> detections, TapoDetectionMethod? successfulMethod = null) {
+ 1014:             _detections = detections.ToArray();
+ 1015:             CameraTilesPanel.Visibility = Visibility.Visible;
+ 1016:             PopulateCameraTiles(_detections);
+ 1017:             ApplyResponsiveCameraLayout();
+ 1018:             StreamingStatusText.Text = BuildDetectionsStatusText(_detections.Count, successfulMethod);
+ 1019:             UpdateActionButtons();
+ 1020:             SearchProgressBar.Visibility = Visibility.Collapsed;
+ 1021:             Dispatcher.BeginInvoke(TryAutoStartStreams, System.Windows.Threading.DispatcherPriority.Background);
+ 1022:         }
+ 1023: 
+ 1024:         private void ShowNoDetections(string? prefixMessage = null) {
+ 1025:             _expandedCameraIndex = null;
+ 1026:             CameraTilesPanel.Visibility = Visibility.Collapsed;
+ 1027:             UpdateActionButtons();
+ 1028:             SearchProgressBar.Visibility = Visibility.Collapsed;
+ 1029: 
+ 1030:             if (!string.IsNullOrWhiteSpace(prefixMessage)) {
+ 1031:                 StreamingStatusText.Text = $"{prefixMessage} Retry search?";
+ 1032:                 return;
+ 1033:             }
+ 1034: 
+ 1035:             StreamingStatusText.Text = "No TAPO camera detected. Retry search?";
+ 1036:         }
+ 1037: 
+ 1038:         private void DetectCameraButton_Click(object sender, RoutedEventArgs e) {
+ 1039:             _ = StartLocalCameraSearchAsync();
+ 1040:         }
+ 1041: 
+ 1042:         private void ToolbarStartStreamsButton_Click(object sender, RoutedEventArgs e) {
+ 1043:             StartAllStreams();
+ 1044:         }
+ 1045: 
+ 1046:         private void ToolbarStopButton_Click(object sender, RoutedEventArgs e) {
+ 1047:             StopAllStreams();
+ 1048:             StreamingStatusText.Text = "Streams stopped.";
+ 1049:             UpdateActionButtons();
+ 1050:         }
+ 1051: 
+ 1052:         private void SettingsButton_Click(object sender, RoutedEventArgs e) {
+ 1053:             var dialog = new SettingsWindow(_settings) {
+ 1054:                 Owner = this
+ 1055:             };
+ 1056: 
+ 1057:             _isSettingsDialogOpen = true;
+ 1058:             try {
+ 1059:                 if (dialog.ShowDialog() == true) {
+ 1060:                     _settings = dialog.Settings;
+ 1061:                     SettingsStore.Save(_settings);
+ 1062:                     TryAutoStartStreams();
+ 1063:                 }
+ 1064:             }
+ 1065:             finally {
+ 1066:                 _isSettingsDialogOpen = false;
+ 1067:                 ResetDoubleClickTracking();
+ 1068:             }
+ 1069:         }
+ 1070: 
+ 1071:         private bool IsSettingsDialogOpen() {
+ 1072:             if (_isSettingsDialogOpen) {
+ 1073:                 return true;
+ 1074:             }
+ 1075: 
+ 1076:             foreach (Window ownedWindow in OwnedWindows) {
+ 1077:                 if (ownedWindow is SettingsWindow && ownedWindow.IsVisible) {
+ 1078:                     return true;
+ 1079:                 }
+ 1080:             }
+ 1081: 
+ 1082:             return false;
+ 1083:         }
+ 1084: 
+ 1085:         private void AutoStreamVideoCheckBox_Changed(object sender, RoutedEventArgs e) {
+ 1086:             _settings.AutoStreamVideo = AutoStreamVideoCheckBox.IsChecked == true;
+ 1087:             SettingsStore.Save(_settings);
+ 1088:             TryAutoStartStreams();
+ 1089:         }
+ 1090: 
+ 1091:         private void StartAllStreams() {
+ 1092:             if (_libVlc is null) {
+ 1093:                 JsonLogStore.Warning(
+ 1094:                     eventName: "camera_connect_blocked",
+ 1095:                     message: "RTSP stream start was blocked because the video engine is unavailable.",
+ 1096:                     category: "camera_connect");
+ 1097:                 StreamingStatusText.Text = "Cannot start streams: video engine is unavailable.";
+ 1098:                 return;
+ 1099:             }
+ 1100: 
+ 1101:             if (_detections.Count == 0) {
+ 1102:                 JsonLogStore.Warning(
+ 1103:                     eventName: "camera_connect_blocked",
+ 1104:                     message: "RTSP stream start was blocked because no cameras were detected.",
+ 1105:                     category: "camera_connect");
+ 1106:                 StreamingStatusText.Text = "Cannot start streams: no cameras were detected.";
+ 1107:                 return;
+ 1108:             }
+ 1109: 
+ 1110:             var username = _settings.RtspUsername.Trim();
+ 1111:             var password = _settings.RtspPassword;
+ 1112:             var streamPath = NormalizeStreamPath(_settings.StreamPath);
+ 1113: 
+ 1114:             if (!HasCompleteStreamingSettings(username, password)) {
+ 1115:                 JsonLogStore.Warning(
+ 1116:                     eventName: "camera_connect_blocked",
+ 1117:                     message: "RTSP stream start was blocked because credentials are incomplete.",
+ 1118:                     category: "camera_connect",
+ 1119:                     data: new Dictionary<string, object?> {
+ 1120:                         ["cameraCount"] = _detections.Count,
+ 1121:                         ["streamPath"] = streamPath
+ 1122:                     });
+ 1123:                 StreamingStatusText.Text = BuildMissingSettingsPrompt();
+ 1124:                 return;
+ 1125:             }
+ 1126: 
+ 1127:             JsonLogStore.Information(
+ 1128:                 eventName: "camera_connect_requested",
+ 1129:                 message: "Starting RTSP connections for detected cameras.",
+ 1130:                 category: "camera_connect",
+ 1131:                 data: new Dictionary<string, object?> {
+ 1132:                     ["cameraCount"] = _detections.Count,
+ 1133:                     ["streamPath"] = streamPath,
+ 1134:                     ["hasUsername"] = !string.IsNullOrWhiteSpace(username)
+ 1135:                 });
+ 1136: 
+ 1137:             _isStartingStreams = true;
+ 1138:             UpdateActionButtons();
+ 1139: 
+ 1140:             var startedCount = 0;
+ 1141:             var failedEndpoints = new List<string>();
+ 1142: 
+ 1143:             EnsureCameraTileCount(_detections.Count);
+ 1144:             for (var i = 0; i < _cameraTiles.Count && i < _detections.Count; i++) {
+ 1145:                 if (IsStreamRunning(i)) {
+ 1146:                     continue;
+ 1147:                 }
+ 1148: 
+ 1149:                 var ipAddress = _detections[i].IpAddress.ToString();
+ 1150:                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
+ 1151:                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
+ 1152:                 if (mediaPlayer is null) {
+ 1153:                     failedEndpoints.Add(ipAddress);
+ 1154:                     SetVideoSurfaceActive(i, isActive: false);
+ 1155:                     continue;
+ 1156:                 }
+ 1157: 
+ 1158:                 try {
+ 1159:                     JsonLogStore.Information(
+ 1160:                         eventName: "camera_connect_attempt",
+ 1161:                         message: "Attempting to start an RTSP stream.",
+ 1162:                         category: "camera_connect",
+ 1163:                         data: new Dictionary<string, object?> {
+ 1164:                             ["cameraIndex"] = i + 1,
+ 1165:                             ["ipAddress"] = ipAddress,
+ 1166:                             ["streamPath"] = streamPath
+ 1167:                         });
+ 1168: 
+ 1169:                     using var media = new Media(_libVlc, streamUrl, FromType.FromLocation);
+ 1170:                     media.AddOption(":network-caching=300");
+ 1171:                     media.AddOption(":live-caching=300");
+ 1172:                     media.AddOption(":clock-jitter=0");
+ 1173:                     media.AddOption(":clock-synchro=0");
+ 1174: 
+ 1175:                     if (mediaPlayer.Play(media)) {
+ 1176:                         startedCount++;
+ 1177:                         SetVideoSurfaceActive(i, isActive: true);
+ 1178:                         JsonLogStore.Information(
+ 1179:                             eventName: "camera_connect_succeeded",
+ 1180:                             message: "RTSP stream started successfully.",
+ 1181:                             category: "camera_connect",
+ 1182:                             data: new Dictionary<string, object?> {
+ 1183:                                 ["cameraIndex"] = i + 1,
+ 1184:                                 ["ipAddress"] = ipAddress,
+ 1185:                                 ["streamPath"] = streamPath
+ 1186:                             });
+ 1187:                     }
+ 1188:                     else {
+ 1189:                         failedEndpoints.Add(ipAddress);
+ 1190:                         SetVideoSurfaceActive(i, isActive: false);
+ 1191:                         JsonLogStore.Warning(
+ 1192:                             eventName: "camera_connect_failed",
+ 1193:                             message: "RTSP stream failed to start.",
+ 1194:                             category: "camera_connect",
+ 1195:                             data: new Dictionary<string, object?> {
+ 1196:                                 ["cameraIndex"] = i + 1,
+ 1197:                                 ["ipAddress"] = ipAddress,
+ 1198:                                 ["streamPath"] = streamPath,
+ 1199:                                 ["reason"] = "media player returned false"
+ 1200:                             });
+ 1201:                     }
+ 1202:                 }
+ 1203:                 catch (Exception ex) {
+ 1204:                     failedEndpoints.Add(ipAddress);
+ 1205:                     SetVideoSurfaceActive(i, isActive: false);
+ 1206:                     JsonLogStore.Error(
+ 1207:                         eventName: "camera_connect_exception",
+ 1208:                         message: "RTSP stream start threw an exception.",
+ 1209:                         category: "camera_connect",
+ 1210:                         exception: ex,
+ 1211:                         data: new Dictionary<string, object?> {
+ 1212:                             ["cameraIndex"] = i + 1,
+ 1213:                             ["ipAddress"] = ipAddress,
+ 1214:                             ["streamPath"] = streamPath
+ 1215:                         });
+ 1216:                 }
+ 1217:             }
+ 1218: 
+ 1219:             _isStartingStreams = false;
+ 1220:             _streamsRunning = startedCount > 0;
+ 1221:             if (failedEndpoints.Count == 0) {
+ 1222:                 JsonLogStore.Information(
+ 1223:                     eventName: "camera_connect_completed",
+ 1224:                     message: "RTSP connections started for all detected cameras.",
+ 1225:                     category: "camera_connect",
+ 1226:                     data: new Dictionary<string, object?> {
+ 1227:                         ["startedCount"] = startedCount,
+ 1228:                         ["failedCount"] = 0,
+ 1229:                         ["cameraCount"] = _detections.Count,
+ 1230:                         ["streamPath"] = streamPath
+ 1231:                     });
+ 1232:                 StreamingStatusText.Text = $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
+ 1233:                 UpdateActionButtons();
+ 1234:                 return;
+ 1235:             }
+ 1236: 
+ 1237:             JsonLogStore.Warning(
+ 1238:                 eventName: "camera_connect_completed_with_failures",
+ 1239:                 message: "RTSP connections started with one or more failures.",
+ 1240:                 category: "camera_connect",
+ 1241:                 data: new Dictionary<string, object?> {
+ 1242:                     ["startedCount"] = startedCount,
+ 1243:                     ["failedCount"] = failedEndpoints.Count,
+ 1244:                     ["cameraCount"] = _detections.Count,
+ 1245:                     ["failedEndpoints"] = failedEndpoints.ToArray(),
+ 1246:                     ["streamPath"] = streamPath
+ 1247:                 });
+ 1248:             StreamingStatusText.Text =
+ 1249:                 $"Started {startedCount} {Pluralize(startedCount, "stream")}. Failed to start: {string.Join(", ", failedEndpoints)}.";
+ 1250:             UpdateActionButtons();
+ 1251:         }
+ 1252: 
+ 1253:         private void TryAutoStartStreams() {
+ 1254:             if (_isClosing || _isScanning || !_settings.AutoStreamVideo) {
+ 1255:                 return;
+ 1256:             }
+ 1257: 
+ 1258:             if (_libVlc is null || _detections.Count == 0) {
+ 1259:                 return;
+ 1260:             }
+ 1261: 
+ 1262:             if (!HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)) {
+ 1263:                 return;
+ 1264:             }
+ 1265: 
+ 1266:             StartAllStreams();
+ 1267:         }
+ 1268: 
+ 1269:         private void StopAllStreams() {
+ 1270:             _isStartingStreams = false;
+ 1271:             for (var i = 0; i < _cameraTiles.Count; i++) {
+ 1272:                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
+ 1273:                 if (mediaPlayer is null) {
+ 1274:                     continue;
+ 1275:                 }
+ 1276: 
+ 1277:                 if (mediaPlayer.IsPlaying) {
+ 1278:                     mediaPlayer.Stop();
+ 1279:                 }
+ 1280: 
+ 1281:                 SetVideoSurfaceActive(i, isActive: false);
+ 1282:             }
+ 1283: 
+ 1284:             _streamsRunning = false;
+ 1285:             UpdateActionButtons();
+ 1286:         }
+ 1287: 
+ 1288:         private void ToggleSingleCameraStream(int tileIndex) {
+ 1289:             if (_isClosing || _isScanning || _isStartingStreams) {
+ 1290:                 return;
+ 1291:             }
+ 1292: 
+ 1293:             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+ 1294:                 return;
+ 1295:             }
+ 1296: 
+ 1297:             if (IsStreamRunning(tileIndex)) {
+ 1298:                 StopSingleStream(tileIndex);
+ 1299:             }
+ 1300:             else {
+ 1301:                 StartSingleStream(tileIndex);
+ 1302:             }
+ 1303: 
+ 1304:             _streamsRunning = IsAnyStreamRunning();
+ 1305:             UpdateActionButtons();
+ 1306:         }
+ 1307: 
+ 1308:         private bool StartSingleStream(int tileIndex) {
+ 1309:             if (_libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+ 1310:                 return false;
+ 1311:             }
+ 1312: 
+ 1313:             var username = _settings.RtspUsername.Trim();
+ 1314:             var password = _settings.RtspPassword;
+ 1315:             if (!HasCompleteStreamingSettings(username, password)) {
+ 1316:                 StreamingStatusText.Text = BuildMissingSettingsPrompt();
+ 1317:                 return false;
+ 1318:             }
+ 1319: 
+ 1320:             var streamPath = NormalizeStreamPath(_settings.StreamPath);
+ 1321:             var ipAddress = _detections[tileIndex].IpAddress.ToString();
+ 1322:             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+ 1323:             if (mediaPlayer is null) {
+ 1324:                 return false;
+ 1325:             }
+ 1326: 
+ 1327:             try {
+ 1328:                 using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
+ 1329:                 media.AddOption(":network-caching=300");
+ 1330:                 media.AddOption(":live-caching=300");
+ 1331:                 media.AddOption(":clock-jitter=0");
+ 1332:                 media.AddOption(":clock-synchro=0");
+ 1333: 
+ 1334:                 if (mediaPlayer.Play(media)) {
+ 1335:                     SetVideoSurfaceActive(tileIndex, isActive: true);
+ 1336:                     StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
+ 1337:                     return true;
+ 1338:                 }
+ 1339:             }
+ 1340:             catch (Exception ex) {
+ 1341:                 JsonLogStore.Error(
+ 1342:                     eventName: "camera_connect_exception",
+ 1343:                     message: "Single-camera RTSP stream start threw an exception.",
+ 1344:                     category: "camera_connect",
+ 1345:                     exception: ex,
+ 1346:                     data: new Dictionary<string, object?> {
+ 1347:                         ["cameraIndex"] = tileIndex + 1,
+ 1348:                         ["ipAddress"] = ipAddress,
+ 1349:                         ["streamPath"] = streamPath
+ 1350:                     });
+ 1351:             }
+ 1352: 
+ 1353:             SetVideoSurfaceActive(tileIndex, isActive: false);
+ 1354:             StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}.";
+ 1355:             return false;
+ 1356:         }
+ 1357: 
+ 1358:         private void StopSingleStream(int tileIndex) {
+ 1359:             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+ 1360:                 return;
+ 1361:             }
+ 1362: 
+ 1363:             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+ 1364:             if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
+ 1365:                 mediaPlayer.Stop();
+ 1366:             }
+ 1367: 
+ 1368:             SetVideoSurfaceActive(tileIndex, isActive: false);
+ 1369:             StreamingStatusText.Text = $"Stopped camera {tileIndex + 1}.";
+ 1370:         }
+ 1371: 
+ 1372:         private bool IsStreamRunning(int tileIndex) {
+ 1373:             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+ 1374:                 return false;
+ 1375:             }
+ 1376: 
+ 1377:             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+ 1378:             return mediaPlayer is not null && mediaPlayer.IsPlaying;
+ 1379:         }
+ 1380: 
+ 1381:         private bool HasAnyStoppedDetectedCamera() {
+ 1382:             var count = Math.Min(_cameraTiles.Count, _detections.Count);
+ 1383:             for (var i = 0; i < count; i++) {
+ 1384:                 if (!IsStreamRunning(i)) {
+ 1385:                     return true;
+ 1386:                 }
+ 1387:             }
+ 1388: 
+ 1389:             return false;
+ 1390:         }
+ 1391: 
+ 1392:         private bool IsAnyStreamRunning() {
+ 1393:             for (var i = 0; i < _cameraTiles.Count; i++) {
+ 1394:                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
+ 1395:                 if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
+ 1396:                     return true;
+ 1397:                 }
+ 1398:             }
+ 1399: 
+ 1400:             return false;
+ 1401:         }
+ 1402: 
+ 1403:         private void ApplyResponsiveCameraLayout() {
+ 1404:             if (CameraTilesPanel is null) {
+ 1405:                 return;
+ 1406:             }
+ 1407: 
+ 1408:             var count = _cameraTiles.Count;
+ 1409:             if (count == 0) {
+ 1410:                 CameraTilesPanel.RowDefinitions.Clear();
+ 1411:                 CameraTilesPanel.ColumnDefinitions.Clear();
+ 1412:                 UpdateExpandCollapseButtons();
+ 1413:                 return;
+ 1414:             }
+ 1415: 
+ 1416:             if (CameraTilesPanel.ActualWidth <= 1 || CameraTilesPanel.ActualHeight <= 1) {
+ 1417:                 if (!_layoutRetryPending) {
+ 1418:                     _layoutRetryPending = true;
+ 1419:                     Dispatcher.BeginInvoke(new Action(() => {
+ 1420:                         _layoutRetryPending = false;
+ 1421:                         ApplyResponsiveCameraLayout();
+ 1422:                     }), System.Windows.Threading.DispatcherPriority.Render);
+ 1423:                 }
+ 1424: 
+ 1425:                 return;
+ 1426:             }
+ 1427: 
+ 1428:             if (_expandedCameraIndex is int expandedIndex) {
+ 1429:                 if (expandedIndex < 0 || expandedIndex >= count) {
+ 1430:                     _expandedCameraIndex = null;
+ 1431:                 }
+ 1432:                 else {
+ 1433:                     CameraTilesPanel.RowDefinitions.Clear();
+ 1434:                     CameraTilesPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+ 1435:                     CameraTilesPanel.ColumnDefinitions.Clear();
+ 1436:                     CameraTilesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+ 1437: 
+ 1438:                     for (var i = 0; i < _cameraTiles.Count; i++) {
+ 1439:                         var card = _cameraTiles[i].Card;
+ 1440:                         if (i == expandedIndex) {
+ 1441:                             card.Visibility = Visibility.Visible;
+ 1442:                             card.Width = double.NaN;
+ 1443:                             card.Height = double.NaN;
+ 1444:                             card.HorizontalAlignment = HorizontalAlignment.Stretch;
+ 1445:                             card.VerticalAlignment = VerticalAlignment.Stretch;
+ 1446:                             card.Margin = new Thickness(0);
+ 1447:                             Grid.SetRow(card, 0);
+ 1448:                             Grid.SetColumn(card, 0);
+ 1449:                         }
+ 1450:                         else {
+ 1451:                             card.Visibility = Visibility.Collapsed;
+ 1452:                         }
+ 1453:                     }
+ 1454: 
+ 1455:                     UpdateExpandCollapseButtons();
+ 1456:                     return;
+ 1457:                 }
+ 1458:             }
+ 1459: 
+ 1460:             var (columns, rows, cardWidth, cardHeight) = CalculateVideoDrivenGrid(
+ 1461:                 count,
+ 1462:                 CameraTilesPanel.ActualWidth,
+ 1463:                 CameraTilesPanel.ActualHeight);
+ 1464: 
+ 1465:             CameraTilesPanel.RowDefinitions.Clear();
+ 1466:             for (var i = 0; i < rows; i++) {
+ 1467:                 CameraTilesPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+ 1468:             }
+ 1469: 
+ 1470:             CameraTilesPanel.ColumnDefinitions.Clear();
+ 1471:             for (var i = 0; i < columns; i++) {
+ 1472:                 CameraTilesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+ 1473:             }
+ 1474: 
+ 1475:             for (var i = 0; i < _cameraTiles.Count; i++) {
+ 1476:                 var card = _cameraTiles[i].Card;
+ 1477:                 card.Visibility = Visibility.Visible;
+ 1478:                 card.Width = cardWidth;
+ 1479:                 card.Height = cardHeight;
+ 1480:                 card.HorizontalAlignment = HorizontalAlignment.Center;
+ 1481:                 card.VerticalAlignment = VerticalAlignment.Center;
+ 1482:                 card.Margin = GetTileMargin(i, columns, rows);
+ 1483:                 var row = i / columns;
+ 1484:                 var column = i % columns;
+ 1485:                 Grid.SetRow(card, row);
+ 1486:                 Grid.SetColumn(card, column);
+ 1487:             }
+ 1488: 
+ 1489:             UpdateExpandCollapseButtons();
+ 1490:         }
+ 1491: 
+ 1492:         private static (int Columns, int Rows, double CardWidth, double CardHeight) CalculateVideoDrivenGrid(
+ 1493:             int count,
+ 1494:             double panelWidth,
+ 1495:             double panelHeight) {
+ 1496:             const double videoAspect = 16d / 9d;
+ 1497:             const double gridGap = 6d;
+ 1498:             const double cardChromeHorizontal = 8d;
+ 1499:             const double cardChromeVertical = 8d;
+ 1500: 
+ 1501:             var bestColumns = 1;
+ 1502:             var bestRows = count;
+ 1503:             var bestCardWidth = panelWidth;
+ 1504:             var bestCardHeight = panelHeight / Math.Max(1, count);
+ 1505:             var bestVideoArea = double.NegativeInfinity;
+ 1506: 
+ 1507:             for (var columns = 1; columns <= count; columns++) {
+ 1508:                 var rows = (int)Math.Ceiling(count / (double)columns);
+ 1509:                 var totalGapWidth = Math.Max(0, columns - 1) * (2d * gridGap);
+ 1510:                 var totalGapHeight = Math.Max(0, rows - 1) * (2d * gridGap);
+ 1511:                 var slotWidth = Math.Max(1d, (panelWidth - totalGapWidth) / columns);
+ 1512:                 var slotHeight = Math.Max(1d, (panelHeight - totalGapHeight) / rows);
+ 1513:                 var maxVideoWidth = Math.Max(1d, slotWidth - cardChromeHorizontal);
+ 1514:                 var maxVideoHeight = Math.Max(1d, slotHeight - cardChromeVertical);
+ 1515: 
+ 1516:                 var videoWidth = Math.Min(maxVideoWidth, maxVideoHeight * videoAspect);
+ 1517:                 var videoHeight = videoWidth / videoAspect;
+ 1518: 
+ 1519:                 if (videoHeight > maxVideoHeight) {
+ 1520:                     videoHeight = maxVideoHeight;
+ 1521:                     videoWidth = videoHeight * videoAspect;
+ 1522:                 }
+ 1523: 
+ 1524:                 var cardWidth = Math.Max(1d, videoWidth + cardChromeHorizontal);
+ 1525:                 var cardHeight = Math.Max(1d, videoHeight + cardChromeVertical);
+ 1526:                 var videoArea = videoWidth * videoHeight;
+ 1527: 
+ 1528:                 if (videoArea > bestVideoArea) {
+ 1529:                     bestVideoArea = videoArea;
+ 1530:                     bestColumns = columns;
+ 1531:                     bestRows = rows;
+ 1532:                     bestCardWidth = cardWidth;
+ 1533:                     bestCardHeight = cardHeight;
+ 1534:                 }
+ 1535:             }
+ 1536: 
+ 1537:             return (bestColumns, bestRows, bestCardWidth, bestCardHeight);
+ 1538:         }
+ 1539: 
+ 1540:         private static Thickness GetTileMargin(int index, int columns, int rows) {
+ 1541:             const double gap = 6;
+ 1542:             var row = index / columns;
+ 1543:             var column = index % columns;
+ 1544:             return new Thickness(
+ 1545:                 left: column == 0 ? 0 : gap,
+ 1546:                 top: row == 0 ? 0 : gap,
+ 1547:                 right: column == columns - 1 ? 0 : gap,
+ 1548:                 bottom: row == rows - 1 ? 0 : gap);
+ 1549:         }
+ 1550: 
+ 1551:         private void ShutdownStreamingEngine() {
+ 1552:             StopAllStreams();
+ 1553: 
+ 1554:             foreach (var tile in _cameraTiles) {
+ 1555:                 tile.VideoView.MediaPlayer = null;
+ 1556:                 tile.MediaPlayer?.Dispose();
+ 1557:                 tile.MediaPlayer = null;
+ 1558:             }
+ 1559: 
+ 1560:             _libVlc?.Dispose();
+ 1561:             _libVlc = null;
+ 1562:         }
+ 1563: 
+ 1564:         private static string NormalizeStreamPath(string? input) {
+ 1565:             var normalized = (input ?? string.Empty).Trim().TrimStart('/');
+ 1566:             return string.IsNullOrWhiteSpace(normalized)
+ 1567:                 ? "stream1"
+ 1568:                 : normalized;
+ 1569:         }
+ 1570: 
+ 1571:         private static bool HasCompleteStreamingSettings(string username, string password) {
+ 1572:             return !string.IsNullOrWhiteSpace(username) && !string.IsNullOrWhiteSpace(password);
+ 1573:         }
+ 1574: 
+ 1575:         private static string Pluralize(int count, string singular, string? plural = null) {
+ 1576:             return count == 1
+ 1577:                 ? singular
+ 1578:                 : plural ?? $"{singular}s";
+ 1579:         }
+ 1580: 
+ 1581:         private static string BuildMissingSettingsPrompt() {
+ 1582:             return "Open Settings and provide the RTSP username, password, and stream path before starting streams.";
+ 1583:         }
+ 1584: 
+ 1585:         private string BuildDetectionsStatusText(int cameraCount, TapoDetectionMethod? successfulMethod = null) {
+ 1586:             if (cameraCount <= 0) {
+ 1587:                 return "No TAPO camera detected. Retry search?";
+ 1588:             }
+ 1589: 
+ 1590:             var detectionPrefix = successfulMethod is TapoDetectionMethod method
+ 1591:                 ? $"Detected {cameraCount} {Pluralize(cameraCount, "camera")} using {GetDetectionMethodDisplayName(method)}."
+ 1592:                 : $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}.";
+ 1593: 
+ 1594:             return HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)
+ 1595:                 ? $"{detectionPrefix} Click 'Start All'."
+ 1596:                 : $"{detectionPrefix} Open Settings and provide the RTSP username, password, and stream path.";
+ 1597:         }
+ 1598: 
+ 1599:         private TapoDetectionMethod? ResolvePreferredDetectionMethod() {
+ 1600:             var storedMethod = _settings.LastSuccessfulDetectionMethod;
+ 1601:             if (string.IsNullOrWhiteSpace(storedMethod)) {
+ 1602:                 return null;
+ 1603:             }
+ 1604: 
+ 1605:             if (TapoCameraScanner.TryParseDetectionMethod(storedMethod, out var preferredMethod)) {
+ 1606:                 JsonLogStore.Information(
+ 1607:                     eventName: "camera_search_preferred_method_resolved",
+ 1608:                     message: "Loaded the last successful camera detection method from settings.",
+ 1609:                     category: "camera_search",
+ 1610:                     data: new Dictionary<string, object?> {
+ 1611:                         ["preferredMethod"] = preferredMethod.ToString()
+ 1612:                     });
+ 1613:                 return preferredMethod;
+ 1614:             }
+ 1615: 
+ 1616:             JsonLogStore.Warning(
+ 1617:                 eventName: "camera_search_preferred_method_invalid",
+ 1618:                 message: "Ignoring an unknown persisted camera detection method.",
+ 1619:                 category: "camera_search",
+ 1620:                 data: new Dictionary<string, object?> {
+ 1621:                     ["storedMethod"] = storedMethod
+ 1622:                 });
+ 1623:             return null;
+ 1624:         }
+ 1625: 
+ 1626:         private void PersistSuccessfulDetectionMethod(TapoDetectionMethod? successfulMethod) {
+ 1627:             if (successfulMethod is not TapoDetectionMethod method) {
+ 1628:                 return;
+ 1629:             }
+ 1630: 
+ 1631:             var persistedValue = method.ToString();
+ 1632:             if (string.Equals(_settings.LastSuccessfulDetectionMethod, persistedValue, StringComparison.Ordinal)) {
+ 1633:                 return;
+ 1634:             }
+ 1635: 
+ 1636:             var previousValue = _settings.LastSuccessfulDetectionMethod;
+ 1637:             _settings.LastSuccessfulDetectionMethod = persistedValue;
+ 1638:             SettingsStore.Save(_settings);
+ 1639:             JsonLogStore.Information(
+ 1640:                 eventName: "camera_search_preferred_method_saved",
+ 1641:                 message: "Saved the successful camera detection method to settings.",
+ 1642:                 category: "camera_search",
+ 1643:                 data: new Dictionary<string, object?> {
+ 1644:                     ["previousMethod"] = previousValue,
+ 1645:                     ["successfulMethod"] = persistedValue
+ 1646:                 });
+ 1647:         }
+ 1648: 
+ 1649:         private static string BuildNoDetectionsMessage(IReadOnlyList<TapoDetectionMethodAttempt> attemptedMethods) {
+ 1650:             if (attemptedMethods.Count == 0) {
+ 1651:                 return "No TAPO camera detected.";
+ 1652:             }
+ 1653: 
+ 1654:             var attemptedNames = attemptedMethods
+ 1655:                 .Select(static attempt => GetDetectionMethodDisplayName(attempt.Method))
+ 1656:                 .ToArray();
+ 1657:             return $"No TAPO camera detected. Tried: {string.Join(", ", attemptedNames)}.";
+ 1658:         }
+ 1659: 
+ 1660:         private static string GetDetectionMethodDisplayName(TapoDetectionMethod method) {
+ 1661:             return method switch {
+ 1662:                 TapoDetectionMethod.OnvifWsDiscovery => "ONVIF",
+ 1663:                 TapoDetectionMethod.SsdpUpnpSearch => "SSDP",
+ 1664:                 TapoDetectionMethod.TapoUdpBroadcast => "Tapo UDP",
+ 1665:                 TapoDetectionMethod.MdnsDnsSdSweep => "mDNS",
+ 1666:                 TapoDetectionMethod.ArpSeededTargetProbe => "ARP probe",
+ 1667:                 TapoDetectionMethod.SubnetProbeFallback => "subnet probe",
+ 1668:                 _ => method.ToString()
+ 1669:             };
+ 1670:         }
+ 1671: 
+ 1672:         private static string BuildRtspUrl(string host, string username, string password, string streamPath) {
+ 1673:             var escapedUsername = Uri.EscapeDataString(username);
+ 1674:             var escapedPassword = Uri.EscapeDataString(password);
+ 1675:             return $"rtsp://{escapedUsername}:{escapedPassword}@{host}:554/{streamPath}";
+ 1676:         }
+ 1677: 
+ 1678:         private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+ 1679:             if (e.ClickCount == 2) {
+ 1680:                 ToggleMaximizeRestore();
+ 1681:                 return;
+ 1682:             }
+ 1683: 
+ 1684:             if (e.ButtonState == MouseButtonState.Pressed) {
+ 1685:                 DragMove();
+ 1686:             }
+ 1687:         }
+ 1688: 
+ 1689:         private void MinimizeButton_Click(object sender, RoutedEventArgs e) {
+ 1690:             WindowState = WindowState.Minimized;
+ 1691:         }
+ 1692: 
+ 1693:         private void MaximizeRestoreButton_Click(object sender, RoutedEventArgs e) {
+ 1694:             ToggleMaximizeRestore();
+ 1695:         }
+ 1696: 
+ 1697:         private void CloseButton_Click(object sender, RoutedEventArgs e) {
+ 1698:             Close();
+ 1699:         }
+ 1700: 
+ 1701:         private void Window_StateChanged(object sender, EventArgs e) {
+ 1702:             UpdateMaximizeButtonIcon();
+ 1703:             PersistWindowBounds();
+ 1704:         }
+ 1705: 
+ 1706:         private void ToggleMaximizeRestore() {
+ 1707:             WindowState = WindowState == WindowState.Maximized
+ 1708:                 ? WindowState.Normal
+ 1709:                 : WindowState.Maximized;
+ 1710:         }
+ 1711: 
+ 1712:         private void UpdateMaximizeButtonIcon() {
+ 1713:             MaximizeIconPath.Data = WindowState == WindowState.Maximized
+ 1714:                 ? RestoreGeometry
+ 1715:                 : MaximizeGeometry;
+ 1716:         }
+ 1717: 
+ 1718:         private static void ApplyMonitorWorkAreaToMinMaxInfo(IntPtr hwnd, IntPtr lParam) {
+ 1719:             if (lParam == IntPtr.Zero) {
+ 1720:                 return;
+ 1721:             }
+ 1722: 
+ 1723:             var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+ 1724:             if (monitor == IntPtr.Zero) {
+ 1725:                 return;
+ 1726:             }
+ 1727: 
+ 1728:             var monitorInfo = new MonitorInfo {
+ 1729:                 cbSize = Marshal.SizeOf<MonitorInfo>()
+ 1730:             };
+ 1731:             if (!GetMonitorInfo(monitor, ref monitorInfo)) {
+ 1732:                 return;
+ 1733:             }
+ 1734: 
+ 1735:             var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+ 1736: 
+ 1737:             var workArea = monitorInfo.rcWork;
+ 1738:             var monitorArea = monitorInfo.rcMonitor;
+ 1739: 
+ 1740:             minMaxInfo.ptMaxPosition.x = workArea.Left - monitorArea.Left;
+ 1741:             minMaxInfo.ptMaxPosition.y = workArea.Top - monitorArea.Top;
+ 1742:             minMaxInfo.ptMaxSize.x = workArea.Right - workArea.Left;
+ 1743:             minMaxInfo.ptMaxSize.y = workArea.Bottom - workArea.Top;
+ 1744:             minMaxInfo.ptMaxTrackSize.x = minMaxInfo.ptMaxSize.x;
+ 1745:             minMaxInfo.ptMaxTrackSize.y = minMaxInfo.ptMaxSize.y;
+ 1746: 
+ 1747:             Marshal.StructureToPtr(minMaxInfo, lParam, true);
+ 1748:         }
+ 1749: 
+ 1750:         [DllImport("user32.dll")]
+ 1751:         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+ 1752: 
+ 1753:         [DllImport("user32.dll", CharSet = CharSet.Auto)]
+ 1754:         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+ 1755: 
+ 1756:         [DllImport("user32.dll")]
+ 1757:         private static extern uint GetDoubleClickTime();
+ 1758: 
+ 1759:         [DllImport("user32.dll")]
+ 1760:         private static extern int GetSystemMetrics(int nIndex);
+ 1761: 
+ 1762:         [DllImport("kernel32.dll")]
+ 1763:         private static extern uint GetCurrentThreadId();
+ 1764: 
+ 1765:         [DllImport("user32.dll", SetLastError = true)]
+ 1766:         private static extern IntPtr SetWindowsHookEx(
+ 1767:             int idHook,
+ 1768:             MouseHookProc lpfn,
+ 1769:             IntPtr hmod,
+ 1770:             uint dwThreadId);
+ 1771: 
+ 1772:         [DllImport("user32.dll", SetLastError = true)]
+ 1773:         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+ 1774: 
+ 1775:         [DllImport("user32.dll")]
+ 1776:         private static extern IntPtr CallNextHookEx(
+ 1777:             IntPtr hhk,
+ 1778:             int nCode,
+ 1779:             IntPtr wParam,
+ 1780:             IntPtr lParam);
+ 1781: 
+ 1782:         [StructLayout(LayoutKind.Sequential)]
+ 1783:         private struct MouseHookStruct {
+ 1784:             public PointNative pt;
+ 1785:             public IntPtr hwnd;
+ 1786:             public uint wHitTestCode;
+ 1787:             public UIntPtr dwExtraInfo;
+ 1788:         }
+ 1789: 
+ 1790:         [StructLayout(LayoutKind.Sequential)]
+ 1791:         private struct LowLevelMouseHookStruct {
+ 1792:             public PointNative pt;
+ 1793:             public uint mouseData;
+ 1794:             public uint flags;
+ 1795:             public uint time;
+ 1796:             public UIntPtr dwExtraInfo;
+ 1797:         }
+ 1798: 
+ 1799:         [StructLayout(LayoutKind.Sequential)]
+ 1800:         private struct RectNative {
+ 1801:             public int Left;
+ 1802:             public int Top;
+ 1803:             public int Right;
+ 1804:             public int Bottom;
+ 1805:         }
+ 1806: 
+ 1807:         [StructLayout(LayoutKind.Sequential)]
+ 1808:         private struct PointNative {
+ 1809:             public int x;
+ 1810:             public int y;
+ 1811:         }
+ 1812: 
+ 1813:         [StructLayout(LayoutKind.Sequential)]
+ 1814:         private struct MinMaxInfo {
+ 1815:             public PointNative ptReserved;
+ 1816:             public PointNative ptMaxSize;
+ 1817:             public PointNative ptMaxPosition;
+ 1818:             public PointNative ptMinTrackSize;
+ 1819:             public PointNative ptMaxTrackSize;
+ 1820:         }
+ 1821: 
+ 1822:         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+ 1823:         private struct MonitorInfo {
+ 1824:             public int cbSize;
+ 1825:             public RectNative rcMonitor;
+ 1826:             public RectNative rcWork;
+ 1827:             public uint dwFlags;
+ 1828:         }
+ 1829: 
+ 1830:         private void MainWindow_SourceInitialized(object? sender, EventArgs e) {
+ 1831:             _ = sender;
+ 1832:             _ = e;
+ 1833: 
+ 1834:             var handle = new WindowInteropHelper(this).Handle;
+ 1835:             if (handle == IntPtr.Zero) {
+ 1836:                 return;
+ 1837:             }
+ 1838: 
+ 1839:             var source = HwndSource.FromHwnd(handle);
+ 1840:             source?.AddHook(WndProc);
+ 1841:             InstallMouseHook();
+ 1842:         }
+ 1843: 
+ 1844:         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
+ 1845:             _ = wParam;
+ 1846: 
+ 1847:             if (msg == WmGetMinMaxInfo) {
+ 1848:                 ApplyMonitorWorkAreaToMinMaxInfo(hwnd, lParam);
+ 1849:                 handled = false;
+ 1850:             }
+ 1851: 
+ 1852:             return IntPtr.Zero;
+ 1853:         }
+ 1854: 
+ 1855:         protected override void OnClosed(EventArgs e) {
+ 1856:             _isClosing = true;
+ 1857:             UninstallMouseHook();
+ 1858:             _scanCancellation?.Cancel();
+ 1859:             _appUpdateCancellation?.Cancel();
+ 1860:             if (_appUpdateService is not null) {
+ 1861:                 _appUpdateService.SnapshotChanged -= OnUpdateSnapshotChanged;
+ 1862:             }
+ 1863:             ShutdownStreamingEngine();
+ 1864: 
+ 1865:             base.OnClosed(e);
+ 1866:         }
+ 1867: 
+ 1868:         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
+ 1869:             _isClosing = true;
+ 1870:             _scanCancellation?.Cancel();
+ 1871:             PersistWindowBounds();
+ 1872:             base.OnClosing(e);
+ 1873:         }
+ 1874: 
+ 1875:         private void Window_LocationChanged(object? sender, EventArgs e) {
+ 1876:             _ = sender;
+ 1877:             PersistWindowBounds();
+ 1878:         }
+ 1879: 
+ 1880:         private void Window_SizeChanged(object? sender, SizeChangedEventArgs e) {
+ 1881:             _ = sender;
+ 1882:             _ = e;
+ 1883:             PersistWindowBounds();
+ 1884:             ApplyResponsiveCameraLayout();
+ 1885:         }
+ 1886:     }
+ 1887: }

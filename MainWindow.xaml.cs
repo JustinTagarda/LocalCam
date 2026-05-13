@@ -25,8 +25,13 @@ namespace LocalCam {
             public required Border Badge { get; init; }
             public required TextBlock Label { get; init; }
             public required VideoView VideoView { get; init; }
-            public required Button ExpandCollapseButton { get; init; }
+            public required Button ExpandButton { get; init; }
+            public required Button CollapseButton { get; init; }
+            public required Button PlayButton { get; init; }
+            public required Button StopButton { get; init; }
+            public required Button SnapshotButton { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
+            public bool IsSnapshotSaving { get; set; }
         }
 
         private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
@@ -45,6 +50,7 @@ namespace LocalCam {
         private const int SmCyDoubleClk = 37;
         private const uint MonitorDefaultToNearest = 2;
         private const string InputDiagnosticsCategory = "InputDiagnostics";
+        private const string SnapshotDiagnosticsCategory = "SnapshotDiagnostics";
         private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
@@ -266,7 +272,11 @@ namespace LocalCam {
             var card = new Border {
                 Style = (Style)FindResource("CameraCardStyle")
             };
-            var root = new Grid();
+            card.SizeChanged += (_, _) => ApplyRoundedClip(card, 8);
+            ApplyRoundedClip(card, 8);
+            var root = new Grid {
+                ClipToBounds = true
+            };
 
             var placeholder = new Border {
                 Style = (Style)FindResource("CameraPlaceholderStyle"),
@@ -296,16 +306,90 @@ namespace LocalCam {
 
             var expandButton = new Button {
                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 10, 10, 0),
-                ToolTip = "Expand"
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0),
+                ToolTip = "Expand",
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
             };
             expandButton.Content = CreateExpandButtonContent();
             expandButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+
+            var collapseButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0),
+                ToolTip = "Collapse",
+                Content = CreateCollapseButtonContent(),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
+            };
+            collapseButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+
+            var playButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Play",
+                Content = CreateStartButtonContent(),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
+            };
+            playButton.Click += (_, _) => {
+                StartSingleStream(tileIndex);
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            };
+
+            var stopButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Stop",
+                Content = CreateStopButtonContent(),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
+            };
+            stopButton.Click += (_, _) => {
+                StopSingleStream(tileIndex);
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            };
+
+            var snapshotButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Snapshot",
+                Content = CreateSnapshotButtonContent(),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
+                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                BorderThickness = new Thickness(1)
+            };
+            snapshotButton.Click += async (_, _) => {
+                await SaveSnapshotAsync(tileIndex);
+            };
+
             card.AddHandler(
                 UIElement.PreviewMouseLeftButtonDownEvent,
                 new MouseButtonEventHandler((_, e) => {
+                    if (IsEventFromControl(e.OriginalSource as DependencyObject, playButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, stopButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, snapshotButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, expandButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, collapseButton)) {
+                        return;
+                    }
+
                     var screenPoint = card.PointToScreen(e.GetPosition(card));
                     LogCardMouseDown(
                         "CardPreviewMouseDown",
@@ -320,7 +404,7 @@ namespace LocalCam {
                         if (IsSettingsDialogOpen()) {
                             return;
                         }
-                        if (!IsCameraTileActive(tileIndex)) {
+                        if (!IsStreamRunning(tileIndex)) {
                             return;
                         }
 
@@ -335,8 +419,28 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
-            videoOverlay.Children.Add(expandButton);
-            Panel.SetZIndex(expandButton, 0);
+            var overlayToolbarButtons = new StackPanel {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            overlayToolbarButtons.Children.Add(playButton);
+            overlayToolbarButtons.Children.Add(stopButton);
+            overlayToolbarButtons.Children.Add(snapshotButton);
+            overlayToolbarButtons.Children.Add(expandButton);
+            overlayToolbarButtons.Children.Add(collapseButton);
+            var overlayToolbar = new Border {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 4, 4, 0),
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC1B2231")!,
+                BorderBrush = System.Windows.Media.Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(4)
+            };
+            overlayToolbar.Child = overlayToolbarButtons;
+            videoOverlay.Children.Add(overlayToolbar);
             videoView.Content = videoOverlay;
 
             root.Children.Add(placeholder);
@@ -353,7 +457,11 @@ namespace LocalCam {
                 Badge = badge,
                 Label = label,
                 VideoView = videoView,
-                ExpandCollapseButton = expandButton
+                ExpandButton = expandButton,
+                CollapseButton = collapseButton,
+                PlayButton = playButton,
+                StopButton = stopButton,
+                SnapshotButton = snapshotButton
             };
         }
 
@@ -365,6 +473,53 @@ namespace LocalCam {
         private static FrameworkElement CreateCollapseButtonContent() {
             var collapseImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "collapse.png");
             return CreateButtonImageContentOrFallback(collapseImagePath);
+        }
+
+        private static FrameworkElement CreateStartButtonContent() {
+            return new Path {
+                Data = Geometry.Parse("M4,3 L13,8 L4,13 Z"),
+                Fill = System.Windows.Media.Brushes.White,
+                Stretch = System.Windows.Media.Stretch.Uniform,
+                Width = 14,
+                Height = 14
+            };
+        }
+
+        private static FrameworkElement CreateStopButtonContent() {
+            return new Rectangle {
+                Fill = System.Windows.Media.Brushes.White,
+                Width = 11,
+                Height = 11
+            };
+        }
+
+        private static FrameworkElement CreateSnapshotButtonContent() {
+            var root = new Grid {
+                Width = 16,
+                Height = 16
+            };
+            root.Children.Add(new Rectangle {
+                Width = 14,
+                Height = 10,
+                RadiusX = 2,
+                RadiusY = 2,
+                Stroke = System.Windows.Media.Brushes.White,
+                StrokeThickness = 1.4,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            root.Children.Add(new Ellipse {
+                Width = 4.5,
+                Height = 4.5,
+                Stroke = System.Windows.Media.Brushes.White,
+                StrokeThickness = 1.4,
+                Fill = System.Windows.Media.Brushes.Transparent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            return root;
         }
 
         private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
@@ -395,18 +550,29 @@ namespace LocalCam {
             };
         }
 
-        private void UpdateExpandCollapseButtons() {
+        private void UpdateTileButtonStates() {
             var expandedIndex = _expandedCameraIndex;
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var tile = _cameraTiles[i];
+                var isCardVisible = CameraTilesPanel.Visibility == Visibility.Visible && tile.Card.Visibility == Visibility.Visible;
                 var isExpanded = expandedIndex.HasValue && expandedIndex.Value == i;
-                var isActive = IsCameraTileActive(i);
-                var shouldShowButton = isActive && (!expandedIndex.HasValue || isExpanded);
-                tile.ExpandCollapseButton.Visibility = shouldShowButton ? Visibility.Visible : Visibility.Collapsed;
-                tile.ExpandCollapseButton.ToolTip = isExpanded ? "Collapse" : "Expand";
-                tile.ExpandCollapseButton.Content = isExpanded
-                    ? CreateCollapseButtonContent()
-                    : CreateExpandButtonContent();
+                var isRunning = IsStreamRunning(i);
+                var isDetectedCard = i < _detections.Count;
+
+                tile.PlayButton.Visibility = isCardVisible && isDetectedCard && !isRunning ? Visibility.Visible : Visibility.Collapsed;
+                tile.StopButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
+                tile.SnapshotButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
+                tile.PlayButton.IsEnabled = true;
+                tile.StopButton.IsEnabled = true;
+                tile.SnapshotButton.IsEnabled = !tile.IsSnapshotSaving;
+
+                tile.ExpandButton.Visibility = isCardVisible && isRunning && !isExpanded ? Visibility.Visible : Visibility.Collapsed;
+                tile.CollapseButton.Visibility = isCardVisible && isRunning && isExpanded ? Visibility.Visible : Visibility.Collapsed;
+                tile.ExpandButton.IsEnabled = true;
+                tile.CollapseButton.IsEnabled = true;
+
+                // Keep in-video controls available for visible cards, but force-hide hidden cards.
+                tile.VideoView.Visibility = isCardVisible ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
@@ -430,6 +596,22 @@ namespace LocalCam {
                 EnableMouseInput = false,
                 Mute = true
             };
+            mediaPlayer.Playing += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            }));
+            mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            }));
+            mediaPlayer.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            }));
+            mediaPlayer.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
+                _streamsRunning = IsAnyStreamRunning();
+                UpdateActionButtons();
+            }));
 
             tile.MediaPlayer = mediaPlayer;
             tile.VideoView.MediaPlayer = mediaPlayer;
@@ -441,10 +623,10 @@ namespace LocalCam {
             }
 
             var tile = _cameraTiles[index];
-            tile.VideoView.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+            tile.VideoView.Visibility = Visibility.Visible;
             tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
-            UpdateExpandCollapseButtons();
+            UpdateTileButtonStates();
         }
 
         private void ToggleCameraTileExpandCollapse(int tileIndex) {
@@ -472,7 +654,7 @@ namespace LocalCam {
                 return;
             }
 
-            if (!IsCameraTileActive(tileIndex)) {
+            if (!IsStreamRunning(tileIndex)) {
                 JsonLogStore.Information(
                     "ExpandCollapseToggleSuppressed",
                     "Expand/collapse toggle suppressed because the camera tile is not active.",
@@ -625,6 +807,14 @@ namespace LocalCam {
                 return;
             }
             if (!IsCameraTileActive(tileIndex.Value)) {
+                ResetDoubleClickTracking();
+                return;
+            }
+            if (IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].PlayButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].StopButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].SnapshotButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].ExpandButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].CollapseButton, screenX, screenY)) {
                 ResetDoubleClickTracking();
                 return;
             }
@@ -844,20 +1034,14 @@ namespace LocalCam {
         }
 
         private void UpdateActionButtons() {
-            var hasDetections = _detections.Count > 0;
-            var hasCompleteSettings = HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword);
-            var hasRunningStream = IsAnyStreamRunning();
-            var streamSessionActive = _streamsRunning || _isStartingStreams || hasRunningStream;
+            var anyPlaying = IsAnyStreamRunning();
+            var anyNotPlaying = HasAnyStoppedDetectedCamera();
 
-            DetectCameraButton.IsEnabled = !_isScanning && !streamSessionActive;
-            ToolbarStartStreamsButton.IsEnabled = !_isScanning &&
-                                                  !_isStartingStreams &&
-                                                  !_streamsRunning &&
-                                                  !hasRunningStream &&
-                                                  _libVlc is not null &&
-                                                  hasDetections &&
-                                                  hasCompleteSettings;
-            ToolbarStopButton.IsEnabled = !_isScanning && streamSessionActive;
+            DetectCameraButton.IsEnabled = !_isScanning;
+            ToolbarStartStreamsButton.IsEnabled = anyNotPlaying;
+            ToolbarStopButton.IsEnabled = anyPlaying;
+            SettingsButton.IsEnabled = true;
+            UpdateTileButtonStates();
         }
 
         private async Task StartLocalCameraSearchAsync() {
@@ -948,6 +1132,9 @@ namespace LocalCam {
                     _scanCancellation?.Dispose();
                     _scanCancellation = null;
                     _isScanning = false;
+                    if (!_isClosing) {
+                        UpdateActionButtons();
+                    }
                 }
 
                 if (_isClosing) {
@@ -972,6 +1159,7 @@ namespace LocalCam {
                 ? $"Trying last successful method: {GetDetectionMethodDisplayName(method)}..."
                 : "Searching local network for TAPO cameras...";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
+            UpdateTileButtonStates();
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Visible;
         }
@@ -979,6 +1167,7 @@ namespace LocalCam {
         private void ShowEmptyCameraSlots() {
             StreamingStatusText.Text = "Search local camera to populate the empty camera cards.";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
+            UpdateTileButtonStates();
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
         }
@@ -997,6 +1186,7 @@ namespace LocalCam {
         private void ShowNoDetections(string? prefixMessage = null) {
             _expandedCameraIndex = null;
             CameraTilesPanel.Visibility = Visibility.Collapsed;
+            UpdateTileButtonStates();
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
 
@@ -1013,11 +1203,11 @@ namespace LocalCam {
         }
 
         private void ToolbarStartStreamsButton_Click(object sender, RoutedEventArgs e) {
-            StartStreams();
+            StartAllStreams();
         }
 
         private void ToolbarStopButton_Click(object sender, RoutedEventArgs e) {
-            StopStreams();
+            StopAllStreams();
             StreamingStatusText.Text = "Streams stopped.";
             UpdateActionButtons();
         }
@@ -1029,9 +1219,9 @@ namespace LocalCam {
 
             _isSettingsDialogOpen = true;
             try {
-                if (dialog.ShowDialog() == true) {
+                dialog.ShowDialog();
+                if (dialog.DidSave) {
                     _settings = dialog.Settings;
-                    SettingsStore.Save(_settings);
                     TryAutoStartStreams();
                 }
             }
@@ -1061,7 +1251,7 @@ namespace LocalCam {
             TryAutoStartStreams();
         }
 
-        private void StartStreams() {
+        private void StartAllStreams() {
             if (_libVlc is null) {
                 JsonLogStore.Warning(
                     eventName: "camera_connect_blocked",
@@ -1107,9 +1297,6 @@ namespace LocalCam {
                     ["hasUsername"] = !string.IsNullOrWhiteSpace(username)
                 });
 
-            StopStreams();
-            UpdateActionButtons();
-
             _isStartingStreams = true;
             UpdateActionButtons();
 
@@ -1118,6 +1305,10 @@ namespace LocalCam {
 
             EnsureCameraTileCount(_detections.Count);
             for (var i = 0; i < _cameraTiles.Count && i < _detections.Count; i++) {
+                if (IsStreamRunning(i)) {
+                    continue;
+                }
+
                 var ipAddress = _detections[i].IpAddress.ToString();
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
@@ -1189,7 +1380,7 @@ namespace LocalCam {
             }
 
             _isStartingStreams = false;
-            _streamsRunning = startedCount > 0;
+            _streamsRunning = startedCount > 0 || IsAnyStreamRunning();
             if (failedEndpoints.Count == 0) {
                 JsonLogStore.Information(
                     eventName: "camera_connect_completed",
@@ -1223,7 +1414,7 @@ namespace LocalCam {
         }
 
         private void TryAutoStartStreams() {
-            if (_isClosing || _isScanning || _streamsRunning || !_settings.AutoStreamVideo) {
+            if (_isClosing || _isScanning || !_settings.AutoStreamVideo) {
                 return;
             }
 
@@ -1235,11 +1426,12 @@ namespace LocalCam {
                 return;
             }
 
-            StartStreams();
+            StartAllStreams();
         }
 
-        private void StopStreams() {
+        private void StopAllStreams() {
             _isStartingStreams = false;
+            _expandedCameraIndex = null;
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
                 if (mediaPlayer is null) {
@@ -1254,7 +1446,204 @@ namespace LocalCam {
             }
 
             _streamsRunning = false;
+            ApplyResponsiveCameraLayout();
             UpdateActionButtons();
+        }
+
+        private bool StartSingleStream(int tileIndex) {
+            if (_libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+                return false;
+            }
+
+            var username = _settings.RtspUsername.Trim();
+            var password = _settings.RtspPassword;
+            if (!HasCompleteStreamingSettings(username, password)) {
+                StreamingStatusText.Text = BuildMissingSettingsPrompt();
+                return false;
+            }
+
+            var streamPath = NormalizeStreamPath(_settings.StreamPath);
+            var ipAddress = _detections[tileIndex].IpAddress.ToString();
+            var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+            if (mediaPlayer is null) {
+                return false;
+            }
+
+            try {
+                using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
+                media.AddOption(":network-caching=300");
+                media.AddOption(":live-caching=300");
+                media.AddOption(":clock-jitter=0");
+                media.AddOption(":clock-synchro=0");
+
+                if (mediaPlayer.Play(media)) {
+                    SetVideoSurfaceActive(tileIndex, isActive: true);
+                    StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
+                    return true;
+                }
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "camera_connect_exception",
+                    message: "Single-camera RTSP stream start threw an exception.",
+                    category: "camera_connect",
+                    exception: ex,
+                    data: new Dictionary<string, object?> {
+                        ["cameraIndex"] = tileIndex + 1,
+                        ["ipAddress"] = ipAddress,
+                        ["streamPath"] = streamPath
+                    });
+            }
+
+            SetVideoSurfaceActive(tileIndex, isActive: false);
+            StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}.";
+            return false;
+        }
+
+        private void StopSingleStream(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+            if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
+                mediaPlayer.Stop();
+            }
+
+            SetVideoSurfaceActive(tileIndex, isActive: false);
+            StreamingStatusText.Text = $"Stopped camera {tileIndex + 1}.";
+        }
+
+        private bool IsStreamRunning(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return false;
+            }
+
+            var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+            return mediaPlayer is not null && mediaPlayer.IsPlaying;
+        }
+
+        private bool HasAnyStoppedDetectedCamera() {
+            var count = Math.Min(_cameraTiles.Count, _detections.Count);
+            for (var i = 0; i < count; i++) {
+                if (!IsStreamRunning(i)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private async Task SaveSnapshotAsync(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            var tile = _cameraTiles[tileIndex];
+            if (tile.IsSnapshotSaving) {
+                return;
+            }
+
+            var mediaPlayer = tile.MediaPlayer;
+            if (mediaPlayer is null || !mediaPlayer.IsPlaying) {
+                return;
+            }
+
+            if (!TryGetEffectiveSnapshotDirectory(out var targetDirectory, out var resolutionError)) {
+                StreamingStatusText.Text = $"Snapshot failed: {resolutionError}";
+                JsonLogStore.Warning(
+                    "SnapshotSaveRejected",
+                    "Snapshot save rejected because snapshot folder resolution failed.",
+                    SnapshotDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["reason"] = resolutionError
+                    });
+                return;
+            }
+
+            var fileName = $"camera-{tileIndex + 1}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png";
+            var snapshotPath = IOPath.Combine(targetDirectory, fileName);
+
+            tile.IsSnapshotSaving = true;
+            UpdateTileButtonStates();
+            try {
+                await Task.Run(() => {
+                    System.IO.Directory.CreateDirectory(targetDirectory);
+                    var saved = mediaPlayer.TakeSnapshot(0, snapshotPath, 0, 0);
+                    if (!saved) {
+                        throw new InvalidOperationException("Media player snapshot capture returned false.");
+                    }
+                });
+
+                StreamingStatusText.Text = $"Saved snapshot for camera {tileIndex + 1} to {snapshotPath}.";
+                JsonLogStore.Information(
+                    "SnapshotSaved",
+                    "Snapshot image saved successfully.",
+                    SnapshotDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["path"] = snapshotPath
+                    });
+            }
+            catch (Exception ex) {
+                StreamingStatusText.Text = $"Snapshot failed for camera {tileIndex + 1}: {ex.Message}";
+                JsonLogStore.Warning(
+                    "SnapshotSaveFailed",
+                    "Snapshot image save failed.",
+                    SnapshotDiagnosticsCategory,
+                    new Dictionary<string, object?> {
+                        ["tileIndex"] = tileIndex,
+                        ["path"] = snapshotPath,
+                        ["exceptionType"] = ex.GetType().FullName,
+                        ["exceptionMessage"] = ex.Message
+                    });
+            }
+            finally {
+                tile.IsSnapshotSaving = false;
+                UpdateTileButtonStates();
+            }
+        }
+
+        private bool TryGetEffectiveSnapshotDirectory(out string directoryPath, out string error) {
+            var picturesPath = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+            if (string.IsNullOrWhiteSpace(picturesPath)) {
+                directoryPath = string.Empty;
+                error = "Pictures folder path is unavailable.";
+                return false;
+            }
+
+            var configuredPath = (_settings.SnapshotSaveFolder ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(configuredPath)) {
+                directoryPath = IOPath.Combine(picturesPath, "LocalCam");
+                error = string.Empty;
+                return true;
+            }
+
+            string configuredFullPath;
+            string picturesFullPath;
+            try {
+                configuredFullPath = IOPath.GetFullPath(configuredPath)
+                    .TrimEnd(IOPath.DirectorySeparatorChar, IOPath.AltDirectorySeparatorChar);
+                picturesFullPath = IOPath.GetFullPath(picturesPath)
+                    .TrimEnd(IOPath.DirectorySeparatorChar, IOPath.AltDirectorySeparatorChar);
+            }
+            catch {
+                directoryPath = string.Empty;
+                error = "Snapshot folder path is invalid.";
+                return false;
+            }
+
+            var sameAsPictures = string.Equals(
+                configuredFullPath,
+                picturesFullPath,
+                StringComparison.OrdinalIgnoreCase);
+
+            directoryPath = sameAsPictures
+                ? IOPath.Combine(picturesPath, "LocalCam")
+                : configuredPath;
+            error = string.Empty;
+            return true;
         }
 
         private bool IsAnyStreamRunning() {
@@ -1268,6 +1657,42 @@ namespace LocalCam {
             return false;
         }
 
+        private static bool IsEventFromControl(DependencyObject? source, DependencyObject target) {
+            var current = source;
+            while (current is not null) {
+                if (ReferenceEquals(current, target)) {
+                    return true;
+                }
+
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
+        }
+
+        private static bool IsScreenPointInsideControl(FrameworkElement control, int screenX, int screenY) {
+            if (!control.IsVisible || control.ActualWidth <= 0 || control.ActualHeight <= 0) {
+                return false;
+            }
+
+            var localPoint = control.PointFromScreen(new Point(screenX, screenY));
+            return localPoint.X >= 0 &&
+                   localPoint.Y >= 0 &&
+                   localPoint.X <= control.ActualWidth &&
+                   localPoint.Y <= control.ActualHeight;
+        }
+
+        private static void ApplyRoundedClip(Border border, double cornerRadius) {
+            if (border.ActualWidth <= 0 || border.ActualHeight <= 0) {
+                return;
+            }
+
+            border.Clip = new System.Windows.Media.RectangleGeometry(
+                new Rect(0, 0, border.ActualWidth, border.ActualHeight),
+                cornerRadius,
+                cornerRadius);
+        }
+
         private void ApplyResponsiveCameraLayout() {
             if (CameraTilesPanel is null) {
                 return;
@@ -1277,7 +1702,7 @@ namespace LocalCam {
             if (count == 0) {
                 CameraTilesPanel.RowDefinitions.Clear();
                 CameraTilesPanel.ColumnDefinitions.Clear();
-                UpdateExpandCollapseButtons();
+                UpdateTileButtonStates();
                 return;
             }
 
@@ -1320,7 +1745,7 @@ namespace LocalCam {
                         }
                     }
 
-                    UpdateExpandCollapseButtons();
+                    UpdateTileButtonStates();
                     return;
                 }
             }
@@ -1354,7 +1779,7 @@ namespace LocalCam {
                 Grid.SetColumn(card, column);
             }
 
-            UpdateExpandCollapseButtons();
+            UpdateTileButtonStates();
         }
 
         private static (int Columns, int Rows, double CardWidth, double CardHeight) CalculateVideoDrivenGrid(
@@ -1417,7 +1842,7 @@ namespace LocalCam {
         }
 
         private void ShutdownStreamingEngine() {
-            StopStreams();
+            StopAllStreams();
 
             foreach (var tile in _cameraTiles) {
                 tile.VideoView.MediaPlayer = null;
@@ -1460,7 +1885,7 @@ namespace LocalCam {
                 : $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}.";
 
             return HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)
-                ? $"{detectionPrefix} Click 'Start Streams'."
+                ? $"{detectionPrefix} Click 'Start All'."
                 : $"{detectionPrefix} Open Settings and provide the RTSP username, password, and stream path.";
         }
 
