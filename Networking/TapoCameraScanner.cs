@@ -458,8 +458,8 @@ namespace LocalCam.Networking {
                     .Select(static attempt => GetMethodDisplayName(attempt.Method))
                     .ToArray();
                 var finalFailureMessage = attemptedMethodNames.Length == 0
-                    ? "No TAPO camera detected."
-                    : $"No TAPO camera detected. Tried: {string.Join(", ", attemptedMethodNames)}.";
+                    ? "No compatible camera detected."
+                    : $"No compatible camera detected. Tried: {string.Join(", ", attemptedMethodNames)}.";
                 progress?.Report(new TapoCameraScanActivity(null, finalFailureMessage));
 
                 var finalResult = BuildScanResult(
@@ -544,7 +544,7 @@ namespace LocalCam.Networking {
             return method switch {
                 TapoDetectionMethod.OnvifWsDiscovery => "ONVIF WS-Discovery",
                 TapoDetectionMethod.SsdpUpnpSearch => "SSDP/UPnP search",
-                TapoDetectionMethod.TapoUdpBroadcast => "Tapo UDP broadcast",
+                TapoDetectionMethod.TapoUdpBroadcast => "local discovery",
                 TapoDetectionMethod.MdnsDnsSdSweep => "mDNS/DNS-SD sweep",
                 TapoDetectionMethod.ArpSeededTargetProbe => "ARP-seeded target probe",
                 TapoDetectionMethod.SubnetProbeFallback => "subnet probe fallback",
@@ -615,7 +615,7 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 discoveredViaOnvif ? hintAddresses : null,
                 discoveredViaTapoBroadcast ? hintAddresses : null,
-                $"{GetMethodDisplayName(method)} did not detect a likely TAPO camera.",
+                $"{GetMethodDisplayName(method)} did not detect a compatible camera.",
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -643,7 +643,7 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 discoveredViaOnvifHints: null,
                 discoveredViaTapoBroadcastHints: null,
-                $"{GetMethodDisplayName(TapoDetectionMethod.ArpSeededTargetProbe)} did not detect a likely TAPO camera.",
+                $"{GetMethodDisplayName(TapoDetectionMethod.ArpSeededTargetProbe)} did not detect a compatible camera.",
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -678,7 +678,7 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 onvifHints,
                 tapoBroadcastHints,
-                $"{GetMethodDisplayName(TapoDetectionMethod.SubnetProbeFallback)} did not detect a likely TAPO camera.",
+                $"{GetMethodDisplayName(TapoDetectionMethod.SubnetProbeFallback)} did not detect a compatible camera.",
                 cancellationToken).ConfigureAwait(false);
         }
 

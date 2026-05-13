@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
-        Title="LocalCam - Viewer for Tapo Security Cameras"
+        Title="LocalCam - Network Camera Viewer"
         Height="722"
         Width="980"
         MinHeight="504"
@@ -278,7 +278,7 @@
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                         <Image Source="/Assets/icon.png" Width="20" Height="20" Margin="0,0,8,0" />
-                        <TextBlock Text="LocalCam - Viewer for Tapo Security Cameras"
+                        <TextBlock Text="LocalCam - Network Camera Viewer"
                                    Foreground="#E8EEF5"
                                    FontSize="13"
                                    FontWeight="SemiBold"

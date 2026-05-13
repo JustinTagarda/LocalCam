@@ -1,6 +1,6 @@
 # LocalCam
 
-LocalCam is a Windows desktop WPF app for discovering likely Tapo cameras on the local network and viewing RTSP streams in a multi-tile viewer.
+LocalCam is a Windows desktop WPF app for discovering compatible cameras on the local network and viewing RTSP streams in a multi-tile viewer.
 
 ## Current Implementation
 

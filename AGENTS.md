@@ -87,6 +87,214 @@
   - Store updater workflow is implemented in-app using `Windows.Services.Store` through service abstractions.
   - Footer update surface includes update state, progress, and restart affordance after install completion.
 
+## Brand-Neutral UI With Tapo-First Implementation Policy
+
+### Intent
+
+LocalCam must present itself in the user interface as a generic local/network camera application, not as a Tapo-only application.
+
+The implementation may remain Tapo-first under the hood. Existing Tapo/TP-Link discovery heuristics, scanner names, detection method names, scoring logic, and RTSP streaming behavior must not be refactored or generalized unless the user explicitly requests that work.
+
+This policy exists to avoid discouraging users with non-Tapo cameras from trying the app while preserving the current tested implementation.
+
+### Core Rule
+
+- User-facing text must be brand-neutral.
+- Internal implementation may remain Tapo-specific where that reflects actual behavior.
+- Do not infer that brand-neutral UI requires scanner refactoring.
+- Do not rename internal Tapo-specific code identifiers unless explicitly requested.
+- Do not change detection behavior while performing a UI wording pass.
+
+### User-Facing Wording Requirements
+
+Avoid visible UI wording that mentions:
+
+- `Tapo`
+- `TAPO`
+- `TP-Link`
+- `Tapo camera`
+- `likely Tapo camera`
+
+Use neutral wording instead:
+
+- `camera`
+- `network camera`
+- `local camera`
+- `compatible camera`
+- `RTSP stream`
+- `local discovery`
+
+Examples of required UI wording:
+
+- `Searching local network for TAPO cameras...`
+  - Use: `Searching local network for cameras...`
+
+- `No TAPO camera detected. Retry search?`
+  - Use: `No compatible camera detected. Retry search?`
+
+- `No TAPO camera detected.`
+  - Use: `No compatible camera detected.`
+
+- `No TAPO camera detected. Tried: {methods}.`
+  - Use: `No compatible camera detected. Tried: {methods}.`
+
+- `Detected {count} camera(s) using Tapo UDP.`
+  - Use: `Detected {count} camera(s) using local discovery.`
+
+- `Local network scan found one or more likely Tapo cameras.`
+  - If shown to users, use: `Local network scan found one or more compatible cameras.`
+
+### Detection Method Display Names
+
+Internal enum names may remain unchanged.
+
+When detection method names are shown to users, use this display mapping:
+
+- `OnvifWsDiscovery` -> `ONVIF`
+- `SsdpUpnpSearch` -> `SSDP`
+- `TapoUdpBroadcast` -> `local discovery`
+- `MdnsDnsSdSweep` -> `mDNS`
+- `ArpSeededTargetProbe` -> `ARP probe`
+- `SubnetProbeFallback` -> `subnet probe`
+
+Do not expose `Tapo UDP` in normal UI text.
+
+### Internal Implementation Guardrails
+
+The following may remain Tapo/TP-Link-specific and must not be renamed during a UI wording-only task:
+
+- `TapoCameraScanner`
+- `TapoCameraDetection`
+- `TapoDetectionMethod`
+- `TapoScanDiagnostics`
+- `TapoUdpBroadcast`
+- `TapoDiscoveryPayloads`
+- `TpLinkOuiPrefixes`
+- `TryProbeTapoUnicastAsync`
+- Tapo/TP-Link HTTP fingerprint checks
+- Tapo/TP-Link hostname checks
+- TP-Link MAC OUI scoring
+- Diagnostic payload fields that describe Tapo-specific internals
+
+These names are allowed because they describe implementation details, not product positioning.
+
+### Discovery Behavior Requirements
+
+Current discovery behavior must remain functionally unchanged unless explicitly requested.
+
+The app remains Tapo-first and may continue using:
+
+- ONVIF WS-Discovery
+- SSDP/UPnP discovery
+- Tapo UDP broadcast
+- mDNS/DNS-SD probing
+- ARP-seeded target probing
+- subnet probing
+- TP-Link/Tapo UDP payloads
+- TP-Link OUI scoring
+- Tapo/TP-Link HTTP, hostname, and fingerprint markers
+
+The app may discover non-Tapo cameras when they expose compatible services, especially RTSP and ONVIF.
+
+Do not claim or imply universal camera compatibility.
+
+Avoid wording such as:
+
+- `works with all cameras`
+- `supports every RTSP camera`
+- `universal ONVIF camera viewer`
+
+### Settings Requirements
+
+Settings UI must remain generic and RTSP-focused.
+
+Keep wording such as:
+
+- `RTSP Username`
+- `RTSP Password`
+- `Stream Path`
+- `Auto-stream`
+- `Snapshot Save Folder`
+- `Recording Save Folder`
+
+Do not add brand selectors, brand presets, model fields, or manufacturer fields unless explicitly requested.
+
+Do not change the default stream path unless explicitly requested.
+
+### Streaming Requirements
+
+RTSP streaming behavior must remain unchanged during brand-neutral UI work.
+
+Do not change:
+
+- RTSP URL construction
+- RTSP port behavior
+- credential handling
+- stream path normalization
+- LibVLC options
+- stream start/stop behavior
+- snapshot behavior
+- recording behavior
+
+Current RTSP URL construction may remain:
+
+`rtsp://{username}:{password}@{host}:554/{streamPath}`
+
+### Diagnostics And Logging
+
+User-visible diagnostics must be brand-neutral.
+
+Internal structured logs may remain Tapo-specific when they describe actual implementation behavior.
+
+Rule:
+
+- User-visible text: brand-neutral.
+- Developer/internal diagnostics: technically accurate.
+
+Do not rename diagnostic event names or structured log fields just to remove Tapo wording unless explicitly requested.
+
+### Documentation Positioning
+
+For developer documentation, use accurate wording:
+
+`LocalCam is Tapo-first and optimized for TP-Link/Tapo discovery, while also supporting compatible RTSP/ONVIF cameras when they expose similar network services.`
+
+For user-facing or store-facing wording, use neutral positioning:
+
+`LocalCam discovers compatible cameras on your local network and streams RTSP video in a multi-camera viewer.`
+
+### Acceptance Criteria For Brand-Neutral UI Changes
+
+A brand-neutral UI task is complete only when:
+
+- No normal visible UI text uses `Tapo`, `TAPO`, or `TP-Link`.
+- Detection and streaming behavior are unchanged.
+- Detection method labels shown to users are brand-neutral.
+- Settings remain generic and RTSP-focused.
+- Internal identifiers may remain Tapo-specific.
+- Internal logs may remain Tapo-specific where technically accurate.
+- No new dependencies are introduced.
+- No unrelated UI, scanner, streaming, snapshot, recording, persistence, or settings behavior is changed.
+- The project builds using the required fast build command.
+
+### Out Of Scope Unless Explicitly Requested
+
+Do not include any of the following in a brand-neutral UI wording task:
+
+- Generic brand scanner architecture
+- Manual camera IP entry
+- Custom RTSP URL support
+- Non-`554` RTSP port support
+- Brand presets
+- ONVIF profile negotiation
+- Authentication discovery
+- Camera model display
+- Camera manufacturer display
+- Internal scanner renaming
+- Large documentation rewrites
+- Discovery algorithm changes
+- Streaming architecture changes
+
 ## LibVLCSharp.WPF.VideoView Overlay Policy
 
 - Scope:

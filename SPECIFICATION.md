@@ -2,10 +2,10 @@
 
 ## 1. Product Summary
 
-LocalCam is a Windows desktop WPF application for discovering Tapo security cameras on the local network and viewing their RTSP streams in a custom client.
+LocalCam is a Windows desktop WPF application for discovering compatible local network cameras and viewing their RTSP streams in a custom client. The implementation is Tapo-first and optimized for TP-Link/Tapo discovery, while also supporting compatible RTSP/ONVIF cameras when they expose similar network services.
 
 Primary goal:
-- Detect likely Tapo cameras on the LAN
+- Detect compatible cameras on the LAN
 - Present detected cameras to the user
 - Connect to RTSP streams using user-provided credentials
 - Display up to 4 live camera feeds in a single window
@@ -72,7 +72,7 @@ Host probing:
 - Attempts reverse DNS lookup
 - Fetches HTTP/HTTPS headers/body fingerprints from port 80 or 443 when available
 
-Likely Tapo scoring signals:
+Tapo-first compatible camera scoring signals:
 - RTSP open on `554` or `8554`
 - ONVIF-related open port `2020`
 - Web management ports open
@@ -90,7 +90,7 @@ Output:
   - Detection reason
 
 Important constraint:
-- Detection is probabilistic. The app shows only hosts that meet the internal “likely Tapo” threshold.
+- Detection is probabilistic. The app shows only hosts that meet the internal compatible-camera threshold.
 
 Implementation reference:
 - [Networking\TapoCameraScanner.cs](D:\Projects\LocalCam\Networking\TapoCameraScanner.cs)
@@ -188,7 +188,7 @@ Resource cleanup:
 ## 10. Current Product Scope
 
 Implemented:
-- LAN discovery of likely Tapo cameras
+- LAN discovery of compatible cameras using Tapo-first heuristics
 - RTSP streaming in a 4-tile dashboard
 - Basic window chrome and polished WPF styling
 - Retry search from the main window

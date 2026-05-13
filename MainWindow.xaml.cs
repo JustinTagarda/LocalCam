@@ -251,7 +251,7 @@ namespace LocalCam {
             _settings.MainWindowTop = bounds.Top;
             _settings.MainWindowWidth = bounds.Width;
             _settings.MainWindowHeight = bounds.Height;
-            SettingsStore.Save(_settings);
+            TrySaveSettings("settings_window_bounds_save_failed", "Failed to persist main window bounds.");
         }
 
         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
@@ -1271,7 +1271,7 @@ namespace LocalCam {
         private void SetScanningState(TapoDetectionMethod? preferredMethod) {
             StreamingStatusText.Text = preferredMethod is TapoDetectionMethod method
                 ? $"Trying last successful method: {GetDetectionMethodDisplayName(method)}..."
-                : "Searching local network for TAPO cameras...";
+                : "Searching local network for cameras...";
             CameraTilesPanel.Visibility = Visibility.Collapsed;
             UpdateTileButtonStates();
             UpdateActionButtons();
@@ -1309,7 +1309,7 @@ namespace LocalCam {
                 return;
             }
 
-            StreamingStatusText.Text = "No TAPO camera detected. Retry search?";
+            StreamingStatusText.Text = "No compatible camera detected. Retry search?";
         }
 
         private void DetectCameraButton_Click(object sender, RoutedEventArgs e) {
@@ -1361,7 +1361,10 @@ namespace LocalCam {
 
         private void AutoStreamVideoCheckBox_Changed(object sender, RoutedEventArgs e) {
             _settings.AutoStreamVideo = AutoStreamVideoCheckBox.IsChecked == true;
-            SettingsStore.Save(_settings);
+            TrySaveSettings(
+                "settings_auto_stream_save_failed",
+                "Failed to persist auto-stream setting.",
+                showStatus: true);
             TryAutoStartStreams();
         }
 
@@ -2539,7 +2542,7 @@ namespace LocalCam {
 
         private string BuildDetectionsStatusText(int cameraCount, TapoDetectionMethod? successfulMethod = null) {
             if (cameraCount <= 0) {
-                return "No TAPO camera detected. Retry search?";
+                return "No compatible camera detected. Retry search?";
             }
 
             var detectionPrefix = successfulMethod is TapoDetectionMethod method
@@ -2590,7 +2593,13 @@ namespace LocalCam {
 
             var previousValue = _settings.LastSuccessfulDetectionMethod;
             _settings.LastSuccessfulDetectionMethod = persistedValue;
-            SettingsStore.Save(_settings);
+            if (!TrySaveSettings(
+                    "camera_search_preferred_method_save_failed",
+                    "Failed to persist the successful camera detection method.")) {
+                _settings.LastSuccessfulDetectionMethod = previousValue;
+                return;
+            }
+
             JsonLogStore.Information(
                 eventName: "camera_search_preferred_method_saved",
                 message: "Saved the successful camera detection method to settings.",
@@ -2601,22 +2610,42 @@ namespace LocalCam {
                 });
         }
 
+        private bool TrySaveSettings(string eventName, string logMessage, bool showStatus = false) {
+            try {
+                SettingsStore.Save(_settings);
+                return true;
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: eventName,
+                    message: logMessage,
+                    category: "settings",
+                    exception: ex);
+
+                if (showStatus && StreamingStatusText is not null) {
+                    StreamingStatusText.Text = $"Settings save failed: {ex.Message}";
+                }
+
+                return false;
+            }
+        }
+
         private static string BuildNoDetectionsMessage(IReadOnlyList<TapoDetectionMethodAttempt> attemptedMethods) {
             if (attemptedMethods.Count == 0) {
-                return "No TAPO camera detected.";
+                return "No compatible camera detected.";
             }
 
             var attemptedNames = attemptedMethods
                 .Select(static attempt => GetDetectionMethodDisplayName(attempt.Method))
                 .ToArray();
-            return $"No TAPO camera detected. Tried: {string.Join(", ", attemptedNames)}.";
+            return $"No compatible camera detected. Tried: {string.Join(", ", attemptedNames)}.";
         }
 
         private static string GetDetectionMethodDisplayName(TapoDetectionMethod method) {
             return method switch {
                 TapoDetectionMethod.OnvifWsDiscovery => "ONVIF",
                 TapoDetectionMethod.SsdpUpnpSearch => "SSDP",
-                TapoDetectionMethod.TapoUdpBroadcast => "Tapo UDP",
+                TapoDetectionMethod.TapoUdpBroadcast => "local discovery",
                 TapoDetectionMethod.MdnsDnsSdSweep => "mDNS",
                 TapoDetectionMethod.ArpSeededTargetProbe => "ARP probe",
                 TapoDetectionMethod.SubnetProbeFallback => "subnet probe",
