@@ -7,12 +7,11 @@ namespace LocalCam.Services {
         private readonly StoreContext _context;
         private IReadOnlyList<StorePackageUpdate> _cachedUpdates = [];
 
-        public StoreUpdateClient(bool isSupported) {
-            SupportsStoreApis = isSupported;
+        public StoreUpdateClient() {
             _context = StoreContext.GetDefault();
         }
 
-        public bool SupportsStoreApis { get; }
+        public bool SupportsStoreApis => true;
 
         public async Task<IReadOnlyList<StorePackageUpdateInfo>> GetAvailableUpdatesAsync(CancellationToken cancellationToken) {
             _ = cancellationToken;
@@ -42,8 +41,8 @@ namespace LocalCam.Services {
             CancellationToken cancellationToken) {
             _ = updates;
             _ = cancellationToken;
-            if (!SupportsStoreApis || _cachedUpdates.Count == 0) {
-                return true;
+            if (_cachedUpdates.Count == 0) {
+                return false;
             }
 
             var operation = _context.TrySilentDownloadStorePackageUpdatesAsync(_cachedUpdates);
@@ -58,8 +57,8 @@ namespace LocalCam.Services {
             CancellationToken cancellationToken) {
             _ = updates;
             _ = cancellationToken;
-            if (!SupportsStoreApis || _cachedUpdates.Count == 0) {
-                return true;
+            if (_cachedUpdates.Count == 0) {
+                return false;
             }
 
             var operation = _context.TrySilentDownloadAndInstallStorePackageUpdatesAsync(_cachedUpdates);

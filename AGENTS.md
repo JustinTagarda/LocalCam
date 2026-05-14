@@ -11,6 +11,15 @@
 - `FAST_BUILD_PROJECT`: `LocalCam.csproj`
 - `DEBUG_EXE_PATH`: `bin\Debug\net10.0-windows10.0.19041.0\LocalCam.exe`
 - INSTANCE_MODE: `single-instance`
+- PACKAGE_ARCHITECTURE: `x64-only`
+
+## Packaging Architecture Policy
+
+- LocalCam is an x64 package-only app.
+- Keep `LocalCam.csproj` runtime identifiers limited to `win-x64`.
+- Keep `LocalCam.Package.wapproj` package platforms limited to `x64`.
+- Do not add, restore, generate, or publish ARM64, win-arm64, AnyCPU, or multi-architecture Store packages unless the user explicitly requests a packaging architecture policy change.
+- If generated ARM64 package artifacts appear under `AppPackages`, treat them as stale outputs and remove them before packaging verification.
 
 ## Reusable Rules
 
@@ -63,7 +72,7 @@
 - Runtime/UI:
   - Single-window WPF desktop app (`MainWindow`) with custom window chrome.
   - Camera discovery runs on load and can be retried from the same window.
-  - Up to 4 camera tiles are shown with expand/collapse behavior and responsive layout.
+  - Camera tiles are shown based on current detections, with expand/collapse behavior and responsive layout.
   - Settings dialog is available for RTSP credentials and stream path.
   - Auto-stream toggle is supported and persisted.
 
@@ -221,6 +230,19 @@ Do not add brand selectors, brand presets, model fields, or manufacturer fields 
 
 Do not change the default stream path unless explicitly requested.
 
+## Settings Stream Path Policy
+
+- Scope:
+- Applies to `Settings` stream path behavior.
+
+- Requirements:
+- Default/initial stream path value must be `stream1`.
+- User can change stream path in Settings.
+- Stream path changes must persist and be loaded on next app start.
+
+- Precedence:
+- If any existing instruction in this file overlaps or conflicts with this stream path policy, this section wins.
+
 ### Streaming Requirements
 
 RTSP streaming behavior must remain unchanged during brand-neutral UI work.
@@ -239,6 +261,36 @@ Do not change:
 Current RTSP URL construction may remain:
 
 `rtsp://{username}:{password}@{host}:554/{streamPath}`
+
+## Stream Start Validation and Settings Escalation Policy
+
+- Scope:
+- Applies when starting video stream from:
+  - top toolbar `Start All`
+  - per-card `Play`
+  - auto-start (persisted auto-stream behavior)
+
+- Trigger condition:
+- If stream start fails because RTSP configuration is missing, incomplete, or invalid, including:
+  - missing/invalid RTSP credentials
+  - missing/invalid stream path
+
+- Required behavior:
+- Open `Settings` immediately.
+- Show this exact message text in Settings:
+  - `RTSP credentials are missing or invalid.`
+- Message style and placement:
+  - concise
+  - red text
+  - lower-left of Settings dialog
+  - same row as action buttons, left side
+
+- Guardrails:
+- For these validation failures, do not rely on generic start-failed messaging alone.
+- Keep behavior consistent across all three stream-start entry points.
+
+- Precedence:
+- If any existing instruction in this file overlaps or conflicts with this policy for stream-start validation handling, this section wins.
 
 ### Diagnostics And Logging
 
@@ -460,3 +512,78 @@ Do not include any of the following in a brand-neutral UI wording task:
 
 - Guardrail:
 - Do not alter these recording rules without explicit user instruction that clearly requests a behavior change.
+
+## Store Tiering Policy (Basic vs Premium)
+
+- Scope:
+- Defines feature gating and runtime behavior for Microsoft Store monetization tiers.
+- Keep all existing non-tier rules intact unless explicitly superseded by this section.
+
+- Tier definitions:
+- Basic (Free):
+  - Unlimited camera detection.
+  - Maximum 4 simultaneously playing cameras.
+  - If a 5th camera is started while 4 are already playing, auto-stop the earliest-played active camera, then start the requested camera.
+  - Recording is limited to 30 minutes per recording session.
+  - At 30 minutes, recording hard-stops and does not continue to a next segment.
+  - User may start recording again manually with no enforced session-count cap.
+  - Show a custom modal when recording stops due to the Basic 30-minute limit, including a Premium upsell CTA.
+  - All other current features remain available in Basic unless explicitly gated.
+- Premium (Paid):
+  - Unlimited camera detection.
+  - No cap on the number of cameras that can play simultaneously.
+  - Recording behavior remains complete as currently implemented (including segment rollover behavior).
+  - All existing features remain fully available.
+
+- Entitlement and fallback:
+- Resolve tier entitlement at runtime.
+- If entitlement cannot be resolved, fail-safe to Basic behavior.
+- Tier state must be consumable by playback and recording flows.
+
+- Basic playback cap enforcement:
+- Track stream play order using an explicit runtime ordering signal (for example, start sequence/timestamp).
+- Eviction candidate for the 5th start must be selected from currently active streams only.
+- On 5th start request in Basic:
+  - stop earliest-played active stream
+  - start requested stream
+  - final state must contain exactly 4 active streams
+
+- Basic recording cap enforcement:
+- Trigger stop at 30 minutes elapsed for the active Basic recording session.
+- Do not start a new recording segment automatically after the 30-minute cap is reached.
+- Keep stream playback running unless separately stopped by user/system conditions.
+- Limit-stop reason must be explicitly distinguishable from user-stop, stream-stop, and error-stop reasons.
+
+- Upgrade modal requirements (Basic recording limit):
+- Modal appears only when recording stops due to Basic 30-minute cap.
+- Modal must explain the limit clearly and include:
+  - primary action: Premium upgrade CTA
+  - secondary action: dismiss/close
+- Do not show this monetization modal for non-limit recording failures.
+
+- Recording status surface:
+- Recording activity and outcomes continue to use `StreamingStatusText` per existing policy.
+- Modal is additive for the Basic-limit stop case and must not replace status text updates.
+
+- Suggested marketing wording (custom modal):
+- Title options:
+  - `Recording limit reached`
+  - `Keep recording without interruptions`
+  - `Basic session completed`
+- Body guidance:
+  - State that Basic recordings stop at 30 minutes.
+  - State that Premium removes this 30-minute recording stop and enables continuous recording behavior.
+- CTA labels:
+  - `Upgrade to Premium`, `See Premium`, or `Upgrade`
+- Secondary labels:
+  - `Not now`, `Later`, or `Close`
+
+- Logging and diagnostics:
+- Log structured events for:
+- tier resolution result
+  - Basic 4-stream cap enforcement (requested tile, evicted tile, active counts)
+  - Basic 30-minute recording-limit stop
+  - upgrade modal shown/dismissed/CTA clicked
+
+- Guardrail:
+- Do not change Basic/Premium gating behavior defined in this section without explicit user instruction.

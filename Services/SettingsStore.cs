@@ -26,6 +26,7 @@ namespace LocalCam.Services {
 
                 var json = File.ReadAllText(SettingsPath);
                 settings = JsonSerializer.Deserialize<LocalCamSettings>(json, JsonOptions) ?? new LocalCamSettings();
+                settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
                 return true;
             }
             catch {
@@ -36,9 +37,17 @@ namespace LocalCam.Services {
 
         public static void Save(LocalCamSettings settings) {
             Directory.CreateDirectory(SettingsDirectory);
+            settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
 
             var json = JsonSerializer.Serialize(settings, JsonOptions);
             File.WriteAllText(SettingsPath, json);
+        }
+
+        private static string NormalizeStreamPath(string? input) {
+            var normalized = (input ?? string.Empty).Trim().TrimStart('/');
+            return string.IsNullOrWhiteSpace(normalized)
+                ? "stream1"
+                : normalized;
         }
     }
 }

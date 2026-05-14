@@ -8,7 +8,7 @@
     <EntryPointProjectUniqueName>LocalCam.csproj</EntryPointProjectUniqueName>
     <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
     <AppxBundle>Never</AppxBundle>
-    <AppxBundlePlatforms>x64|ARM64</AppxBundlePlatforms>
+    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
     <UapAppxPackageBuildMode>StoreUpload</UapAppxPackageBuildMode>
     <BaseIntermediateOutputPath>obj\wapproj\</BaseIntermediateOutputPath>
     <MSBuildProjectExtensionsPath>obj\wapproj\</MSBuildProjectExtensionsPath>
@@ -37,7 +37,12 @@
   <Target Name="FixUploadManifestExecutableToken" BeforeTargets="_GenerateAppxUploadPackageFile">
     <PropertyGroup>
       <_UploadManifestPath>$(FinalAppxUploadManifestName)</_UploadManifestPath>
+      <_PackageManifestPath>$(FinalAppxManifestName)</_PackageManifestPath>
     </PropertyGroup>
+
+    <XmlPeek XmlInputPath="$(_PackageManifestPath)" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Version">
+      <Output TaskParameter="Result" PropertyName="_PackageVersion" />
+    </XmlPeek>
 
     <ReadLinesFromFile File="$(_UploadManifestPath)" Condition="Exists('$(_UploadManifestPath)')">
       <Output TaskParameter="Lines" ItemName="_UploadManifestLines" />
@@ -47,6 +52,6 @@
       File="$(_UploadManifestPath)"
       Overwrite="true"
       Condition="Exists('$(_UploadManifestPath)')"
-      Lines="@(_UploadManifestLines->Replace('$targetnametoken$.exe','LocalCam\\LocalCam.exe'))" />
+      Lines="@(_UploadManifestLines->Replace('$targetnametoken$.exe','LocalCam\\LocalCam.exe')->Replace('Version=&quot;1.0.5.0&quot;','Version=&quot;$(_PackageVersion)&quot;'))" />
   </Target>
 </Project>

@@ -20,7 +20,7 @@ namespace LocalCam {
 
             RtspUsernameTextBox.Text = settings.RtspUsername;
             RtspPasswordBox.Password = settings.RtspPassword;
-            StreamPathTextBox.Text = settings.StreamPath;
+            StreamPathTextBox.Text = NormalizeStreamPath(settings.StreamPath);
             _snapshotFolderPathValue = NormalizeSnapshotSaveFolder(settings.SnapshotSaveFolder);
             _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
             RefreshSnapshotFolderDisplay();
@@ -29,6 +29,18 @@ namespace LocalCam {
         }
 
         public LocalCamSettings Settings { get; private set; } = new();
+
+        public void ShowInlineError(string message) {
+            var text = (message ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(text)) {
+                InlineErrorTextBlock.Text = string.Empty;
+                InlineErrorTextBlock.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            InlineErrorTextBlock.Text = text;
+            InlineErrorTextBlock.Visibility = Visibility.Visible;
+        }
 
         private void UpdateButton_Click(object sender, RoutedEventArgs e) {
             TrySaveAndClose();
@@ -103,6 +115,7 @@ namespace LocalCam {
         }
 
         private void InputChanged(object sender, RoutedEventArgs e) {
+            ShowInlineError(string.Empty);
             UpdateCommitState();
         }
 

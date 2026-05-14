@@ -140,7 +140,7 @@ Added real video playback in `MainWindow` using:
 - `VideoLAN.LibVLC.Windows`
 
 Main features:
-- 4 `VideoView` surfaces (max 4 cameras displayed).
+- `VideoView` surfaces are created dynamically based on current detections.
 - runtime RTSP controls:
   - username,
   - password,
@@ -236,7 +236,7 @@ Interpretation:
   - borderless dark main shell,
   - custom titlebar controls,
   - streaming credential controls,
-  - 4 live video panels backed by LibVLC media players.
+  - live video panels backed by LibVLC media players.
 
 ## Key Decisions and Rationale
 - Local-first streaming: RTSP over LAN chosen for low latency and no cloud dependency.
@@ -259,7 +259,6 @@ Interpretation:
 ## Known Limitations
 - Scanner identifies likely Tapo devices (heuristic), not absolute certainty.
 - Live streaming requires valid RTSP credentials enabled in the Tapo app.
-- Current viewer supports up to 4 simultaneous streams.
 - RTSP path may vary per model/config (`stream1` default, `stream2` often available).
 - In some ISP router firmware profiles, WLAN client isolation/inter-SSID bridge restrictions can block local camera reachability even within the same IPv4 subnet.
 - Tapo app video can still appear functional via cloud relay when direct LAN ports are blocked; LocalCam requires local LAN reachability.
@@ -276,7 +275,7 @@ Interpretation:
 ## Recommendations for Future Development
 1. Move streaming settings to persisted app config (username not stored in plain text unless user opts in).
 2. Add per-tile connection state and retry logic.
-3. Add camera selection UI when more than 4 cameras are detected.
+3. Add camera grouping/filtering UI when many cameras are detected.
 4. Add diagnostics export (`.json`/`.txt`) for remote support and house-to-house comparisons.
 5. Add manual IP reachability tool in startup UI (test specific host with ports `554/8554/2020/20002/9999`).
 6. Add automated tests for scanner scoring and startup flow state transitions.

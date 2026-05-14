@@ -16,3 +16,6 @@ Thumbs.db
 
 # Build/package artifacts
 AppPackages/
+
+# Local store listing assets
+/store-assets/

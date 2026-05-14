@@ -449,6 +449,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
                         <ProgressBar x:Name="UpdateProgressBar"
@@ -479,6 +480,15 @@
                                 Margin="12,0,0,0"
                                 Visibility="Collapsed"
                                 Click="RestartForUpdateButton_Click" />
+
+                        <TextBlock x:Name="FooterUpdateVersionText"
+                                   Grid.Column="3"
+                                   Foreground="#8FA2BE"
+                                   FontSize="11"
+                                   TextWrapping="NoWrap"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Text="v1.0.0.0" />
                     </Grid>
                 </Grid>
             </Border>

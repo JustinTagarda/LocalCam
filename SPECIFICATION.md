@@ -8,7 +8,7 @@ Primary goal:
 - Detect compatible cameras on the LAN
 - Present detected cameras to the user
 - Connect to RTSP streams using user-provided credentials
-- Display up to 4 live camera feeds in a single window
+- Display live camera feeds in a single window
 
 ## 2. Tech Stack
 
@@ -39,7 +39,7 @@ Startup flow:
 2. App initializes JSON logging.
 3. App opens `MainWindow` directly.
 4. `MainWindow` performs local-network camera discovery on load.
-5. If detections are found, the viewer populates up to 4 camera tiles.
+5. If detections are found, the viewer populates camera tiles for the detections.
 6. If no detections are found, the user can retry search from the main window.
 7. App exits when the main window closes.
 
@@ -101,7 +101,7 @@ The main window is the streaming dashboard.
 
 Behavior:
 - Opens only after a successful startup scan with at least one detection
-- Shows up to 4 camera tiles
+- Shows camera tiles for detected cameras
 - Shows detected IP addresses on tiles
 - Allows entering RTSP username and password
 - Allows editing RTSP stream path
@@ -110,7 +110,6 @@ Behavior:
 - Uses a custom chrome-less window style
 
 Stream rules:
-- Only the first 4 detections are used
 - Each detection maps to one video tile/player
 - RTSP URLs are built as:
   - `rtsp://{username}:{password}@{ip}:554/{streamPath}`
@@ -120,7 +119,7 @@ Stream rules:
 
 Playback behavior:
 - Initializes LibVLC on window construction
-- Creates 4 muted media players
+- Creates muted media players per active camera tile
 - Applies options for network caching and low jitter
 - Starts only if credentials exist and detections are available
 - Stops all streams before restarting
@@ -189,7 +188,7 @@ Resource cleanup:
 
 Implemented:
 - LAN discovery of compatible cameras using Tapo-first heuristics
-- RTSP streaming in a 4-tile dashboard
+- RTSP streaming in a multi-tile dashboard
 - Basic window chrome and polished WPF styling
 - Retry search from the main window
 

@@ -6,6 +6,7 @@ namespace LocalCam.Models {
         bool IsMandatoryUpdateAvailable,
         bool IsProgressVisible,
         double ProgressValue,
+        bool IsRestartRequired,
         string InstalledVersion,
         string? AvailableVersion);
 }
