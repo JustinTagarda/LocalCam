@@ -10,7 +10,7 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
 - Lets you start and stop streams per tile or all at once
 - Supports per-tile snapshot capture
 - Supports per-tile manual recording with automatic 60-minute segment rollover
-- Keeps discovery, streaming, and update status visible in the main window footer
+- Keeps discovery and streaming status visible in the main window footer
 
 ## Current UI
 
@@ -22,7 +22,8 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
   - Record / Stop Recording
   - Expand / Collapse while video is playing
 - Settings are available from the toolbar
-- A footer update surface shows Store update state, progress, and restart availability when an update is installed
+- The footer shows current access tier (`Basic`/`Premium`) and app version
+- Clicking version runs the shared Store update coordinator for both background checks and user-initiated update flow
 
 ## Settings
 
@@ -68,14 +69,40 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 
 ## Diagnostics
 
-- Structured JSONL logs are written to `%LocalAppData%\LocalCam\logs`
+- In Debug local runs, structured JSONL logs are written beside the launched executable
+- Logging is disabled for Release and installed distributions
 - Discovery, settings, snapshot, recording, stream, and updater events are logged
 
 ## Microsoft Store Support
 
 - Packaging project exists for Store submission workflows
-- The app includes an in-app Store updater implemented through `Windows.Services.Store`
-- The footer update surface shows check, download, install, and restart states
+- Store integration uses `Windows.Services.Store`
+- Startup runs a hidden, non-blocking Store update check after the first render
+- If updates are available, the app prefers silent download and defers install until app exit when supported
+- If silent download is unavailable or fails, the app falls back to Microsoft Store / OS-provided update UI
+- Deferred update state is persisted to `%LocalAppData%\LocalCam\update-state.json`
+- Deferred exit-time installs run with an app-owned modal progress dialog, then resume the user's close
+- User-initiated update checks use the same coordinator and Store APIs as the background flow
+- The app does not force automatic restart after update operations
+
+## Store Update Validation
+
+Use this checklist to validate the Store update flow after packaging or when testing in a Store/MSIX context:
+
+- App starts with no update available: opens normally, no update UI appears
+- App starts with an available update: hidden background check runs after first render
+- Silent path is available: update downloads silently and install is deferred until exit
+- Silent path is unavailable or fails: fallback Store / OS update UI is used
+- Deferred install exists on exit: close is paused, modal progress UI appears, install runs, then exit resumes
+- Deferred install fails on exit: failure message appears, deferred state is cleared, exit resumes
+- App is unpackaged: Store update flow is skipped safely
+- App does not restart itself after update operations
+
+For code-level verification, use the fast Debug build:
+
+```powershell
+dotnet msbuild .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m
+```
 
 ## Tech Stack
 
@@ -107,7 +134,8 @@ Launch the app from the Debug output:
 - Settings dialog: [SettingsWindow.xaml](D:/Projects/LocalCam/SettingsWindow.xaml)
 - Settings persistence: [Services/SettingsStore.cs](D:/Projects/LocalCam/Services/SettingsStore.cs)
 - App diagnostics: [Services/JsonLogStore.cs](D:/Projects/LocalCam/Services/JsonLogStore.cs)
-- Store updater services: `Services/AppUpdateService.cs`, `Services/StoreUpdateClient.cs`, `Services/AppVersionProvider.cs`
+- Store services: `Services/Store/`, `Services/StoreUpdateClient.cs`, `Services/AppVersionProvider.cs`
+- Store update orchestration: `Services/Updates/`
 - Store packaging project: [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 - Store manifest: [Package.appxmanifest](D:/Projects/LocalCam/Package.appxmanifest)
 

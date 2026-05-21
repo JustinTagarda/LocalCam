@@ -32,5 +32,15 @@ namespace LocalCam.Services {
             _ = cancellationToken;
             return Task.FromResult(false);
         }
+
+        public Task<StoreUpdateOperationResult> RequestDownloadAndInstallUpdatesAsync(
+            IReadOnlyList<StorePackageUpdateInfo> updates,
+            IProgress<double>? progress,
+            CancellationToken cancellationToken) {
+            _ = updates;
+            _ = progress;
+            _ = cancellationToken;
+            return Task.FromResult(new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "Store update UI is unavailable."));
+        }
     }
 }

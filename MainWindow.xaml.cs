@@ -10,6 +10,9 @@ using LibVLCSharp.WPF;
 using LocalCam.Networking;
 using LocalCam.Models;
 using LocalCam.Services;
+using LocalCam.Services.Store;
+using LocalCam.Services.Updates;
+using LocalCam.ViewModels;
 using System.Runtime.InteropServices;
 using Geometry = System.Windows.Media.Geometry;
 using IOPath = System.IO.Path;
@@ -87,10 +90,14 @@ namespace LocalCam {
         private int _lastDoubleClickY;
         private LocalCamSettings _settings = new();
         private readonly IAppVersionProvider _versionProvider = new AppVersionProvider();
-        private IAppUpdateService? _appUpdateService;
-        private CancellationTokenSource? _appUpdateCancellation;
-        private IPremiumEntitlementService? _premiumEntitlementService;
+        private IStoreLicenseService? _storeLicenseService;
+        private IStorePurchaseService? _storePurchaseService;
+        private IAppUpdateCoordinator? _appUpdateCoordinator;
+        private AppStatusViewModel? _appStatusViewModel;
         private CancellationTokenSource? _premiumEntitlementCancellation;
+        private CancellationTokenSource? _startupUpdateCancellation;
+        private bool _isHandlingDeferredUpdateClose;
+        private bool _resumeCloseAfterDeferredUpdateInstall;
         private VlcMediaPlayer? _recordingMediaPlayer;
         private int? _activeRecordingTileIndex;
         private int _recordingSegmentNumber;
@@ -119,7 +126,7 @@ namespace LocalCam {
             SourceInitialized += MainWindow_SourceInitialized;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
-            FooterVersionText.Text = $"v{_versionProvider.GetInstalledVersionText()}";
+            InitializeAppStatusServices();
             LoadSettings();
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
@@ -1158,16 +1165,46 @@ namespace LocalCam {
         private void Window_Loaded(object sender, RoutedEventArgs e) {
             AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
             InitializePremiumEntitlement();
-            InitializeUpdater();
             _ = StartLocalCameraSearchAsync();
+        }
+
+        private void Window_ContentRendered(object? sender, EventArgs e) {
+            _ = sender;
+            _ = e;
+            StartBackgroundStoreUpdateCheck();
+        }
+
+        private void InitializeAppStatusServices() {
+            var contextProvider = new StoreContextProvider(_versionProvider);
+            var entitlementCache = new PremiumEntitlementCache();
+            _storeLicenseService = new StoreLicenseService(contextProvider, entitlementCache);
+            var navigationService = new StoreNavigationService();
+            _storePurchaseService = new StorePurchaseService(contextProvider, _storeLicenseService, navigationService);
+            var updateClient = CreateStoreUpdateClient();
+            var deferredStateStore = new DeferredUpdateStateStore();
+            _appUpdateCoordinator = new AppUpdateCoordinator(
+                updateClient,
+                _versionProvider,
+                deferredStateStore,
+                RunStoreFallbackUpdateUiAsync);
+            _appStatusViewModel = new AppStatusViewModel(
+                new AppVersionService(_versionProvider),
+                _storeLicenseService,
+                _storePurchaseService,
+                _appUpdateCoordinator,
+                () => new WindowInteropHelper(this).Handle);
+            AppStatusDisplayControl.DataContext = _appStatusViewModel;
         }
 
         private void InitializePremiumEntitlement() {
             _premiumEntitlementCancellation = new CancellationTokenSource();
-            _premiumEntitlementService = new PremiumEntitlementService(_versionProvider);
-            _premiumEntitlementService.SnapshotChanged += OnPremiumEntitlementSnapshotChanged;
+            if (_storeLicenseService is null) {
+                return;
+            }
+
+            _storeLicenseService.SnapshotChanged += OnPremiumEntitlementSnapshotChanged;
             var ownerWindowHandle = new WindowInteropHelper(this).Handle;
-            _ = _premiumEntitlementService.StartAsync(ownerWindowHandle, _premiumEntitlementCancellation.Token);
+            _ = _storeLicenseService.StartAsync(ownerWindowHandle, _premiumEntitlementCancellation.Token);
         }
 
         private void OnPremiumEntitlementSnapshotChanged(StoreEntitlementSnapshot snapshot) {
@@ -1184,6 +1221,7 @@ namespace LocalCam {
                             ["matchReason"] = snapshot.MatchReason
                         });
                     UpdateActionButtons();
+                    _appStatusViewModel?.ApplyEntitlementSnapshot(snapshot);
                 });
             }
             catch (Exception ex) {
@@ -1191,12 +1229,40 @@ namespace LocalCam {
             }
         }
 
-        private void InitializeUpdater() {
-            _appUpdateCancellation = new CancellationTokenSource();
-            _appUpdateService = new AppUpdateService(_versionProvider, CreateStoreUpdateClient(), IsUpdateInstallBusy);
-            _appUpdateService.SnapshotChanged += OnUpdateSnapshotChanged;
-            ApplyUpdateSnapshot(_appUpdateService.Snapshot);
-            _ = _appUpdateService.StartAsync(_appUpdateCancellation.Token);
+        public void StartBackgroundStoreUpdateCheck() {
+            if (_appUpdateCoordinator is null) {
+                return;
+            }
+
+            _startupUpdateCancellation ??= new CancellationTokenSource();
+            _ = StartBackgroundStoreUpdateCheckAsync(_startupUpdateCancellation.Token);
+        }
+
+        private async Task StartBackgroundStoreUpdateCheckAsync(CancellationToken cancellationToken) {
+            if (_appUpdateCoordinator is null) {
+                return;
+            }
+
+            try {
+                await _appUpdateCoordinator.RunStartupUpdateFlowAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) {
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error("startup_update_task_failed", "Startup Store update task failed.", "updater", ex);
+            }
+        }
+
+        private Task<StoreUpdateOperationResult> RunStoreFallbackUpdateUiAsync(CancellationToken cancellationToken) {
+            return Dispatcher.InvokeAsync(async () => {
+                var updateClient = CreateStoreUpdateClient();
+                var updates = await updateClient.GetAvailableUpdatesAsync(cancellationToken);
+                if (updates.Count == 0) {
+                    return new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "No update available for fallback installation.", 0, WasAttempted: false);
+                }
+
+                return await updateClient.RequestDownloadAndInstallUpdatesAsync(updates, progress: null, cancellationToken);
+            }).Task.Unwrap();
         }
 
         private IStoreUpdateClient CreateStoreUpdateClient() {
@@ -1205,7 +1271,7 @@ namespace LocalCam {
             }
 
             try {
-                return new StoreUpdateClient();
+                return new StoreUpdateClient(() => new WindowInteropHelper(this).Handle);
             }
             catch (Exception ex) {
                 JsonLogStore.Error("store_update_client_create_failed", "Failed to create Store update client.", "updater", ex);
@@ -1213,12 +1279,8 @@ namespace LocalCam {
             }
         }
 
-        private bool IsUpdateInstallBusy() {
-            return _isScanning || _isStartingStreams || IsAnyStreamRunning() || _isSettingsDialogOpen;
-        }
-
         private async Task<StoreEntitlementSnapshot> EnsurePremiumEntitlementReadyAsync() {
-            if (_premiumEntitlementService is null) {
+            if (_storeLicenseService is null) {
                 return new StoreEntitlementSnapshot(
                     StoreEntitlementState.VerificationFailed,
                     IsPremium: false,
@@ -1228,64 +1290,10 @@ namespace LocalCam {
             }
 
             try {
-                return await _premiumEntitlementService.EnsureReadyAsync(_premiumEntitlementCancellation?.Token ?? CancellationToken.None);
+                return await _storeLicenseService.EnsureReadyAsync(_premiumEntitlementCancellation?.Token ?? CancellationToken.None);
             }
             catch (OperationCanceledException) {
-                return _premiumEntitlementService.Snapshot;
-            }
-        }
-
-        private void OnUpdateSnapshotChanged(AppUpdateSnapshot snapshot) {
-            try {
-                Dispatcher.Invoke(() => ApplyUpdateSnapshot(snapshot));
-            }
-            catch (Exception ex) {
-                JsonLogStore.Error("updater_ui_dispatch_failed", "Failed to dispatch updater snapshot to UI thread.", "updater", ex);
-            }
-        }
-
-        private void ApplyUpdateSnapshot(AppUpdateSnapshot snapshot) {
-            FooterVersionText.Text = $"v{snapshot.InstalledVersion}";
-            FooterUpdateVersionText.Text = $"v{snapshot.InstalledVersion}";
-
-            var showUpdatePanel = snapshot.State is AppUpdateState.Downloading or AppUpdateState.Installing or AppUpdateState.Completed or AppUpdateState.Deferred or AppUpdateState.Failed or AppUpdateState.Checking;
-            FooterDefaultPanel.Visibility = showUpdatePanel ? Visibility.Collapsed : Visibility.Visible;
-            FooterUpdatePanel.Visibility = showUpdatePanel ? Visibility.Visible : Visibility.Collapsed;
-
-            UpdateStatusText.Text = snapshot.IsMandatoryUpdateAvailable
-                ? $"{snapshot.StageText}: {snapshot.StatusMessage} (mandatory)"
-                : $"{snapshot.StageText}: {snapshot.StatusMessage}";
-
-            UpdateProgressBar.Visibility = snapshot.IsProgressVisible ? Visibility.Visible : Visibility.Collapsed;
-            UpdateProgressBar.Value = Math.Clamp(snapshot.ProgressValue, 0, 1);
-            RestartForUpdateButton.Visibility = snapshot.IsRestartRequired ? Visibility.Visible : Visibility.Collapsed;
-            RestartForUpdateButton.IsEnabled = snapshot.State != AppUpdateState.Installing;
-        }
-
-        private async void RestartForUpdateButton_Click(object sender, RoutedEventArgs e) {
-            _ = sender;
-            _ = e;
-
-            if (_appUpdateService is null || _appUpdateCancellation is null) {
-                return;
-            }
-
-            RestartForUpdateButton.IsEnabled = false;
-            try {
-                var installStarted = await _appUpdateService.ApplyUpdateAsync(_appUpdateCancellation.Token);
-                if (installStarted) {
-                    Close();
-                }
-            }
-            catch (OperationCanceledException) {
-            }
-            catch (Exception ex) {
-                JsonLogStore.Error("updater_restart_failed", "Failed to apply Store update from restart action.", "updater", ex);
-            }
-            finally {
-                if (IsLoaded) {
-                    RestartForUpdateButton.IsEnabled = true;
-                }
+                return _storeLicenseService.Snapshot;
             }
         }
 
@@ -2586,7 +2594,7 @@ namespace LocalCam {
         }
 
         private async void ShowBasicRecordingLimitUpgradeModal() {
-            var entitlement = _premiumEntitlementService?.Snapshot;
+            var entitlement = _storeLicenseService?.Snapshot;
             JsonLogStore.Information(
                 "premium_upgrade_modal_considered",
                 "Basic recording limit upgrade modal considered.",
@@ -2631,12 +2639,12 @@ namespace LocalCam {
                 "Premium upgrade modal CTA clicked.",
                 "store_entitlement");
 
-            if (_premiumEntitlementService is null) {
+            if (_storePurchaseService is null) {
                 StreamingStatusText.Text = "Premium purchase is unavailable.";
                 return;
             }
 
-            var purchased = await _premiumEntitlementService.RequestPremiumPurchaseAsync(
+            var purchased = await _storePurchaseService.RequestPremiumPurchaseAsync(
                 new WindowInteropHelper(this).Handle,
                 _premiumEntitlementCancellation?.Token ?? CancellationToken.None);
 
@@ -3263,13 +3271,10 @@ namespace LocalCam {
             _isClosing = true;
             UninstallMouseHook();
             _scanCancellation?.Cancel();
-            _appUpdateCancellation?.Cancel();
             _premiumEntitlementCancellation?.Cancel();
-            if (_premiumEntitlementService is not null) {
-                _premiumEntitlementService.SnapshotChanged -= OnPremiumEntitlementSnapshotChanged;
-            }
-            if (_appUpdateService is not null) {
-                _appUpdateService.SnapshotChanged -= OnUpdateSnapshotChanged;
+            _startupUpdateCancellation?.Cancel();
+            if (_storeLicenseService is not null) {
+                _storeLicenseService.SnapshotChanged -= OnPremiumEntitlementSnapshotChanged;
             }
             ShutdownStreamingEngine();
 
@@ -3277,6 +3282,25 @@ namespace LocalCam {
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
+            if (_resumeCloseAfterDeferredUpdateInstall) {
+                _isClosing = true;
+                _scanCancellation?.Cancel();
+                PersistWindowBounds();
+                base.OnClosing(e);
+                return;
+            }
+
+            if (_isHandlingDeferredUpdateClose) {
+                e.Cancel = true;
+                return;
+            }
+
+            if (_appUpdateCoordinator is not null) {
+                e.Cancel = true;
+                _ = HandleDeferredUpdateInstallOnClosingAsync();
+                return;
+            }
+
             _isClosing = true;
             _scanCancellation?.Cancel();
             PersistWindowBounds();
@@ -3293,6 +3317,84 @@ namespace LocalCam {
             _ = e;
             PersistWindowBounds();
             ApplyResponsiveCameraLayout();
+        }
+
+        private async Task HandleDeferredUpdateInstallOnClosingAsync() {
+            if (_appUpdateCoordinator is null || _isHandlingDeferredUpdateClose) {
+                return;
+            }
+
+            _isHandlingDeferredUpdateClose = true;
+            try {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                var deferredInstallPending = await _appUpdateCoordinator.HasDeferredInstallPendingAsync(timeoutCts.Token);
+                if (!deferredInstallPending) {
+                    _resumeCloseAfterDeferredUpdateInstall = true;
+                    Close();
+                    return;
+                }
+
+                var dialog = new DeferredUpdateInstallDialog {
+                    Owner = this
+                };
+
+                StoreUpdateOperationResult? installResult = null;
+                var progress = new Progress<double>(value => dialog.ReportProgress(value));
+
+                dialog.Loaded += async (_, _) => {
+                    try {
+                        installResult = await _appUpdateCoordinator.RunDeferredInstallOnExitAsync(progress, timeoutCts.Token);
+                    }
+                    catch (OperationCanceledException) {
+                        installResult = new StoreUpdateOperationResult(StoreUpdateOperationState.Canceled, "Deferred update install was canceled.", 0, WasAttempted: true);
+                    }
+                    catch (Exception ex) {
+                        installResult = new StoreUpdateOperationResult(StoreUpdateOperationState.OtherError, $"Deferred update install failed: {ex.Message}", 0, WasAttempted: true);
+                        JsonLogStore.Error("deferred_update_install_dialog_failed", "Deferred update install dialog failed to complete.", "updater", ex);
+                    }
+                    finally {
+                        dialog.CloseSafely();
+                    }
+                };
+
+                _ = dialog.ShowDialog();
+
+                if (installResult is null || !installResult.WasAttempted) {
+                    _resumeCloseAfterDeferredUpdateInstall = true;
+                    Close();
+                    return;
+                }
+
+                if (!installResult.Succeeded) {
+                    ShowDeferredUpdateFailureMessageSafe();
+                }
+
+                _resumeCloseAfterDeferredUpdateInstall = true;
+                Close();
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error("deferred_update_close_flow_failed", "Deferred update close flow failed.", "updater", ex);
+                _resumeCloseAfterDeferredUpdateInstall = true;
+                ShowDeferredUpdateFailureMessageSafe();
+                Close();
+            }
+            finally {
+                _isHandlingDeferredUpdateClose = false;
+            }
+        }
+
+        private void ShowDeferredUpdateFailureMessageSafe() {
+            try {
+                MessageBox.Show(
+                    this,
+                    "The update could not be installed. The app will close normally. You can check for updates again later.",
+                    "Update installation failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error("deferred_update_failure_message_failed", "Failed to show deferred update failure message.", "updater", ex);
+            }
         }
     }
 }
