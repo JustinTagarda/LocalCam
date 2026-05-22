@@ -9,7 +9,8 @@ $manifestPath = Join-Path $repoRoot "Package.appxmanifest"
 $wapprojPath = Join-Path $repoRoot "LocalCam.Package.wapproj"
 $storeAssociationPath = Join-Path $repoRoot "Package.StoreAssociation.xml"
 $productConfigPath = Join-Path $repoRoot "Services\Store\StoreProductConfiguration.cs"
-$storeNavPath = Join-Path $repoRoot "Services\Store\StoreNavigationService.cs"
+$storeUpdateClientPath = Join-Path $repoRoot "Services\StoreUpdateClient.cs"
+$storeUpdateCoordinatorPath = Join-Path $repoRoot "Services\Updates\AppUpdateCoordinator.cs"
 $docPath = Join-Path $repoRoot "store-assets\StoreConfiguration.md"
 
 function Assert-Contains {
@@ -42,7 +43,11 @@ Assert-Contains -Path $wapprojPath -Pattern '<AppxBundlePlatforms>x64</AppxBundl
 Assert-Contains -Path $wapprojPath -Pattern '<UapAppxPackageBuildMode>StoreUpload</UapAppxPackageBuildMode>' -Message "Package project is not configured for StoreUpload."
 Assert-Contains -Path $productConfigPath -Pattern 'PremiumStoreId\s*=\s*"9P9KCJ3NFZFT"' -Message "Premium Store ID does not match the documented value."
 Assert-Contains -Path $productConfigPath -Pattern 'PremiumProductId\s*=\s*"localcam_premium_lifetime"' -Message "Premium product ID does not match the documented value."
-Assert-Contains -Path $storeNavPath -Pattern 'downloadsandupdates' -Message "Store updates page navigation is missing."
+Assert-Contains -Path $storeUpdateClientPath -Pattern 'RequestDownloadStorePackageUpdatesAsync' -Message "Store update client is missing the direct Store download request path."
+Assert-Contains -Path $storeUpdateClientPath -Pattern 'RequestDownloadAndInstallStorePackageUpdatesAsync' -Message "Store update client is missing the direct Store download-and-install request path."
+Assert-Contains -Path $storeUpdateClientPath -Pattern 'TrySilentDownloadStorePackageUpdatesAsync' -Message "Store update client is missing the silent download path."
+Assert-Contains -Path $storeUpdateClientPath -Pattern 'TrySilentDownloadAndInstallStorePackageUpdatesAsync' -Message "Store update client is missing the silent download-and-install path."
+Assert-Contains -Path $storeUpdateCoordinatorPath -Pattern 'RunUserInitiatedUpdateFlowAsync' -Message "Store update coordinator is missing the user-initiated update flow."
 Assert-Contains -Path $docPath -Pattern 'durable Microsoft Store add-on' -Message "Store configuration documentation is missing the durable add-on reference."
 
 $association = [xml](Get-Content -LiteralPath $storeAssociationPath -Raw)

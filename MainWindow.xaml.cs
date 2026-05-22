@@ -1184,7 +1184,6 @@ namespace LocalCam {
             var deferredStateStore = new DeferredUpdateStateStore();
             _appUpdateCoordinator = new AppUpdateCoordinator(
                 updateClient,
-                navigationService,
                 _versionProvider,
                 deferredStateStore,
                 RunStoreFallbackUpdateUiAsync);

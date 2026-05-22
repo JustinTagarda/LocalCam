@@ -69,6 +69,27 @@ namespace LocalCam.Services {
             return result.OverallState == StorePackageUpdateState.Completed;
         }
 
+        public async Task<StoreUpdateOperationResult> RequestDownloadStorePackageUpdatesAsync(
+            IReadOnlyList<StorePackageUpdateInfo> updates,
+            IProgress<double>? progress,
+            CancellationToken cancellationToken) {
+            _ = updates;
+            var context = EnsureContext();
+            if (context is null) {
+                return new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "Store update UI is unavailable.", 0, WasAttempted: false);
+            }
+
+            if (_cachedUpdates.Count == 0) {
+                return new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "No update is queued for download.", 0, WasAttempted: false);
+            }
+
+            var operation = context.RequestDownloadStorePackageUpdatesAsync(_cachedUpdates);
+            operation.Progress = (_, status) => progress?.Report(ClampProgress(status.PackageDownloadProgress));
+            var result = await operation.AsTask(cancellationToken);
+            var state = MapState(result.OverallState);
+            return new StoreUpdateOperationResult(state, $"Store download request completed: {result.OverallState}.", 0, WasAttempted: true);
+        }
+
         public async Task<bool> DownloadAndInstallUpdatesAsync(
             IReadOnlyList<StorePackageUpdateInfo> updates,
             IProgress<double>? progress,

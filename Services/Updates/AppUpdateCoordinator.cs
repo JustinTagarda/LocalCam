@@ -8,7 +8,6 @@ namespace LocalCam.Services.Updates {
         private static readonly TimeSpan MinimumRetryInterval = TimeSpan.FromHours(12);
         private readonly object _syncRoot = new();
         private readonly IStoreUpdateClient _storeUpdateClient;
-        private readonly IStoreNavigationService _storeNavigationService;
         private readonly IAppVersionProvider _versionProvider;
         private readonly IDeferredUpdateStateStore _stateStore;
         private readonly Func<CancellationToken, Task<StoreUpdateOperationResult>> _runStoreFallbackUiAsync;
@@ -17,12 +16,10 @@ namespace LocalCam.Services.Updates {
 
         public AppUpdateCoordinator(
             IStoreUpdateClient storeUpdateClient,
-            IStoreNavigationService storeNavigationService,
             IAppVersionProvider versionProvider,
             IDeferredUpdateStateStore stateStore,
             Func<CancellationToken, Task<StoreUpdateOperationResult>> runStoreFallbackUiAsync) {
             _storeUpdateClient = storeUpdateClient;
-            _storeNavigationService = storeNavigationService;
             _versionProvider = versionProvider;
             _stateStore = stateStore;
             _runStoreFallbackUiAsync = runStoreFallbackUiAsync;
@@ -197,18 +194,29 @@ namespace LocalCam.Services.Updates {
                     ["isMandatory"] = updates.Any(update => update.IsMandatory)
                 });
 
-                var opened = await _storeNavigationService.OpenStoreUpdatesPageAsync(cancellationToken).ConfigureAwait(false);
-                if (opened) {
-                    JsonLogStore.Information("store_update_user_store_page_opened", "User-initiated Store update flow opened the Microsoft Store updates page.", Category, new Dictionary<string, object?> {
+                var installResult = await _storeUpdateClient.RequestDownloadAndInstallUpdatesAsync(updates, progress: null, cancellationToken);
+                if (installResult.Succeeded) {
+                    await ClearStateAsync(cancellationToken);
+                    JsonLogStore.Information("store_update_user_install_completed", "User-initiated Store update flow completed successfully.", Category, new Dictionary<string, object?> {
                         ["packageIdentitySnapshot"] = snapshot
                     });
-                    return new StoreUpdateCheckResult(StoreUpdateCheckState.Available, "Update available. Opening Microsoft Store.", updates[0].Version);
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.Completed, "Microsoft Store update completed.", updates[0].Version);
                 }
 
-                JsonLogStore.Warning("store_update_user_store_page_open_failed", "User-initiated Store update flow could not open the Microsoft Store updates page.", Category, new Dictionary<string, object?> {
-                    ["packageIdentitySnapshot"] = snapshot
+                if (installResult.Canceled) {
+                    JsonLogStore.Information("store_update_user_install_canceled", "User-initiated Store update flow was canceled.", Category, new Dictionary<string, object?> {
+                        ["packageIdentitySnapshot"] = snapshot
+                    });
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.Canceled, "Microsoft Store update was canceled.", updates[0].Version);
+                }
+
+                JsonLogStore.Warning("store_update_user_install_failed", "User-initiated Store update flow did not complete successfully.", Category, new Dictionary<string, object?> {
+                    ["packageIdentitySnapshot"] = snapshot,
+                    ["state"] = installResult.State.ToString(),
+                    ["statusMessage"] = installResult.StatusMessage,
+                    ["wasAttempted"] = installResult.WasAttempted
                 });
-                return new StoreUpdateCheckResult(StoreUpdateCheckState.Failed, "Update available, but Microsoft Store could not be opened.", updates[0].Version);
+                return new StoreUpdateCheckResult(StoreUpdateCheckState.Failed, installResult.StatusMessage, updates[0].Version);
             }
             catch (OperationCanceledException) {
                 throw;

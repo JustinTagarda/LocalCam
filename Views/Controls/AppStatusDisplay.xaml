@@ -56,7 +56,7 @@
                Placement="Top"
                AllowsTransparency="True"
                StaysOpen="True"
-               IsOpen="{Binding IsToastOpen}">
+               IsOpen="{Binding IsToastOpen, Mode=OneWay}">
             <Border Background="#233045"
                     BorderBrush="#3B4960"
                     BorderThickness="1"

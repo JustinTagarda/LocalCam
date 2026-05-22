@@ -21,10 +21,6 @@ namespace LocalCam.Services.Store {
             return LaunchStoreUriAsync(redeemUri, "store_promo_redeem_open_failed", cancellationToken);
         }
 
-        public Task<bool> OpenStoreUpdatesPageAsync(CancellationToken cancellationToken) {
-            return LaunchStoreUriAsync(new Uri("ms-windows-store://downloadsandupdates"), "store_updates_page_open_failed", cancellationToken);
-        }
-
         private static async Task<bool> LaunchStoreUriAsync(Uri uri, string failureEventName, CancellationToken cancellationToken) {
             try {
                 cancellationToken.ThrowIfCancellationRequested();
