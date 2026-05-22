@@ -187,7 +187,7 @@ namespace LocalCam.Services.Updates {
                 if (updates.Count == 0) {
                     await ClearStaleDeferredStateAsync(cancellationToken);
                     JsonLogStore.Information("store_update_user_no_updates", "User-initiated Store update check completed with no updates.", Category);
-                    return new StoreUpdateCheckResult(StoreUpdateCheckState.NotAvailable, "No update available.", null);
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.NotAvailable, "No update available", null);
                 }
 
                 var snapshot = BuildPackageIdentitySnapshot(updates);

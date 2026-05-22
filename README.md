@@ -23,7 +23,10 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
   - Expand / Collapse while video is playing
 - Settings are available from the toolbar
 - The footer shows current access tier (`Basic`/`Premium`) and app version
-- Clicking version runs the shared Store update coordinator for both background checks and user-initiated update flow
+- Clicking version checks for updates and opens the Microsoft Store updates page when an update is available
+- When no update is available, the version click flow shows a small `No update available` toast above the version text
+- The footer menu also exposes Premium promo-code redemption and purchase restore actions
+- Premium promo-code redemption opens the Microsoft Store redeem page; after redeeming, use Restore purchase so LocalCam refreshes entitlement
 
 ## Settings
 
@@ -76,14 +79,17 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 ## Microsoft Store Support
 
 - Packaging project exists for Store submission workflows
+- The package project is x64-only and runtime identifiers are limited to `win-x64`
 - Store integration uses `Windows.Services.Store`
 - Startup runs a hidden, non-blocking Store update check after the first render
 - If updates are available, the app prefers silent download and defers install until app exit when supported
 - If silent download is unavailable or fails, the app falls back to Microsoft Store / OS-provided update UI
 - Deferred update state is persisted to `%LocalAppData%\LocalCam\update-state.json`
 - Deferred exit-time installs run with an app-owned modal progress dialog, then resume the user's close
-- User-initiated update checks use the same coordinator and Store APIs as the background flow
+- User-initiated update checks open the Microsoft Store updates page when an update is available
 - The app does not force automatic restart after update operations
+- Premium is implemented as a durable Microsoft Store add-on with Product ID `localcam_premium_lifetime` and Store ID `9P9KCJ3NFZFT`
+- Repository Store association metadata lives in [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml) and is included in [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 
 ## Store Update Validation
 
@@ -103,6 +109,14 @@ For code-level verification, use the fast Debug build:
 ```powershell
 dotnet msbuild .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m
 ```
+
+For Store configuration validation, use:
+
+```powershell
+.\scripts\Validate-StoreConfiguration.ps1
+```
+
+The validation script checks the manifest identity, x64 StoreUpload packaging, durable Premium add-on IDs, the Microsoft Store updates page URI, and the Store association XML.
 
 ## Tech Stack
 
@@ -138,6 +152,7 @@ Launch the app from the Debug output:
 - Store update orchestration: `Services/Updates/`
 - Store packaging project: [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 - Store manifest: [Package.appxmanifest](D:/Projects/LocalCam/Package.appxmanifest)
+- Store association metadata: [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml)
 
 ## Documentation
 
