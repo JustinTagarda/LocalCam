@@ -11,6 +11,20 @@ namespace LocalCam.Services.Store {
             return LaunchStoreUriAsync(new Uri($"ms-windows-store://pdp/?ProductId={StoreProductConfiguration.PremiumStoreId}"), "store_premium_page_open_failed", cancellationToken);
         }
 
+        public Task<bool> OpenPromotionalCodeRedeemUrlAsync(string promoCode, CancellationToken cancellationToken) {
+            var normalized = NormalizePromoCode(promoCode);
+            if (normalized is null) {
+                return Task.FromResult(false);
+            }
+
+            var redeemUri = new Uri($"https://go.microsoft.com/fwlink/?LinkId=532540&mstoken={Uri.EscapeDataString(normalized)}");
+            return LaunchStoreUriAsync(redeemUri, "store_promo_redeem_open_failed", cancellationToken);
+        }
+
+        public Task<bool> OpenStoreUpdatesPageAsync(CancellationToken cancellationToken) {
+            return LaunchStoreUriAsync(new Uri("ms-windows-store://downloadsandupdates"), "store_updates_page_open_failed", cancellationToken);
+        }
+
         private static async Task<bool> LaunchStoreUriAsync(Uri uri, string failureEventName, CancellationToken cancellationToken) {
             try {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -30,6 +44,22 @@ namespace LocalCam.Services.Store {
                 });
                 return false;
             }
+        }
+
+        private static string? NormalizePromoCode(string promoCode) {
+            if (string.IsNullOrWhiteSpace(promoCode)) {
+                return null;
+            }
+
+            var trimmed = new string(promoCode
+                .Trim()
+                .ToUpperInvariant()
+                .Where(ch => char.IsLetterOrDigit(ch) || ch == '-')
+                .ToArray());
+
+            return trimmed.Length == 29 && System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$")
+                ? trimmed
+                : null;
         }
     }
 }

@@ -1184,6 +1184,7 @@ namespace LocalCam {
             var deferredStateStore = new DeferredUpdateStateStore();
             _appUpdateCoordinator = new AppUpdateCoordinator(
                 updateClient,
+                navigationService,
                 _versionProvider,
                 deferredStateStore,
                 RunStoreFallbackUpdateUiAsync);
@@ -2648,9 +2649,7 @@ namespace LocalCam {
                 new WindowInteropHelper(this).Handle,
                 _premiumEntitlementCancellation?.Token ?? CancellationToken.None);
 
-            StreamingStatusText.Text = purchased
-                ? "Premium unlocked. Continuous recording is now available."
-                : "Premium purchase was not completed.";
+            StreamingStatusText.Text = purchased.StatusMessage;
         }
 
         private bool IsAnyStreamRunning() {

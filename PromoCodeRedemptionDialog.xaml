@@ -1,0 +1,76 @@
+<Window x:Class="LocalCam.PromoCodeRedemptionDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Redeem promo code"
+        Width="560"
+        SizeToContent="Height"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Loaded="Window_Loaded"
+        KeyDown="Window_KeyDown">
+    <Grid Margin="18" KeyboardNavigation.TabNavigation="Cycle">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Redeem promo code"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,10" />
+
+        <TextBlock Grid.Row="1"
+                   TextWrapping="Wrap"
+                   FontSize="14"
+                   Margin="0,0,0,14"
+                   Text="Enter the Premium promo code, then LocalCam will open Microsoft Store so you can redeem it for the durable add-on. After redemption, return to LocalCam and restore purchases to refresh entitlement." />
+
+        <StackPanel Grid.Row="2"
+                    Margin="0,0,0,14">
+            <TextBlock Text="Promo code"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,4" />
+            <TextBox x:Name="PromoCodeTextBox"
+                     MinWidth="360"
+                     Height="28"
+                     VerticalContentAlignment="Center"
+                     CharacterCasing="Upper"
+                     ToolTip="Enter the Premium promo code."
+                     TextChanged="PromoCodeTextBox_TextChanged" />
+            <TextBlock x:Name="ValidationTextBlock"
+                       Foreground="#D9534F"
+                       FontSize="11"
+                       Margin="0,4,0,0"
+                       TextWrapping="Wrap"
+                       Visibility="Collapsed" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="3"
+                   Margin="0,0,0,18"
+                   Foreground="#6C7A89"
+                   FontSize="12"
+                   TextWrapping="Wrap"
+                   Text="The Microsoft Store redeem page will open in your browser. If redemption succeeds, close the Store flow and click Restore purchase in LocalCam." />
+
+        <StackPanel Grid.Row="4"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Redeem"
+                    MinWidth="110"
+                    Margin="0,0,8,0"
+                    IsDefault="True"
+                    Click="Redeem_Click" />
+            <Button Content="Close"
+                    MinWidth="90"
+                    IsCancel="True"
+                    Click="Close_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

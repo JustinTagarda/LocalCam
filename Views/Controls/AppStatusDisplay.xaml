@@ -33,6 +33,7 @@
                 <TextBlock.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Restore purchase" Command="{Binding PlacementTarget.DataContext.RestoreCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <MenuItem Header="Redeem promo code" Command="{Binding PlacementTarget.DataContext.RedeemPromoCodeCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     </ContextMenu>
                 </TextBlock.ContextMenu>
             </TextBlock>

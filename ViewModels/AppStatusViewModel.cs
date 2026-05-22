@@ -35,6 +35,7 @@ namespace LocalCam.ViewModels {
             VersionText = _versionService.VersionText;
             UpgradeCommand = new AsyncRelayCommand(UpgradeAsync, () => !_isBusy && ModeText == "Basic");
             RestoreCommand = new AsyncRelayCommand(RestoreAsync, () => !_isBusy);
+            RedeemPromoCodeCommand = new AsyncRelayCommand(RedeemPromoCodeAsync, () => !_isBusy);
             CheckForUpdatesCommand = new AsyncRelayCommand(CheckForUpdatesAsync, () => !_isBusy);
         }
 
@@ -72,6 +73,7 @@ namespace LocalCam.ViewModels {
 
         public ICommand UpgradeCommand { get; }
         public ICommand RestoreCommand { get; }
+        public ICommand RedeemPromoCodeCommand { get; }
         public ICommand CheckForUpdatesCommand { get; }
 
         public void ApplyEntitlementSnapshot(StoreEntitlementSnapshot snapshot) {
@@ -85,16 +87,9 @@ namespace LocalCam.ViewModels {
 
             await RunBusyAsync(async () => {
                 using var cts = CreateBoundedToken();
-                var purchased = await _purchaseService.RequestPremiumPurchaseAsync(_getOwnerWindowHandle(), cts.Token);
-                ApplyEntitlementSnapshot(_licenseService.Snapshot);
-                if (purchased) {
-                    await ShowToastAsync("Premium unlocked.");
-                    return;
-                }
-
-                if (_versionService.IsPackaged && !_licenseService.Snapshot.IsPurchaseAvailable) {
-                    await ShowToastAsync("Premium purchase unavailable in this build.");
-                }
+                var purchase = await _purchaseService.RequestPremiumPurchaseAsync(_getOwnerWindowHandle(), cts.Token);
+                ApplyEntitlementSnapshot(purchase.Entitlement);
+                await ShowToastAsync(purchase.StatusMessage);
             });
         }
 
@@ -112,6 +107,22 @@ namespace LocalCam.ViewModels {
                 else {
                     await ShowToastAsync("Unable to verify purchase right now");
                 }
+            });
+        }
+
+        private async Task RedeemPromoCodeAsync() {
+            await RunBusyAsync(async () => {
+                var dialog = new PromoCodeRedemptionDialog();
+                var redeemRequested = dialog.ShowDialog() == true && dialog.ShouldRedeem;
+                if (!redeemRequested) {
+                    await ShowToastAsync("Promo-code redemption canceled.");
+                    return;
+                }
+
+                using var cts = CreateBoundedToken();
+                var result = await _purchaseService.RedeemPromoCodeAsync(dialog.PromoCode, _getOwnerWindowHandle(), cts.Token);
+                ApplyEntitlementSnapshot(result.Entitlement);
+                await ShowToastAsync(result.StatusMessage);
             });
         }
 
@@ -165,6 +176,7 @@ namespace LocalCam.ViewModels {
         private void RaiseCommandStateChanged() {
             (UpgradeCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (RestoreCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (RedeemPromoCodeCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (CheckForUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
 

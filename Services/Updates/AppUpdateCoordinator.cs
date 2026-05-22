@@ -1,4 +1,5 @@
 using LocalCam.Models;
+using LocalCam.Services.Store;
 
 namespace LocalCam.Services.Updates {
     internal sealed class AppUpdateCoordinator : IAppUpdateCoordinator {
@@ -7,6 +8,7 @@ namespace LocalCam.Services.Updates {
         private static readonly TimeSpan MinimumRetryInterval = TimeSpan.FromHours(12);
         private readonly object _syncRoot = new();
         private readonly IStoreUpdateClient _storeUpdateClient;
+        private readonly IStoreNavigationService _storeNavigationService;
         private readonly IAppVersionProvider _versionProvider;
         private readonly IDeferredUpdateStateStore _stateStore;
         private readonly Func<CancellationToken, Task<StoreUpdateOperationResult>> _runStoreFallbackUiAsync;
@@ -15,10 +17,12 @@ namespace LocalCam.Services.Updates {
 
         public AppUpdateCoordinator(
             IStoreUpdateClient storeUpdateClient,
+            IStoreNavigationService storeNavigationService,
             IAppVersionProvider versionProvider,
             IDeferredUpdateStateStore stateStore,
             Func<CancellationToken, Task<StoreUpdateOperationResult>> runStoreFallbackUiAsync) {
             _storeUpdateClient = storeUpdateClient;
+            _storeNavigationService = storeNavigationService;
             _versionProvider = versionProvider;
             _stateStore = stateStore;
             _runStoreFallbackUiAsync = runStoreFallbackUiAsync;
@@ -170,12 +174,12 @@ namespace LocalCam.Services.Updates {
             }
         }
 
-        public async Task<StoreUpdateOperationResult> RunUserInitiatedUpdateFlowAsync(CancellationToken cancellationToken) {
+        public async Task<StoreUpdateCheckResult> RunUserInitiatedUpdateFlowAsync(CancellationToken cancellationToken) {
             await _operationGate.WaitAsync(cancellationToken);
             try {
                 if (!_versionProvider.IsPackaged() || !_storeUpdateClient.SupportsStoreApis) {
                     JsonLogStore.Information("store_update_user_flow_skipped_runtime", "User-initiated Store update flow skipped because Store update APIs are unavailable for this runtime context.", Category);
-                    return new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "Update check unavailable.", 0, WasAttempted: false);
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.Unavailable, "Update check unavailable.", null);
                 }
 
                 JsonLogStore.Information("store_update_user_check_started", "User-initiated Store update check started.", Category);
@@ -183,7 +187,7 @@ namespace LocalCam.Services.Updates {
                 if (updates.Count == 0) {
                     await ClearStaleDeferredStateAsync(cancellationToken);
                     JsonLogStore.Information("store_update_user_no_updates", "User-initiated Store update check completed with no updates.", Category);
-                    return new StoreUpdateOperationResult(StoreUpdateOperationState.Unknown, "No update available.", 0, WasAttempted: false);
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.NotAvailable, "No update available.", null);
                 }
 
                 var snapshot = BuildPackageIdentitySnapshot(updates);
@@ -193,30 +197,25 @@ namespace LocalCam.Services.Updates {
                     ["isMandatory"] = updates.Any(update => update.IsMandatory)
                 });
 
-                var result = await _storeUpdateClient.RequestDownloadAndInstallUpdatesAsync(updates, progress: null, cancellationToken);
-                if (result.Succeeded) {
-                    await ClearStateAsync(cancellationToken);
-                    JsonLogStore.Information("store_update_user_install_completed", "User-initiated Store update install completed successfully.", Category, new Dictionary<string, object?> {
+                var opened = await _storeNavigationService.OpenStoreUpdatesPageAsync(cancellationToken).ConfigureAwait(false);
+                if (opened) {
+                    JsonLogStore.Information("store_update_user_store_page_opened", "User-initiated Store update flow opened the Microsoft Store updates page.", Category, new Dictionary<string, object?> {
                         ["packageIdentitySnapshot"] = snapshot
                     });
-                    return new StoreUpdateOperationResult(StoreUpdateOperationState.Completed, "Update installed successfully.", result.ProgressValue, WasAttempted: true);
-                }
-                else {
-                    JsonLogStore.Warning("store_update_user_install_not_completed", "User-initiated Store update install did not complete.", Category, new Dictionary<string, object?> {
-                        ["packageIdentitySnapshot"] = snapshot,
-                        ["state"] = result.State.ToString(),
-                        ["statusMessage"] = result.StatusMessage
-                    });
+                    return new StoreUpdateCheckResult(StoreUpdateCheckState.Available, "Update available. Opening Microsoft Store.", updates[0].Version);
                 }
 
-                return result;
+                JsonLogStore.Warning("store_update_user_store_page_open_failed", "User-initiated Store update flow could not open the Microsoft Store updates page.", Category, new Dictionary<string, object?> {
+                    ["packageIdentitySnapshot"] = snapshot
+                });
+                return new StoreUpdateCheckResult(StoreUpdateCheckState.Failed, "Update available, but Microsoft Store could not be opened.", updates[0].Version);
             }
             catch (OperationCanceledException) {
                 throw;
             }
             catch (Exception ex) {
                 JsonLogStore.Error("store_update_user_flow_failed", "User-initiated Store update flow failed.", Category, ex);
-                return new StoreUpdateOperationResult(StoreUpdateOperationState.OtherError, "Update operation failed.", 0, WasAttempted: true);
+                return new StoreUpdateCheckResult(StoreUpdateCheckState.Failed, "Update check failed.", null);
             }
             finally {
                 _operationGate.Release();
