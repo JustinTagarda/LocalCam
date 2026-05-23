@@ -1,10 +1,12 @@
 namespace LocalCam.Models {
     internal enum StorePurchaseOutcome {
-        Purchased,
+        Succeeded,
         AlreadyOwned,
         Cancelled,
-        OpenedStorePage,
-        Unavailable,
+        NetworkError,
+        ServerError,
+        NotSupported,
+        Blocked,
         Failed
     }
 }

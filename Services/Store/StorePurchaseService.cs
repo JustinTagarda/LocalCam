@@ -9,18 +9,33 @@ namespace LocalCam.Services.Store {
         private readonly IStoreContextProvider _contextProvider;
         private readonly IStoreLicenseService _licenseService;
         private readonly IStoreNavigationService _navigationService;
+        private readonly Func<bool> _isElevatedProbe;
 
         public StorePurchaseService(
             IStoreContextProvider contextProvider,
             IStoreLicenseService licenseService,
-            IStoreNavigationService navigationService) {
+            IStoreNavigationService navigationService,
+            Func<bool>? isElevatedProbe = null) {
             _contextProvider = contextProvider;
             _licenseService = licenseService;
             _navigationService = navigationService;
+            _isElevatedProbe = isElevatedProbe ?? IsElevated;
         }
 
         public async Task<PurchaseResult> RequestPremiumPurchaseAsync(IntPtr ownerWindowHandle, CancellationToken cancellationToken) {
             var snapshot = await _licenseService.EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+            var isElevated = _isElevatedProbe();
+            JsonLogStore.Information(
+                "premium_purchase_attempt_started",
+                "Premium purchase attempt started.",
+                Category,
+                new Dictionary<string, object?> {
+                    ["isPackagedBuild"] = _contextProvider.IsStoreSupported,
+                    ["isElevated"] = isElevated,
+                    ["storeId"] = StoreProductConfiguration.PremiumStoreId,
+                    ["productId"] = StoreProductConfiguration.PremiumProductId
+                });
+
             if (snapshot.IsPremium) {
                 return new PurchaseResult(
                     StorePurchaseOutcome.AlreadyOwned,
@@ -28,40 +43,21 @@ namespace LocalCam.Services.Store {
                     "Premium is already unlocked.");
             }
 
-            if (IsElevated()) {
+            if (isElevated) {
                 JsonLogStore.Warning("premium_purchase_blocked_elevated", "Premium purchase blocked because the app is running elevated.", Category);
                 return new PurchaseResult(
-                    StorePurchaseOutcome.Unavailable,
+                    StorePurchaseOutcome.Blocked,
                     snapshot,
-                    "Premium purchase unavailable in this build.");
+                    "Close the app and reopen it normally. Microsoft Store purchase is unavailable while running as administrator.");
             }
 
             var context = _contextProvider.GetContext(ownerWindowHandle);
             if (context is null) {
-                var opened = await _navigationService.OpenPremiumPurchasePageAsync(cancellationToken).ConfigureAwait(false);
-                if (opened) {
-                    JsonLogStore.Information(
-                        "premium_purchase_store_page_opened",
-                        "Microsoft Store purchase page was opened for Premium.",
-                        Category,
-                        new Dictionary<string, object?> {
-                            ["storeId"] = StoreProductConfiguration.PremiumStoreId,
-                            ["productId"] = StoreProductConfiguration.PremiumProductId
-                        });
-                    return new PurchaseResult(
-                        StorePurchaseOutcome.OpenedStorePage,
-                        snapshot,
-                        "Opening Microsoft Store.");
-                }
-
-                if (!opened) {
-                    JsonLogStore.Warning("premium_purchase_unavailable", "Premium purchase unavailable because Store context and Store navigation are unavailable.", Category);
-                }
-
+                JsonLogStore.Warning("premium_purchase_not_supported", "Premium purchase unavailable because Store context is unavailable.", Category);
                 return new PurchaseResult(
-                    StorePurchaseOutcome.Unavailable,
+                    StorePurchaseOutcome.NotSupported,
                     snapshot,
-                    "Premium purchase unavailable in this build.");
+                    "Premium purchase is available only in the Microsoft Store version.");
             }
 
             try {
@@ -89,7 +85,7 @@ namespace LocalCam.Services.Store {
                     ? new PurchaseResult(
                         result.Status == StorePurchaseStatus.AlreadyPurchased
                             ? StorePurchaseOutcome.AlreadyOwned
-                            : StorePurchaseOutcome.Purchased,
+                            : StorePurchaseOutcome.Succeeded,
                         refreshed,
                         result.Status == StorePurchaseStatus.AlreadyPurchased
                             ? "Premium is already unlocked."
@@ -98,11 +94,15 @@ namespace LocalCam.Services.Store {
                         StorePurchaseStatus.NotPurchased => new PurchaseResult(
                             StorePurchaseOutcome.Cancelled,
                             refreshed,
-                            "Premium purchase was not completed."),
-                        StorePurchaseStatus.NetworkError or StorePurchaseStatus.ServerError => new PurchaseResult(
-                            StorePurchaseOutcome.Failed,
+                            "Premium purchase canceled."),
+                        StorePurchaseStatus.NetworkError => new PurchaseResult(
+                            StorePurchaseOutcome.NetworkError,
                             refreshed,
-                            "Premium purchase failed."),
+                            "Premium purchase failed due to a network error. Check your connection and try again."),
+                        StorePurchaseStatus.ServerError => new PurchaseResult(
+                            StorePurchaseOutcome.ServerError,
+                            refreshed,
+                            "Microsoft Store could not complete the purchase right now. Try again later."),
                         StorePurchaseStatus.Succeeded or StorePurchaseStatus.AlreadyPurchased => new PurchaseResult(
                             StorePurchaseOutcome.Failed,
                             refreshed,

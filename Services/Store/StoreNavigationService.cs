@@ -7,10 +7,6 @@ namespace LocalCam.Services.Store {
         public StoreNavigationService() {
         }
 
-        public Task<bool> OpenPremiumPurchasePageAsync(CancellationToken cancellationToken) {
-            return LaunchStoreUriAsync(new Uri($"ms-windows-store://pdp/?ProductId={StoreProductConfiguration.PremiumStoreId}"), "store_premium_page_open_failed", cancellationToken);
-        }
-
         public Task<bool> OpenPromotionalCodeRedeemUrlAsync(string promoCode, CancellationToken cancellationToken) {
             var normalized = NormalizePromoCode(promoCode);
             if (normalized is null) {

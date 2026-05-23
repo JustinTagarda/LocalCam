@@ -89,6 +89,9 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 - User-initiated update checks use the same Store API-backed update/install UI when an update is available
 - The app does not force automatic restart after update operations
 - Premium is implemented as a durable Microsoft Store add-on with Product ID `localcam_premium_lifetime` and Store ID `9P9KCJ3NFZFT`
+- Premium purchase entry points route through in-app Microsoft Store purchase UI via `StoreContext.RequestPurchaseAsync`
+- Premium purchase does not use direct PDP deep-link navigation as the primary purchase path
+- After `Succeeded` or `AlreadyOwned` purchase outcomes, entitlement is refreshed before final unlock messaging
 - Repository Store association metadata lives in [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml) and is included in [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 
 ## Store Update Validation
@@ -118,6 +121,22 @@ For Store configuration validation, use:
 ```
 
 The validation script checks the manifest identity, x64 StoreUpload packaging, durable Premium add-on IDs, the direct Store update API paths, and the Store association XML.
+
+## Premium Purchase Validation
+
+Automated coverage for Premium purchase command routing and separation of purchase/restore/update flows is in:
+
+- [LocalCam.Tests/PremiumPurchasePathTests.cs](D:/Projects/LocalCam/LocalCam.Tests/PremiumPurchasePathTests.cs)
+
+Run tests with:
+
+```powershell
+dotnet test .\LocalCam.Tests\LocalCam.Tests.csproj -c Debug
+```
+
+For production Store-installed end-to-end validation, follow:
+
+- [MSSTORE-PREMIUM-PURCHASE-VALIDATION.md](D:/Projects/LocalCam/MSSTORE-PREMIUM-PURCHASE-VALIDATION.md)
 
 ## Tech Stack
 
@@ -154,6 +173,7 @@ Launch the app from the Debug output:
 - Store packaging project: [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 - Store manifest: [Package.appxmanifest](D:/Projects/LocalCam/Package.appxmanifest)
 - Store association metadata: [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml)
+- Premium purchase validation runbook: [MSSTORE-PREMIUM-PURCHASE-VALIDATION.md](D:/Projects/LocalCam/MSSTORE-PREMIUM-PURCHASE-VALIDATION.md)
 
 ## Documentation
 
