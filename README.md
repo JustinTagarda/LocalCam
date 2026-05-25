@@ -5,7 +5,7 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
 ## What It Does
 
 - Discovers local-network cameras with heuristic scanning
-- Shows up to 4 live camera tiles in a single window
+- Shows live camera tiles in a single window
 - Plays RTSP streams with LibVLCSharp
 - Lets you start and stop streams per tile or all at once
 - Supports per-tile snapshot capture
@@ -22,9 +22,6 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
   - Record / Stop Recording
   - Expand / Collapse while video is playing
 - Settings are available from the toolbar
-- The footer shows current access tier (`Basic`/`Premium`) and app version
-- The footer menu also exposes Premium promo-code redemption and purchase restore actions
-- Premium promo-code redemption opens the Microsoft Store redeem page; after redeeming, use Restore purchase so LocalCam refreshes entitlement
 
 ## Settings
 
@@ -74,33 +71,6 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 - Logging is disabled for Release and installed distributions
 - Discovery, settings, snapshot, recording, and stream events are logged
 
-## Microsoft Store Support
-
-- Packaging project exists for Store submission workflows
-- The package project is x64-only and runtime identifiers are limited to `win-x64`
-- Store integration uses `Windows.Services.Store`
-- Premium is implemented as a durable Microsoft Store add-on with Product ID `localcam_premium_lifetime` and Store ID `9P9KCJ3NFZFT`
-- Premium purchase entry points route through in-app Microsoft Store purchase UI via `StoreContext.RequestPurchaseAsync`
-- Premium purchase does not use direct PDP deep-link navigation as the primary purchase path
-- After `Succeeded` or `AlreadyOwned` purchase outcomes, entitlement is refreshed before final unlock messaging
-- Repository Store association metadata lives in [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml) and is included in [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
-
-## Premium Purchase Validation
-
-Automated coverage for Premium purchase command routing and separation of purchase/restore flows is in:
-
-- [LocalCam.Tests/PremiumPurchasePathTests.cs](D:/Projects/LocalCam/LocalCam.Tests/PremiumPurchasePathTests.cs)
-
-Run tests with:
-
-```powershell
-dotnet test .\LocalCam.Tests\LocalCam.Tests.csproj -c Debug
-```
-
-For production Store-installed end-to-end validation, follow:
-
-- [MSSTORE-PREMIUM-PURCHASE-VALIDATION.md](D:/Projects/LocalCam/MSSTORE-PREMIUM-PURCHASE-VALIDATION.md)
-
 ## Tech Stack
 
 - C# / .NET 10
@@ -131,11 +101,6 @@ Launch the app from the Debug output:
 - Settings dialog: [SettingsWindow.xaml](D:/Projects/LocalCam/SettingsWindow.xaml)
 - Settings persistence: [Services/SettingsStore.cs](D:/Projects/LocalCam/Services/SettingsStore.cs)
 - App diagnostics: [Services/JsonLogStore.cs](D:/Projects/LocalCam/Services/JsonLogStore.cs)
-- Store services: `Services/Store/`, `Services/AppVersionProvider.cs`
-- Store packaging project: [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
-- Store manifest: [Package.appxmanifest](D:/Projects/LocalCam/Package.appxmanifest)
-- Store association metadata: [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml)
-- Premium purchase validation runbook: [MSSTORE-PREMIUM-PURCHASE-VALIDATION.md](D:/Projects/LocalCam/MSSTORE-PREMIUM-PURCHASE-VALIDATION.md)
 
 ## Documentation
 

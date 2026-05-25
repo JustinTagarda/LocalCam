@@ -1,5 +1,4 @@
 <Solution>
   <Project Path="LocalCam.csproj" />
-  <Project Path="LocalCam.Package.wapproj" />
   <Project Path="LocalCam.Tests\LocalCam.Tests.csproj" />
 </Solution>

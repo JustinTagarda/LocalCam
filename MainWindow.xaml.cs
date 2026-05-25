@@ -10,8 +10,6 @@ using LibVLCSharp.WPF;
 using LocalCam.Networking;
 using LocalCam.Models;
 using LocalCam.Services;
-using LocalCam.Services.Store;
-using LocalCam.ViewModels;
 using System.Runtime.InteropServices;
 using Geometry = System.Windows.Media.Geometry;
 using IOPath = System.IO.Path;
@@ -59,9 +57,7 @@ namespace LocalCam {
         private const string RecordingDiagnosticsCategory = "RecordingDiagnostics";
         private const string RtspSettingsInvalidMessage = "RTSP credentials are missing or invalid.";
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
-        private static readonly TimeSpan BasicRecordingDuration = TimeSpan.FromMinutes(30);
-        private const int BasicMaxSimultaneousStreams = 4;
-        private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
+                        private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
         private readonly List<CameraTileControls> _cameraTiles = new();
@@ -70,7 +66,6 @@ namespace LocalCam {
         private bool _isClosing;
         private bool _isScanning;
         private bool _streamsRunning;
-        private bool _isStartingStreams;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
         private bool _layoutRetryPending;
@@ -88,12 +83,7 @@ namespace LocalCam {
         private int _lastDoubleClickX;
         private int _lastDoubleClickY;
         private LocalCamSettings _settings = new();
-        private readonly IAppVersionProvider _versionProvider = new AppVersionProvider();
-        private IStoreLicenseService? _storeLicenseService;
-        private IStorePurchaseService? _storePurchaseService;
-        private AppStatusViewModel? _appStatusViewModel;
-        private CancellationTokenSource? _premiumEntitlementCancellation;
-        private VlcMediaPlayer? _recordingMediaPlayer;
+                                                                private VlcMediaPlayer? _recordingMediaPlayer;
         private int? _activeRecordingTileIndex;
         private int _recordingSegmentNumber;
         private long _recordingSessionId;
@@ -101,8 +91,7 @@ namespace LocalCam {
         private bool _isRecordingOperationProcessing;
         private DateTimeOffset? _recordingSegmentStartedAt;
         private string? _recordingOutputPath;
-        private bool _activeRecordingIsPremium;
-        private DispatcherTimer? _recordingElapsedTimer;
+                private DispatcherTimer? _recordingElapsedTimer;
         private DispatcherTimer? _recordingSegmentTimer;
         private CancellationTokenSource? _recordingOutputValidationCts;
         private readonly Dictionary<int, long> _streamStartOrder = new();
@@ -121,8 +110,7 @@ namespace LocalCam {
             SourceInitialized += MainWindow_SourceInitialized;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
-            InitializeAppStatusServices();
-            LoadSettings();
+                        LoadSettings();
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
             PopulateCameraTiles(_detections);
@@ -150,7 +138,7 @@ namespace LocalCam {
                             ["processArchitecture"] = RuntimeInformation.ProcessArchitecture.ToString(),
                             ["baseDirectory"] = AppContext.BaseDirectory
                         });
-                    StreamingStatusText.Text = $"Video engine is unavailable for {RuntimeInformation.ProcessArchitecture}. Install a Store package that matches this architecture.";
+                    StreamingStatusText.Text = $"Video engine is unavailable for {RuntimeInformation.ProcessArchitecture}.";
                     return false;
                 }
 
@@ -1159,78 +1147,13 @@ namespace LocalCam {
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
             AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
-            InitializePremiumEntitlement();
-            _ = StartLocalCameraSearchAsync();
+                        _ = StartLocalCameraSearchAsync();
         }
 
         private void Window_ContentRendered(object? sender, EventArgs e) {
             _ = sender;
             _ = e;
-        }
-
-        private void InitializeAppStatusServices() {
-            var contextProvider = new StoreContextProvider(_versionProvider);
-            var entitlementCache = new PremiumEntitlementCache();
-            _storeLicenseService = new StoreLicenseService(contextProvider, entitlementCache);
-            var navigationService = new StoreNavigationService();
-            _storePurchaseService = new StorePurchaseService(contextProvider, _storeLicenseService, navigationService);
-            _appStatusViewModel = new AppStatusViewModel(
-                _storeLicenseService,
-                _storePurchaseService,
-                () => new WindowInteropHelper(this).Handle);
-            AppStatusDisplayControl.DataContext = _appStatusViewModel;
-        }
-
-        private void InitializePremiumEntitlement() {
-            _premiumEntitlementCancellation = new CancellationTokenSource();
-            if (_storeLicenseService is null) {
-                return;
-            }
-
-            _storeLicenseService.SnapshotChanged += OnPremiumEntitlementSnapshotChanged;
-            var ownerWindowHandle = new WindowInteropHelper(this).Handle;
-            _ = _storeLicenseService.StartAsync(ownerWindowHandle, _premiumEntitlementCancellation.Token);
-        }
-
-        private void OnPremiumEntitlementSnapshotChanged(StoreEntitlementSnapshot snapshot) {
-            try {
-                Dispatcher.Invoke(() => {
-                    JsonLogStore.Information(
-                        "premium_entitlement_ui_snapshot",
-                        "Premium entitlement snapshot received by main window.",
-                        "store_entitlement",
-                        new Dictionary<string, object?> {
-                            ["state"] = snapshot.State.ToString(),
-                            ["isPremium"] = snapshot.IsPremium,
-                            ["isPurchaseAvailable"] = snapshot.IsPurchaseAvailable,
-                            ["matchReason"] = snapshot.MatchReason
-                        });
-                    UpdateActionButtons();
-                    _appStatusViewModel?.ApplyEntitlementSnapshot(snapshot);
-                });
-            }
-            catch (Exception ex) {
-                JsonLogStore.Error("premium_entitlement_ui_dispatch_failed", "Failed to dispatch Premium entitlement snapshot to UI thread.", "store_entitlement", ex);
-            }
-        }
-
-        private async Task<StoreEntitlementSnapshot> EnsurePremiumEntitlementReadyAsync() {
-            if (_storeLicenseService is null) {
-                return new StoreEntitlementSnapshot(
-                    StoreEntitlementState.VerificationFailed,
-                    IsPremium: false,
-                    IsPurchaseAvailable: false,
-                    "Premium license verification is unavailable.",
-                    MatchReason: null);
-            }
-
-            try {
-                return await _storeLicenseService.EnsureReadyAsync(_premiumEntitlementCancellation?.Token ?? CancellationToken.None);
-            }
-            catch (OperationCanceledException) {
-                return _storeLicenseService.Snapshot;
-            }
-        }
+                    }
 
         private void UpdateActionButtons() {
             var anyPlaying = IsAnyStreamRunning();
@@ -1518,9 +1441,7 @@ namespace LocalCam {
                 return;
             }
 
-            var entitlement = await EnsurePremiumEntitlementReadyAsync();
-            var isPremium = entitlement.IsPremium;
-
+            
             JsonLogStore.Information(
                 eventName: "camera_connect_requested",
                 message: "Starting RTSP connections for detected cameras.",
@@ -1529,28 +1450,17 @@ namespace LocalCam {
                     ["cameraCount"] = _detections.Count,
                     ["streamPath"] = streamPath,
                     ["hasUsername"] = !string.IsNullOrWhiteSpace(username),
-                    ["entitlementState"] = entitlement.State.ToString(),
-                    ["isPremium"] = isPremium
-                });
+                    });
 
-            _isStartingStreams = true;
             UpdateActionButtons();
 
             var startedCount = 0;
             var failedEndpoints = new List<string>();
-            var skippedByBasicCap = 0;
-
             EnsureCameraTileCount(_detections.Count);
             for (var i = 0; i < _cameraTiles.Count && i < _detections.Count; i++) {
                 if (IsStreamRunning(i)) {
                     continue;
                 }
-
-                if (!isPremium && CountRunningStreams() >= BasicMaxSimultaneousStreams) {
-                    skippedByBasicCap++;
-                    continue;
-                }
-
                 var ipAddress = _detections[i].IpAddress.ToString();
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
@@ -1622,21 +1532,7 @@ namespace LocalCam {
                 }
             }
 
-            _isStartingStreams = false;
             _streamsRunning = startedCount > 0 || IsAnyStreamRunning();
-            if (skippedByBasicCap > 0) {
-                JsonLogStore.Information(
-                    eventName: "basic_stream_cap_start_all_limited",
-                    message: "Start All was limited by Basic simultaneous stream cap.",
-                    category: "store_entitlement",
-                    data: new Dictionary<string, object?> {
-                        ["maxSimultaneousStreams"] = BasicMaxSimultaneousStreams,
-                        ["startedCount"] = startedCount,
-                        ["skippedCount"] = skippedByBasicCap,
-                        ["activeCount"] = CountRunningStreams()
-                    });
-            }
-
             if (failedEndpoints.Count == 0) {
                 JsonLogStore.Information(
                     eventName: "camera_connect_completed",
@@ -1648,9 +1544,7 @@ namespace LocalCam {
                         ["cameraCount"] = _detections.Count,
                         ["streamPath"] = streamPath
                     });
-                StreamingStatusText.Text = skippedByBasicCap > 0
-                    ? $"Basic allows {BasicMaxSimultaneousStreams} live streams. Started {startedCount} {Pluralize(startedCount, "camera")}."
-                    : $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
+                StreamingStatusText.Text = $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
                 UpdateActionButtons();
                 return;
             }
@@ -1690,7 +1584,6 @@ namespace LocalCam {
         }
 
         private void StopAllStreams() {
-            _isStartingStreams = false;
             _expandedCameraIndex = null;
             StopRecordingSession("all_streams_stopped", updateStatus: false);
             for (var i = 0; i < _cameraTiles.Count; i++) {
@@ -1734,11 +1627,6 @@ namespace LocalCam {
             }
 
             try {
-                var entitlement = await EnsurePremiumEntitlementReadyAsync();
-                var evictedTileIndex = -1;
-                if (!entitlement.IsPremium && !IsStreamRunning(tileIndex) && CountRunningStreams() >= BasicMaxSimultaneousStreams) {
-                    evictedTileIndex = StopEarliestBasicStreamFor(tileIndex);
-                }
 
                 using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
                 media.AddOption(":network-caching=300");
@@ -1749,9 +1637,7 @@ namespace LocalCam {
                 if (mediaPlayer.Play(media)) {
                     MarkStreamStarted(tileIndex);
                     SetVideoSurfaceActive(tileIndex, isActive: true);
-                    StreamingStatusText.Text = evictedTileIndex >= 0
-                        ? $"Basic allows {BasicMaxSimultaneousStreams} live streams. Stopped camera {evictedTileIndex + 1} and started camera {tileIndex + 1}."
-                        : $"Started camera {tileIndex + 1}.";
+                    StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
                     return true;
                 }
             }
@@ -1830,39 +1716,6 @@ namespace LocalCam {
             }
 
             return count;
-        }
-
-        private int StopEarliestBasicStreamFor(int requestedTileIndex) {
-            var activeStreams = Enumerable.Range(0, _cameraTiles.Count)
-                .Where(i => i != requestedTileIndex && IsStreamRunning(i))
-                .Select(i => new {
-                    TileIndex = i,
-                    Order = _streamStartOrder.TryGetValue(i, out var order) ? order : long.MaxValue
-                })
-                .OrderBy(item => item.Order)
-                .ThenBy(item => item.TileIndex)
-                .ToArray();
-
-            var candidate = activeStreams.FirstOrDefault();
-            if (candidate is null) {
-                return -1;
-            }
-
-            var activeBefore = CountRunningStreams();
-            StopSingleStream(candidate.TileIndex, updateStatus: false);
-            JsonLogStore.Information(
-                "basic_stream_cap_enforced",
-                "Basic simultaneous stream cap enforced by stopping the earliest active stream.",
-                "store_entitlement",
-                new Dictionary<string, object?> {
-                    ["requestedTileIndex"] = requestedTileIndex,
-                    ["evictedTileIndex"] = candidate.TileIndex,
-                    ["activeCountBefore"] = activeBefore,
-                    ["activeCountAfterEviction"] = CountRunningStreams(),
-                    ["maxSimultaneousStreams"] = BasicMaxSimultaneousStreams
-                });
-
-            return candidate.TileIndex;
         }
 
         private async Task SaveSnapshotAsync(int tileIndex) {
@@ -2067,10 +1920,7 @@ namespace LocalCam {
                     tileIndex,
                     reason: "incomplete_streaming_settings");
                 return false;
-            }
-
-            var entitlement = await EnsurePremiumEntitlementReadyAsync();
-            var ipAddress = _detections[tileIndex].IpAddress.ToString();
+            }            var ipAddress = _detections[tileIndex].IpAddress.ToString();
             var recordingPath = CreateUniqueRecordingPath(targetDirectory, tileIndex, segmentNumber);
 
             try {
@@ -2097,8 +1947,7 @@ namespace LocalCam {
                 _recordingSessionId = _nextRecordingSessionId++;
                 _recordingOutputPath = recordingPath;
                 _recordingSegmentStartedAt = DateTimeOffset.Now;
-                _activeRecordingIsPremium = entitlement.IsPremium;
-                StartRecordingTimers();
+                                StartRecordingTimers();
                 UpdateRecordingElapsedText();
                 StartRecordingOutputValidation(tileIndex, recordingPath, segmentNumber);
                 ReportRecordingActivity(successStatusMessage ?? (segmentNumber == 1
@@ -2116,9 +1965,7 @@ namespace LocalCam {
                         ["path"] = recordingPath,
                         ["segmentNumber"] = segmentNumber,
                         ["reason"] = reason,
-                        ["entitlementState"] = entitlement.State.ToString(),
-                        ["isPremium"] = entitlement.IsPremium
-                    });
+                        });
                 return true;
             }
             catch (Exception ex) {
@@ -2184,8 +2031,7 @@ namespace LocalCam {
             _activeRecordingTileIndex = null;
             _recordingOutputPath = null;
             _recordingSegmentStartedAt = null;
-            _activeRecordingIsPremium = false;
-            _recordingSegmentNumber = 0;
+                        _recordingSegmentNumber = 0;
             _recordingSessionId = 0;
             CancelRecordingOutputValidation();
 
@@ -2233,8 +2079,7 @@ namespace LocalCam {
                         "recording_stopped" => $"Recording stopped for camera {stoppedTileIndex + 1}.",
                         "recording_ended" => $"Recording ended for camera {stoppedTileIndex + 1}.",
                         "recording_error" => $"Recording failed for camera {stoppedTileIndex + 1}.",
-                        "basic_recording_limit_reached" => $"Recording stopped at the 30-minute Basic limit for camera {stoppedTileIndex + 1}.",
-                        _ => $"Stopped recording camera {stoppedTileIndex + 1}."
+                                                _ => $"Stopped recording camera {stoppedTileIndex + 1}."
                     });
                 }
             }
@@ -2255,12 +2100,6 @@ namespace LocalCam {
             _isRecordingOperationProcessing = true;
             UpdateTileButtonStates();
             try {
-                if (!_activeRecordingIsPremium) {
-                    StopRecordingSession("basic_recording_limit_reached", updateStatus: true);
-                    ShowBasicRecordingLimitUpgradeModal();
-                    return;
-                }
-
                 var nextSegmentNumber = _recordingSegmentNumber + 1;
                 StopRecordingSession("segment_limit_reached", updateStatus: false);
                 var started = await StartRecordingSessionAsync(tileIndex, nextSegmentNumber, reason: "segment_rollover");
@@ -2291,7 +2130,7 @@ namespace LocalCam {
             _recordingElapsedTimer.Start();
 
             _recordingSegmentTimer = new DispatcherTimer {
-                Interval = _activeRecordingIsPremium ? RecordingSegmentDuration : BasicRecordingDuration
+                Interval = RecordingSegmentDuration
             };
             _recordingSegmentTimer.Tick += RecordingSegmentTimer_Tick;
             _recordingSegmentTimer.Start();
@@ -2526,64 +2365,6 @@ namespace LocalCam {
 
         private void ReportRecordingActivity(string message) {
             StreamingStatusText.Text = message;
-        }
-
-        private async void ShowBasicRecordingLimitUpgradeModal() {
-            var entitlement = _storeLicenseService?.Snapshot;
-            JsonLogStore.Information(
-                "premium_upgrade_modal_considered",
-                "Basic recording limit upgrade modal considered.",
-                "store_entitlement",
-                new Dictionary<string, object?> {
-                    ["state"] = entitlement?.State.ToString(),
-                    ["isPremium"] = entitlement?.IsPremium,
-                    ["isPurchaseAvailable"] = entitlement?.IsPurchaseAvailable
-                });
-
-            if (entitlement?.State != StoreEntitlementState.VerifiedNotOwned || entitlement.IsPurchaseAvailable != true) {
-                MessageBox.Show(
-                    this,
-                    entitlement?.State == StoreEntitlementState.VerificationFailed
-                        ? "Recording stopped at the 30-minute Basic limit. Premium purchase is unavailable until the license check can complete."
-                        : "Recording stopped at the 30-minute Basic limit. Premium purchase is currently unavailable. Please try again after Store product information is available.",
-                    "Recording limit reached",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
-
-            JsonLogStore.Information(
-                "premium_upgrade_modal_shown",
-                "Premium upgrade modal shown after Basic recording limit.",
-                "store_entitlement");
-
-            var dialog = new PremiumUpgradeDialog {
-                Owner = this
-            };
-            var result = dialog.ShowDialog();
-            if (result != true || !dialog.ShouldUpgrade) {
-                JsonLogStore.Information(
-                    "premium_upgrade_modal_dismissed",
-                    "Premium upgrade modal dismissed.",
-                    "store_entitlement");
-                return;
-            }
-
-            JsonLogStore.Information(
-                "premium_upgrade_modal_cta_clicked",
-                "Premium upgrade modal CTA clicked.",
-                "store_entitlement");
-
-            if (_storePurchaseService is null) {
-                StreamingStatusText.Text = "Premium purchase is unavailable.";
-                return;
-            }
-
-            var purchased = await _storePurchaseService.RequestPremiumPurchaseAsync(
-                new WindowInteropHelper(this).Handle,
-                _premiumEntitlementCancellation?.Token ?? CancellationToken.None);
-
-            StreamingStatusText.Text = purchased.StatusMessage;
         }
 
         private bool IsAnyStreamRunning() {
@@ -3203,20 +2984,14 @@ namespace LocalCam {
         protected override void OnClosed(EventArgs e) {
             _isClosing = true;
             UninstallMouseHook();
-            _scanCancellation?.Cancel();
-            _premiumEntitlementCancellation?.Cancel();
-            if (_storeLicenseService is not null) {
-                _storeLicenseService.SnapshotChanged -= OnPremiumEntitlementSnapshotChanged;
-            }
-            ShutdownStreamingEngine();
+            _scanCancellation?.Cancel();            ShutdownStreamingEngine();
 
             base.OnClosed(e);
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
             _isClosing = true;
-            _scanCancellation?.Cancel();
-            PersistWindowBounds();
+            _scanCancellation?.Cancel();            PersistWindowBounds();
             base.OnClosing(e);
         }
 
@@ -3234,3 +3009,4 @@ namespace LocalCam {
 
     }
 }
+
