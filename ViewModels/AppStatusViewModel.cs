@@ -4,14 +4,11 @@ using System.Windows.Input;
 using LocalCam.Models;
 using LocalCam.Services;
 using LocalCam.Services.Store;
-using LocalCam.Services.Updates;
 
 namespace LocalCam.ViewModels {
     internal sealed class AppStatusViewModel : INotifyPropertyChanged {
-        private readonly IAppVersionService _versionService;
         private readonly IStoreLicenseService _licenseService;
         private readonly IStorePurchaseService _purchaseService;
-        private readonly IAppUpdateCoordinator _updateCoordinator;
         private readonly Func<IntPtr> _getOwnerWindowHandle;
         private CancellationTokenSource? _toastCancellation;
         private static readonly TimeSpan StoreCommandTimeout = TimeSpan.FromSeconds(20);
@@ -22,21 +19,15 @@ namespace LocalCam.ViewModels {
         private bool _isToastOpen;
 
         public AppStatusViewModel(
-            IAppVersionService versionService,
             IStoreLicenseService licenseService,
             IStorePurchaseService purchaseService,
-            IAppUpdateCoordinator updateCoordinator,
             Func<IntPtr> getOwnerWindowHandle) {
-            _versionService = versionService;
             _licenseService = licenseService;
             _purchaseService = purchaseService;
-            _updateCoordinator = updateCoordinator;
             _getOwnerWindowHandle = getOwnerWindowHandle;
-            VersionText = _versionService.VersionText;
             UpgradeCommand = new AsyncRelayCommand(UpgradeAsync, () => !_isBusy && ModeText == "Basic");
             RestoreCommand = new AsyncRelayCommand(RestoreAsync, () => !_isBusy);
             RedeemPromoCodeCommand = new AsyncRelayCommand(RedeemPromoCodeAsync, () => !_isBusy);
-            CheckForUpdatesCommand = new AsyncRelayCommand(CheckForUpdatesAsync, () => !_isBusy);
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -59,8 +50,6 @@ namespace LocalCam.ViewModels {
             private set => SetField(ref _modeToolTip, value);
         }
 
-        public string VersionText { get; }
-
         public string ToastText {
             get => _toastText;
             private set => SetField(ref _toastText, value);
@@ -74,7 +63,6 @@ namespace LocalCam.ViewModels {
         public ICommand UpgradeCommand { get; }
         public ICommand RestoreCommand { get; }
         public ICommand RedeemPromoCodeCommand { get; }
-        public ICommand CheckForUpdatesCommand { get; }
 
         public void ApplyEntitlementSnapshot(StoreEntitlementSnapshot snapshot) {
             ModeText = snapshot.IsPremium ? "Premium" : "Basic";
@@ -126,14 +114,6 @@ namespace LocalCam.ViewModels {
             });
         }
 
-        private async Task CheckForUpdatesAsync() {
-            await RunBusyAsync(async () => {
-                using var cts = CreateBoundedToken();
-                var result = await _updateCoordinator.RunUserInitiatedUpdateFlowAsync(cts.Token);
-                await ShowToastAsync(result.StatusMessage);
-            });
-        }
-
         private static CancellationTokenSource CreateBoundedToken() {
             return new CancellationTokenSource(StoreCommandTimeout);
         }
@@ -177,7 +157,6 @@ namespace LocalCam.ViewModels {
             (UpgradeCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (RestoreCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (RedeemPromoCodeCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
-            (CheckForUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
 
         private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null) {

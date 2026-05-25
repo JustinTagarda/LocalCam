@@ -23,8 +23,6 @@ LocalCam is a Windows desktop WPF app for discovering compatible cameras on the 
   - Expand / Collapse while video is playing
 - Settings are available from the toolbar
 - The footer shows current access tier (`Basic`/`Premium`) and app version
-- Clicking version checks for updates and uses Microsoft Store update/install UI when an update is available
-- When no update is available, the version click flow shows a small `No update available` toast above the version text
 - The footer menu also exposes Premium promo-code redemption and purchase restore actions
 - Premium promo-code redemption opens the Microsoft Store redeem page; after redeeming, use Restore purchase so LocalCam refreshes entitlement
 
@@ -74,57 +72,22 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 
 - In Debug local runs, structured JSONL logs are written beside the launched executable
 - Logging is disabled for Release and installed distributions
-- Discovery, settings, snapshot, recording, stream, and updater events are logged
+- Discovery, settings, snapshot, recording, and stream events are logged
 
 ## Microsoft Store Support
 
 - Packaging project exists for Store submission workflows
 - The package project is x64-only and runtime identifiers are limited to `win-x64`
 - Store integration uses `Windows.Services.Store`
-- Startup runs a hidden, non-blocking Store update check after the first render
-- If updates are available, the app prefers silent download and defers install until app exit when supported
-- If silent download is unavailable or fails, the app falls back to Microsoft Store / OS-provided update UI
-- Deferred update state is persisted to `%LocalAppData%\LocalCam\update-state.json`
-- Deferred exit-time installs run with an app-owned modal progress dialog, then resume the user's close
-- User-initiated update checks use the same Store API-backed update/install UI when an update is available
-- The app does not force automatic restart after update operations
 - Premium is implemented as a durable Microsoft Store add-on with Product ID `localcam_premium_lifetime` and Store ID `9P9KCJ3NFZFT`
 - Premium purchase entry points route through in-app Microsoft Store purchase UI via `StoreContext.RequestPurchaseAsync`
 - Premium purchase does not use direct PDP deep-link navigation as the primary purchase path
 - After `Succeeded` or `AlreadyOwned` purchase outcomes, entitlement is refreshed before final unlock messaging
 - Repository Store association metadata lives in [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml) and is included in [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 
-## Store Update Validation
-
-Use this checklist to validate the Store update flow after packaging or when testing in a Store/MSIX context:
-
-- App starts with no update available: opens normally, no update UI appears
-- App starts with an available update: hidden background check runs after first render
-- Silent path is available: update downloads silently and install is deferred until exit
-- Silent path is unavailable or fails: fallback Store / OS update UI is used
-- Deferred install exists on exit: close is paused, modal progress UI appears, install runs, then exit resumes
-- Deferred install progress is phase-aware and maps Store download/install progress to the dialog text
-- Deferred install fails on exit: failure message appears, deferred state is cleared, exit resumes
-- App is unpackaged: Store update flow is skipped safely
-- App does not restart itself after update operations
-
-For code-level verification, use the fast Debug build:
-
-```powershell
-dotnet msbuild .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m
-```
-
-For Store configuration validation, use:
-
-```powershell
-.\scripts\Validate-StoreConfiguration.ps1
-```
-
-The validation script checks the manifest identity, x64 StoreUpload packaging, durable Premium add-on IDs, the direct Store update API paths, and the Store association XML.
-
 ## Premium Purchase Validation
 
-Automated coverage for Premium purchase command routing and separation of purchase/restore/update flows is in:
+Automated coverage for Premium purchase command routing and separation of purchase/restore flows is in:
 
 - [LocalCam.Tests/PremiumPurchasePathTests.cs](D:/Projects/LocalCam/LocalCam.Tests/PremiumPurchasePathTests.cs)
 
@@ -168,8 +131,7 @@ Launch the app from the Debug output:
 - Settings dialog: [SettingsWindow.xaml](D:/Projects/LocalCam/SettingsWindow.xaml)
 - Settings persistence: [Services/SettingsStore.cs](D:/Projects/LocalCam/Services/SettingsStore.cs)
 - App diagnostics: [Services/JsonLogStore.cs](D:/Projects/LocalCam/Services/JsonLogStore.cs)
-- Store services: `Services/Store/`, `Services/StoreUpdateClient.cs`, `Services/AppVersionProvider.cs`
-- Store update orchestration: `Services/Updates/`
+- Store services: `Services/Store/`, `Services/AppVersionProvider.cs`
 - Store packaging project: [LocalCam.Package.wapproj](D:/Projects/LocalCam/LocalCam.Package.wapproj)
 - Store manifest: [Package.appxmanifest](D:/Projects/LocalCam/Package.appxmanifest)
 - Store association metadata: [Package.StoreAssociation.xml](D:/Projects/LocalCam/Package.StoreAssociation.xml)
@@ -179,3 +141,4 @@ Launch the app from the Debug output:
 
 - Project rules and operating instructions: [AGENTS.md](D:/Projects/LocalCam/AGENTS.md)
 - Product behavior specification: [SPECIFICATION.md](D:/Projects/LocalCam/SPECIFICATION.md)
+

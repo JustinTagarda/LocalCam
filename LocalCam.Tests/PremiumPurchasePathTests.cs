@@ -1,7 +1,6 @@
 using LocalCam.Models;
 using LocalCam.Services;
 using LocalCam.Services.Store;
-using LocalCam.Services.Updates;
 using LocalCam.ViewModels;
 using Xunit;
 
@@ -52,19 +51,6 @@ public sealed class PremiumPurchasePathTests {
     }
 
     [Fact]
-    public async Task CheckForUpdates_DoesNotTriggerPurchase() {
-        var purchase = new FakePurchaseService();
-        var updates = new FakeUpdateCoordinator();
-        var vm = CreateViewModel(purchaseService: purchase, updateCoordinator: updates);
-
-        vm.CheckForUpdatesCommand.Execute(null);
-
-        await WaitForAsync(() => updates.UserFlowCalls == 1);
-        Assert.Equal(0, purchase.PurchaseCalls);
-        Assert.Equal(0, purchase.RestoreCalls);
-    }
-
-    [Fact]
     public async Task RequestPremiumPurchase_NotSupported_DoesNotNavigateOrPurchase() {
         var navigation = new FakeNavigationService();
         var service = new StorePurchaseService(
@@ -95,14 +81,10 @@ public sealed class PremiumPurchasePathTests {
         Assert.Equal(0, navigation.RedeemCalls);
     }
 
-    private static AppStatusViewModel CreateViewModel(
-        FakePurchaseService? purchaseService = null,
-        FakeUpdateCoordinator? updateCoordinator = null) {
+    private static AppStatusViewModel CreateViewModel(FakePurchaseService? purchaseService = null) {
         return new AppStatusViewModel(
-            new FakeAppVersionService(),
             new FakeLicenseService(BasicVerified),
             purchaseService ?? new FakePurchaseService(),
-            updateCoordinator ?? new FakeUpdateCoordinator(),
             () => IntPtr.Zero);
     }
 
@@ -117,11 +99,6 @@ public sealed class PremiumPurchasePathTests {
         }
 
         Assert.True(condition());
-    }
-
-    private sealed class FakeAppVersionService : IAppVersionService {
-        public bool IsPackaged => false;
-        public string VersionText => "1.0.0-test";
     }
 
     private sealed class FakePurchaseService : IStorePurchaseService {
@@ -142,27 +119,6 @@ public sealed class PremiumPurchasePathTests {
 
         public Task<StoreRedemptionResult> RedeemPromoCodeAsync(string promoCode, IntPtr ownerWindowHandle, CancellationToken cancellationToken) {
             return Task.FromResult(new StoreRedemptionResult(StoreRedemptionOutcome.Cancelled, BasicVerified, "Canceled"));
-        }
-    }
-
-    private sealed class FakeUpdateCoordinator : IAppUpdateCoordinator {
-        public int UserFlowCalls { get; private set; }
-
-        public Task RunStartupUpdateFlowAsync(CancellationToken cancellationToken) {
-            return Task.CompletedTask;
-        }
-
-        public Task<StoreUpdateCheckResult> RunUserInitiatedUpdateFlowAsync(CancellationToken cancellationToken) {
-            UserFlowCalls++;
-            return Task.FromResult(new StoreUpdateCheckResult(StoreUpdateCheckState.NotAvailable, "No update", null));
-        }
-
-        public Task<StoreUpdateOperationResult> RunDeferredInstallOnExitAsync(IProgress<double>? progress, CancellationToken cancellationToken) {
-            return Task.FromResult(new StoreUpdateOperationResult(StoreUpdateOperationState.Completed, "Done"));
-        }
-
-        public Task<bool> HasDeferredInstallPendingAsync(CancellationToken cancellationToken) {
-            return Task.FromResult(false);
         }
     }
 

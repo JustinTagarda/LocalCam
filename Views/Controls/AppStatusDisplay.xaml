@@ -38,21 +38,9 @@
                 </TextBlock.ContextMenu>
             </TextBlock>
 
-            <TextBlock x:Name="VersionTextBlock"
-                       Style="{StaticResource FooterStatusTextStyle}"
-                       Foreground="#8FA2BE"
-                       FontWeight="Normal"
-                       Text="{Binding VersionText}"
-                       ToolTip="Click to check for updates."
-                       Cursor="Hand"
-                       Margin="12,0,0,0">
-                <TextBlock.InputBindings>
-                    <MouseBinding MouseAction="LeftClick" Command="{Binding CheckForUpdatesCommand}" />
-                </TextBlock.InputBindings>
-            </TextBlock>
         </StackPanel>
 
-        <Popup PlacementTarget="{Binding ElementName=VersionTextBlock}"
+        <Popup PlacementTarget="{Binding ElementName=ModeTextBlock}"
                Placement="Top"
                AllowsTransparency="True"
                StaysOpen="True"
