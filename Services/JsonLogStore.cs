@@ -102,10 +102,6 @@ namespace LocalCam.Services {
         }
 
         private static bool IsInstalledDistribution() {
-            if (IsPackagedProcess()) {
-                return true;
-            }
-
             var startupDirectory = Path.GetFullPath(AppContext.BaseDirectory)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
@@ -115,16 +111,6 @@ namespace LocalCam.Services {
 
             return IsUnderPath(startupDirectory, programFiles)
                 || IsUnderPath(startupDirectory, programFilesX86);
-        }
-
-        private static bool IsPackagedProcess() {
-            var packageFamilyName = Environment.GetEnvironmentVariable("PACKAGE_FAMILY_NAME");
-            if (!string.IsNullOrWhiteSpace(packageFamilyName)) {
-                return true;
-            }
-
-            var appxPackageFamilyName = Environment.GetEnvironmentVariable("APPX_PACKAGE_FAMILY_NAME");
-            return !string.IsNullOrWhiteSpace(appxPackageFamilyName);
         }
 
         private static bool IsUnderPath(string candidate, string root) {
