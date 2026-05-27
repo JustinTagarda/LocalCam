@@ -15,11 +15,9 @@
 
 ## Packaging Architecture Policy
 
-- LocalCam is an x64 package-only app.
+- LocalCam is an x64 desktop app.
 - Keep `LocalCam.csproj` runtime identifiers limited to `win-x64`.
-- Keep `LocalCam.Package.wapproj` package platforms limited to `x64`.
-- Do not add, restore, generate, or publish ARM64, win-arm64, AnyCPU, or multi-architecture Store packages unless the user explicitly requests a packaging architecture policy change.
-- If generated ARM64 package artifacts appear under `AppPackages`, treat them as stale outputs and remove them before packaging verification.
+- Do not add ARM64, win-arm64, AnyCPU, or multi-architecture packaging targets unless the user explicitly requests a packaging architecture policy change.
 
 ## Reusable Rules
 
@@ -90,11 +88,9 @@
   - App settings persist at `%LocalAppData%\\LocalCam\\settings.json`.
   - Structured JSONL app diagnostics are written under `%LocalAppData%\\LocalCam\\logs`.
 
-- Microsoft Store readiness:
-  - Packaging project exists: `LocalCam.Package.wapproj`.
-  - Manifest identity is configured for Store upload.
-  - Store updater workflow is implemented in-app using `Windows.Services.Store` through service abstractions.
-  - Footer update surface includes update state, progress, and restart affordance after install completion.
+- Distribution:
+  - LocalCam runs as a non-Store desktop app from project build output.
+  - Store-specific packaging, entitlement, and update workflows are decommissioned.
 
 ## Brand-Neutral UI With Tapo-First Implementation Policy
 
@@ -513,77 +509,8 @@ Do not include any of the following in a brand-neutral UI wording task:
 - Guardrail:
 - Do not alter these recording rules without explicit user instruction that clearly requests a behavior change.
 
-## Store Tiering Policy (Basic vs Premium)
+## Feature Availability Policy
 
-- Scope:
-- Defines feature gating and runtime behavior for Microsoft Store monetization tiers.
-- Keep all existing non-tier rules intact unless explicitly superseded by this section.
-
-- Tier definitions:
-- Basic (Free):
-  - Unlimited camera detection.
-  - Maximum 4 simultaneously playing cameras.
-  - If a 5th camera is started while 4 are already playing, auto-stop the earliest-played active camera, then start the requested camera.
-  - Recording is limited to 30 minutes per recording session.
-  - At 30 minutes, recording hard-stops and does not continue to a next segment.
-  - User may start recording again manually with no enforced session-count cap.
-  - Show a custom modal when recording stops due to the Basic 30-minute limit, including a Premium upsell CTA.
-  - All other current features remain available in Basic unless explicitly gated.
-- Premium (Paid):
-  - Unlimited camera detection.
-  - No cap on the number of cameras that can play simultaneously.
-  - Recording behavior remains complete as currently implemented (including segment rollover behavior).
-  - All existing features remain fully available.
-
-- Entitlement and fallback:
-- Resolve tier entitlement at runtime.
-- If entitlement cannot be resolved, fail-safe to Basic behavior.
-- Tier state must be consumable by playback and recording flows.
-
-- Basic playback cap enforcement:
-- Track stream play order using an explicit runtime ordering signal (for example, start sequence/timestamp).
-- Eviction candidate for the 5th start must be selected from currently active streams only.
-- On 5th start request in Basic:
-  - stop earliest-played active stream
-  - start requested stream
-  - final state must contain exactly 4 active streams
-
-- Basic recording cap enforcement:
-- Trigger stop at 30 minutes elapsed for the active Basic recording session.
-- Do not start a new recording segment automatically after the 30-minute cap is reached.
-- Keep stream playback running unless separately stopped by user/system conditions.
-- Limit-stop reason must be explicitly distinguishable from user-stop, stream-stop, and error-stop reasons.
-
-- Upgrade modal requirements (Basic recording limit):
-- Modal appears only when recording stops due to Basic 30-minute cap.
-- Modal must explain the limit clearly and include:
-  - primary action: Premium upgrade CTA
-  - secondary action: dismiss/close
-- Do not show this monetization modal for non-limit recording failures.
-
-- Recording status surface:
-- Recording activity and outcomes continue to use `StreamingStatusText` per existing policy.
-- Modal is additive for the Basic-limit stop case and must not replace status text updates.
-
-- Suggested marketing wording (custom modal):
-- Title options:
-  - `Recording limit reached`
-  - `Keep recording without interruptions`
-  - `Basic session completed`
-- Body guidance:
-  - State that Basic recordings stop at 30 minutes.
-  - State that Premium removes this 30-minute recording stop and enables continuous recording behavior.
-- CTA labels:
-  - `Upgrade to Premium`, `See Premium`, or `Upgrade`
-- Secondary labels:
-  - `Not now`, `Later`, or `Close`
-
-- Logging and diagnostics:
-- Log structured events for:
-- tier resolution result
-  - Basic 4-stream cap enforcement (requested tile, evicted tile, active counts)
-  - Basic 30-minute recording-limit stop
-  - upgrade modal shown/dismissed/CTA clicked
-
-- Guardrail:
-- Do not change Basic/Premium gating behavior defined in this section without explicit user instruction.
+- LocalCam has no Store-tier monetization path.
+- Do not add premium entitlement, purchase flow, or upgrade CTA surfaces unless explicitly requested.
+- Keep camera detection, playback, snapshot, and recording behavior controlled only by functional app state and existing validation rules.

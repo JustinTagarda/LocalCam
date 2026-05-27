@@ -83,7 +83,7 @@ The scanner remains Tapo-first internally, while the user-facing text stays bran
 For routine development, use the fast Debug build:
 
 ```powershell
-dotnet msbuild .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m
+& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m
 ```
 
 Launch the app from the Debug output:
@@ -106,4 +106,9 @@ Launch the app from the Debug output:
 
 - Project rules and operating instructions: [AGENTS.md](D:/Projects/LocalCam/AGENTS.md)
 - Product behavior specification: [SPECIFICATION.md](D:/Projects/LocalCam/SPECIFICATION.md)
+
+## Distribution
+
+- LocalCam is documented and maintained as a non-Store desktop app.
+- Store-specific packaging, entitlement, and update workflows are decommissioned.
 
