@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Windows.ApplicationModel;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using LocalCam.Networking;
@@ -65,6 +66,9 @@ namespace LocalCam {
         private CancellationTokenSource? _scanCancellation;
         private bool _isClosing;
         private bool _isScanning;
+        private bool _isUserScanCancelRequested;
+        private bool _isDetectButtonToggleDelayActive;
+        private int _detectButtonToggleVersion;
         private bool _streamsRunning;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
@@ -107,6 +111,7 @@ namespace LocalCam {
             _detections = detections.ToArray();
 
             InitializeComponent();
+            UpdateFooterVersionText();
             SourceInitialized += MainWindow_SourceInitialized;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
@@ -184,8 +189,40 @@ namespace LocalCam {
                 RtspUsername = defaultUser ?? string.Empty,
                 RtspPassword = defaultPassword ?? string.Empty,
                 StreamPath = "stream1",
-                AutoStreamVideo = false
+                AutoStreamVideo = true,
+                AutoDetectOnStartup = true
             };
+        }
+
+        private void UpdateFooterVersionText() {
+            FooterVersionText.Text = $"v{GetStoreVersionDisplayText()}";
+        }
+
+        private static string GetStoreVersionDisplayText() {
+            if (TryGetPackageVersion(out var packageVersionText)) {
+                return packageVersionText;
+            }
+
+            var fileVersion = System.Diagnostics.FileVersionInfo
+                .GetVersionInfo(typeof(MainWindow).Assembly.Location)
+                .FileVersion;
+            if (Version.TryParse(fileVersion, out var parsedVersion)) {
+                return $"{parsedVersion.Major}.{parsedVersion.Minor}.{parsedVersion.Build}.0";
+            }
+
+            return "1.0.0.0";
+        }
+
+        private static bool TryGetPackageVersion(out string versionText) {
+            versionText = string.Empty;
+            try {
+                var packageVersion = Package.Current.Id.Version;
+                versionText = $"{packageVersion.Major}.{packageVersion.Minor}.{packageVersion.Build}.0";
+                return true;
+            }
+            catch {
+                return false;
+            }
         }
 
         private void ApplyPersistedWindowBounds() {
@@ -1146,8 +1183,12 @@ namespace LocalCam {
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
-            AutoStreamVideoCheckBox.IsChecked = _settings.AutoStreamVideo;
-                        _ = StartLocalCameraSearchAsync();
+            if (_settings.AutoDetectOnStartup) {
+                _ = StartLocalCameraSearchAsync();
+                return;
+            }
+
+            ShowEmptyCameraSlots();
         }
 
         private void Window_ContentRendered(object? sender, EventArgs e) {
@@ -1159,7 +1200,8 @@ namespace LocalCam {
             var anyPlaying = IsAnyStreamRunning();
             var anyNotPlaying = HasAnyStoppedDetectedCamera();
 
-            DetectCameraButton.IsEnabled = !_isScanning;
+            DetectCameraButton.Content = _isScanning ? "Cancel Detecting" : "Detect Camera";
+            DetectCameraButton.IsEnabled = !_isDetectButtonToggleDelayActive;
             ToolbarStartStreamsButton.IsEnabled = anyNotPlaying;
             ToolbarStopButton.IsEnabled = anyPlaying;
             SettingsButton.IsEnabled = true;
@@ -1183,7 +1225,9 @@ namespace LocalCam {
 
             while (!_isClosing) {
                 _isScanning = true;
+                _isUserScanCancelRequested = false;
                 _scanCancellation = new CancellationTokenSource();
+                _ = BeginDetectButtonToggleDelayAsync();
                 var progress = new Progress<TapoCameraScanActivity>(activity => {
                     if (_isClosing || !_isScanning) {
                         return;
@@ -1239,6 +1283,10 @@ namespace LocalCam {
                             category: "camera_search");
                         ShowNoDetections("Scan canceled.");
                     }
+
+                    if (_isUserScanCancelRequested) {
+                        return;
+                    }
                 }
                 catch (Exception ex) {
                     if (!_isClosing) {
@@ -1254,6 +1302,7 @@ namespace LocalCam {
                     _scanCancellation?.Dispose();
                     _scanCancellation = null;
                     _isScanning = false;
+                    _ = BeginDetectButtonToggleDelayAsync();
                     if (!_isClosing) {
                         UpdateActionButtons();
                     }
@@ -1321,7 +1370,34 @@ namespace LocalCam {
         }
 
         private void DetectCameraButton_Click(object sender, RoutedEventArgs e) {
+            _ = sender;
+            _ = e;
+
+            if (_isScanning) {
+                _isUserScanCancelRequested = true;
+                _scanCancellation?.Cancel();
+                return;
+            }
+
             _ = StartLocalCameraSearchAsync();
+        }
+
+        private async Task BeginDetectButtonToggleDelayAsync() {
+            var version = unchecked(++_detectButtonToggleVersion);
+            _isDetectButtonToggleDelayActive = true;
+            UpdateActionButtons();
+
+            try {
+                await Task.Delay(1000);
+            }
+            finally {
+                if (version == _detectButtonToggleVersion) {
+                    _isDetectButtonToggleDelayActive = false;
+                    if (!_isClosing) {
+                        UpdateActionButtons();
+                    }
+                }
+            }
         }
 
         private async void ToolbarStartStreamsButton_Click(object sender, RoutedEventArgs e) {
@@ -1393,15 +1469,6 @@ namespace LocalCam {
             }
 
             return false;
-        }
-
-        private void AutoStreamVideoCheckBox_Changed(object sender, RoutedEventArgs e) {
-            _settings.AutoStreamVideo = AutoStreamVideoCheckBox.IsChecked == true;
-            TrySaveSettings(
-                "settings_auto_stream_save_failed",
-                "Failed to persist auto-stream setting.",
-                showStatus: true);
-            TryAutoStartStreams();
         }
 
         private async Task StartAllStreamsAsync() {

@@ -333,11 +333,7 @@
                         Background="{x:Null}"
                         Margin="0,0,0,10">
                     <Grid VerticalAlignment="Center">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Button x:Name="DetectCameraButton"
                                     Style="{StaticResource PanelButtonStyle}"
                                     Content="Detect Camera"
@@ -368,14 +364,6 @@
                                     Height="30"
                                     Click="SettingsButton_Click" />
                         </StackPanel>
-                        <CheckBox x:Name="AutoStreamVideoCheckBox"
-                                  Grid.Column="1"
-                                  Content="Auto start when connected"
-                                  Style="{StaticResource PanelCheckBoxStyle}"
-                                  Margin="12,0,0,0"
-                                  IsChecked="False"
-                                  Checked="AutoStreamVideoCheckBox_Changed"
-                                  Unchecked="AutoStreamVideoCheckBox_Changed" />
                     </Grid>
                 </Border>
 
@@ -434,7 +422,16 @@
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center"
-                                   Text="© 2026 JustinTagarda. All rights reserved." />`r`n                        <Grid Grid.Column="1" />`r`n                    </Grid>
+                                   Text="© 2026 JustinTagarda" />
+                        <TextBlock x:Name="FooterVersionText"
+                                   Grid.Column="1"
+                                   Foreground="#8FA2BE"
+                                   FontSize="11"
+                                   TextWrapping="NoWrap"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Right"
+                                   Text="v1.0.0.0" />
+                    </Grid>
                 </Grid>
             </Border>
 

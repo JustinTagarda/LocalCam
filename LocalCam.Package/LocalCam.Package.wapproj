@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <ProjectGuid>{7A9B9E1C-0E45-4B9A-8D91-7E1E53E9D901}</ProjectGuid>
+    <ProjectName>LocalCam.Package</ProjectName>
+    <EntryPointProjectUniqueName>..\LocalCam.csproj</EntryPointProjectUniqueName>
+    <TargetPlatformVersion>10.0.26100.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <AppxBundle>Never</AppxBundle>
+    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <UapAppxPackageBuildMode>StoreUpload</UapAppxPackageBuildMode>
+    <AppxPackageDir>$(MSBuildThisFileDirectory)AppPackages\</AppxPackageDir>
+    <Platform>x64</Platform>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\StoreLogo.png">
+      <Link>Assets\StoreLogo.png</Link>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Square44x44Logo.png">
+      <Link>Assets\Square44x44Logo.png</Link>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Square150x150Logo.png">
+      <Link>Assets\Square150x150Logo.png</Link>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Wide310x150Logo.png">
+      <Link>Assets\Wide310x150Logo.png</Link>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\SplashScreen.png">
+      <Link>Assets\SplashScreen.png</Link>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LocalCam.csproj" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" />
+</Project>

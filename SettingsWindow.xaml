@@ -146,6 +146,57 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="DialogCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E8EEF5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="CheckBorder"
+                                    Grid.Column="0"
+                                    Width="18"
+                                    Height="18"
+                                    CornerRadius="3"
+                                    BorderThickness="1"
+                                    BorderBrush="#5E6C84"
+                                    Background="#0F1624">
+                                <Path x:Name="CheckMark"
+                                      Data="M3,9 L7,13 L15,4"
+                                      Stroke="#0EA5E9"
+                                      StrokeThickness="2"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter Grid.Column="2"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="#0EA5E9" />
+                                <Setter TargetName="CheckBorder" Property="Background" Value="#10253A" />
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="#7A8DAE" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border Margin="0"
@@ -204,16 +255,68 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0"
+                           Text="Startup"
+                           Foreground="#E8EEF5"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,10" />
+
+                <Grid Grid.Row="1" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Behavior"
+                               Foreground="#A9B4C7"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0" />
+                    <CheckBox x:Name="AutoDetectOnStartupCheckBox"
+                              Grid.Column="1"
+                              Content="Auto detect on startup"
+                              Style="{StaticResource DialogCheckBoxStyle}"
+                              Checked="InputChanged"
+                              Unchecked="InputChanged" />
+                </Grid>
+
+                <Grid Grid.Row="2" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Detection"
+                               Foreground="#A9B4C7"
+                               VerticalAlignment="Center"
+                               Margin="0,0,12,0" />
+                    <CheckBox x:Name="AutoStartWhenConnectedCheckBox"
+                              Grid.Column="1"
+                              Content="Auto start when connected"
+                              Style="{StaticResource DialogCheckBoxStyle}"
+                              Checked="InputChanged"
+                              Unchecked="InputChanged" />
+                </Grid>
+
+                <Border Grid.Row="3"
+                        Height="1"
+                        Background="#2A3242"
+                        Margin="0,2,0,12" />
+
+                <TextBlock Grid.Row="4"
                            Text="RTSP Credentials"
                            Foreground="#E8EEF5"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="1" Margin="0,0,0,10">
+                <Grid Grid.Row="5" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -229,7 +332,7 @@
                              Style="{StaticResource DialogTextBoxStyle}" />
                 </Grid>
 
-                <Grid Grid.Row="2" Margin="0,0,0,10">
+                <Grid Grid.Row="6" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -245,7 +348,7 @@
                                  Style="{StaticResource DialogPasswordBoxStyle}" />
                 </Grid>
 
-                <Grid Grid.Row="3" Margin="0,0,0,12">
+                <Grid Grid.Row="7" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -261,19 +364,19 @@
                              Style="{StaticResource DialogTextBoxStyle}" />
                 </Grid>
 
-                <Border Grid.Row="4"
+                <Border Grid.Row="8"
                         Height="1"
                         Background="#2A3242"
                         Margin="0,2,0,12" />
 
-                <TextBlock Grid.Row="5"
+                <TextBlock Grid.Row="9"
                            Text="Snapshot"
                            Foreground="#E8EEF5"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="6" Margin="0,0,0,12">
+                <Grid Grid.Row="10" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -324,14 +427,14 @@
                     </Grid>
                 </Grid>
 
-                <TextBlock Grid.Row="7"
+                <TextBlock Grid.Row="11"
                            Text="Recording"
                            Foreground="#E8EEF5"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="8" Margin="0,0,0,0">
+                <Grid Grid.Row="12" Margin="0,0,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -382,7 +485,7 @@
                     </Grid>
                 </Grid>
 
-                <Grid Grid.Row="9" Margin="0,20,0,0">
+                <Grid Grid.Row="13" Margin="0,20,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />

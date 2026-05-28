@@ -109,6 +109,28 @@ Launch the app from the Debug output:
 
 ## Distribution
 
-- LocalCam is documented and maintained as a non-Store desktop app.
-- Store-specific packaging, entitlement, and update workflows are decommissioned.
+- LocalCam supports Microsoft Store packaging readiness validation for pre-submission workflows.
+- Store packaging is maintained with `x64`-only policy and Store upload mode requirements.
+
+## Store Packaging Baseline
+
+- Packaging project: `LocalCam.Package/LocalCam.Package.wapproj`
+- Manifest: `LocalCam.Package/Package.appxmanifest`
+- Store identity baseline:
+  - `Name`: `JustinTagardaSoftware.LocalCam`
+  - `Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
+  - `TargetDeviceFamily`: `Windows.Desktop`
+- Packaging target policy is `x64` only.
+- Store upload mode is configured for Release packaging validation.
+
+## Store Pre-Submission Readiness
+
+- Follow `D:\Projects\1-MSSTORE-PACKAGE-PREPARATION.md` for readiness gates and baseline implementation checks.
+- Validate manifest identity and target fields before release packaging:
+  - `Identity Name`: `JustinTagardaSoftware.LocalCam`
+  - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
+  - `TargetDeviceFamily Name`: `Windows.Desktop`
+- Validate package version format as `Major.Minor.Build.0`.
+- Validate output artifacts include Store upload artifact (`.msixupload`) and `x64` architecture package (`.msix`) in Release packaging flow.
+- Treat stale artifacts under `LocalCam.Package/AppPackages` and `LocalCam.Package/bin/x64/Release/Upload` as `NOT READY` until cleaned by packaging workflow.
 

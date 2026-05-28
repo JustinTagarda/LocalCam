@@ -21,6 +21,8 @@ namespace LocalCam {
             RtspUsernameTextBox.Text = settings.RtspUsername;
             RtspPasswordBox.Password = settings.RtspPassword;
             StreamPathTextBox.Text = NormalizeStreamPath(settings.StreamPath);
+            AutoStartWhenConnectedCheckBox.IsChecked = settings.AutoStreamVideo;
+            AutoDetectOnStartupCheckBox.IsChecked = settings.AutoDetectOnStartup;
             _snapshotFolderPathValue = NormalizeSnapshotSaveFolder(settings.SnapshotSaveFolder);
             _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
             RefreshSnapshotFolderDisplay();
@@ -212,7 +214,8 @@ namespace LocalCam {
                 RtspUsername = RtspUsernameTextBox.Text.Trim(),
                 RtspPassword = RtspPasswordBox.Password,
                 StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
-                AutoStreamVideo = _initialSettings.AutoStreamVideo,
+                AutoStreamVideo = AutoStartWhenConnectedCheckBox.IsChecked == true,
+                AutoDetectOnStartup = AutoDetectOnStartupCheckBox.IsChecked == true,
                 SnapshotSaveFolder = _snapshotFolderPathValue,
                 RecordingSaveFolder = _recordingFolderPathValue,
                 LastSuccessfulDetectionMethod = _initialSettings.LastSuccessfulDetectionMethod,
@@ -333,6 +336,7 @@ namespace LocalCam {
                    string.Equals(NormalizeSnapshotSaveFolder(a.SnapshotSaveFolder), NormalizeSnapshotSaveFolder(b.SnapshotSaveFolder), StringComparison.Ordinal) &&
                    string.Equals(NormalizeRecordingSaveFolder(a.RecordingSaveFolder), NormalizeRecordingSaveFolder(b.RecordingSaveFolder), StringComparison.Ordinal) &&
                    a.AutoStreamVideo == b.AutoStreamVideo &&
+                   a.AutoDetectOnStartup == b.AutoDetectOnStartup &&
                    string.Equals(a.LastSuccessfulDetectionMethod, b.LastSuccessfulDetectionMethod, StringComparison.Ordinal) &&
                    a.MainWindowLeft == b.MainWindowLeft &&
                    a.MainWindowTop == b.MainWindowTop &&
@@ -346,6 +350,7 @@ namespace LocalCam {
                 RtspPassword = settings.RtspPassword,
                 StreamPath = settings.StreamPath,
                 AutoStreamVideo = settings.AutoStreamVideo,
+                AutoDetectOnStartup = settings.AutoDetectOnStartup,
                 SnapshotSaveFolder = settings.SnapshotSaveFolder,
                 RecordingSaveFolder = settings.RecordingSaveFolder,
                 LastSuccessfulDetectionMethod = settings.LastSuccessfulDetectionMethod,

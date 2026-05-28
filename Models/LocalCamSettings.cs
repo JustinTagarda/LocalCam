@@ -3,7 +3,8 @@ namespace LocalCam.Models {
         public string RtspUsername { get; set; } = string.Empty;
         public string RtspPassword { get; set; } = string.Empty;
         public string StreamPath { get; set; } = "stream1";
-        public bool AutoStreamVideo { get; set; }
+        public bool AutoStreamVideo { get; set; } = true;
+        public bool AutoDetectOnStartup { get; set; } = true;
         public string? SnapshotSaveFolder { get; set; }
         public string? RecordingSaveFolder { get; set; }
         public string? LastSuccessfulDetectionMethod { get; set; }
