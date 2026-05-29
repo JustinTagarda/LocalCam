@@ -129,12 +129,12 @@ namespace LocalCam {
             LoadSettings();
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
-                () => new WindowInteropHelper(this).Handle,
+                ResolvePurchaseOwnerWindowHandle,
                 PremiumAddOnStoreId);
             _premiumEntitlementService = new PremiumEntitlementService(
                 _storeContextProvider,
                 _settings,
-                () => new WindowInteropHelper(this).Handle,
+                ResolvePurchaseOwnerWindowHandle,
                 PremiumAddOnStoreId);
             UpdatePremiumUiVisibility();
             ApplyPersistedWindowBounds();
@@ -1285,6 +1285,13 @@ namespace LocalCam {
         }
 
         private async Task TryStartPremiumPurchaseFlowAsync() {
+            if (!Dispatcher.CheckAccess()) {
+                await Dispatcher.InvokeAsync(async () => {
+                    await TryStartPremiumPurchaseFlowAsync();
+                });
+                return;
+            }
+
             if (_isPremiumPurchaseBusy || _isPremiumOwned) {
                 return;
             }
@@ -1317,8 +1324,62 @@ namespace LocalCam {
                     exception: ex);
             }
             finally {
+                RestoreWindowAccessibilityAfterStoreFlow();
                 _isPremiumPurchaseBusy = false;
                 UpdatePremiumUiVisibility();
+            }
+        }
+
+        private IntPtr ResolvePurchaseOwnerWindowHandle() {
+            Window? ownerWindow = null;
+            try {
+                ownerWindow = Application.Current?.Windows
+                    .OfType<Window>()
+                    .FirstOrDefault(window => window.IsVisible && window.IsActive && window.IsLoaded);
+            }
+            catch {
+                ownerWindow = null;
+            }
+
+            if (ownerWindow is null || ownerWindow == this || !ownerWindow.IsVisible || !ownerWindow.IsLoaded) {
+                ownerWindow = this;
+            }
+
+            try {
+                return new WindowInteropHelper(ownerWindow).Handle;
+            }
+            catch {
+                return new WindowInteropHelper(this).Handle;
+            }
+        }
+
+        private void RestoreWindowAccessibilityAfterStoreFlow() {
+            try {
+                if (!IsEnabled) {
+                    IsEnabled = true;
+                }
+
+                Activate();
+                Focus();
+                Keyboard.Focus(this);
+            }
+            catch {
+                // Best-effort accessibility recovery; keep flow non-fatal.
+            }
+
+            try {
+                if (Application.Current?.MainWindow is Window mainWindow) {
+                    if (!mainWindow.IsEnabled) {
+                        mainWindow.IsEnabled = true;
+                    }
+
+                    mainWindow.Activate();
+                    mainWindow.Focus();
+                    Keyboard.Focus(mainWindow);
+                }
+            }
+            catch {
+                // Best-effort accessibility recovery; keep flow non-fatal.
             }
         }
 

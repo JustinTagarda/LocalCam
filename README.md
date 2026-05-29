@@ -123,8 +123,10 @@ Launch the app from the Debug output:
 
 - Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.
 - Purchase path: all upgrade actions use in-app `Windows.Services.Store` purchase (`RequestPurchaseAsync`) rather than direct PDP links.
+- Purchase binding: Store purchase uses per-invocation owner-window binding to the active top-level app window handle when available.
 - Startup mode check: Premium entitlement is checked after first render; footer mode text and upgrade control stay hidden until the check completes.
 - Entitlement fallback: previously verified Premium cache is used only when Store entitlement checks are unavailable.
+- Window recovery: after purchase/cancel/failure, app window accessibility is restored (enabled + activated/focused).
 - Footer behavior:
   - owned entitlement: `Premium` text shown, `Upgrade` hidden
   - not owned entitlement: `Basic` text shown, compact `Upgrade` button shown
