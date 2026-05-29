@@ -152,6 +152,7 @@ Launch the app from the Debug output:
 - Store identity baseline:
   - `Name`: `JustinTagardaSoftware.LocalCam`
   - `Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
+  - `PublisherDisplayName`: `JustinTagarda`
   - `TargetDeviceFamily`: `Windows.Desktop`
 - Packaging target policy is `x64` only.
 - Store upload mode is configured for Release packaging validation.
@@ -169,7 +170,7 @@ Launch the app from the Debug output:
 
 ### Current Readiness Audit (2026-05-29)
 
-Status: `NOT READY`
+Status: `READY`
 
 Gate results from `Release|x64` packaging validation:
 
@@ -180,7 +181,8 @@ Gate results from `Release|x64` packaging validation:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
   - `TargetDeviceFamily Name`: `Windows.Desktop`
-- `PASS`: Manifest/package version format is `Major.Minor.Build.0` (`1.0.0.0`).
+- `PASS`: Manifest/package version format is `Major.Minor.Build.0` (`1.0.19.0`).
+- `PASS`: Manifest publisher display name matches Partner Center reserved value (`JustinTagarda`).
 - `PASS`: UI footer version text is derived from package version and rendered as `Major.Minor.Build.0`.
 - `PASS`: Packaging mode is Store upload mode (`UapAppxPackageBuildMode=StoreUpload`).
 - `PASS`: Package architecture policy is `x64` only (`AppxBundle=Never`, `AppxBundlePlatforms=x64`, `Platform/Platforms=x64`).
@@ -191,22 +193,23 @@ Gate results from `Release|x64` packaging validation:
   - `Wide310x150Logo.png` `310x150`
   - `SplashScreen.png` `620x300`
 - `PASS`: Store upload artifact generated (`.msixupload` only).
-- `FAIL`: Stale artifact cleanup gate is not satisfied because readiness scope folders contain artifacts and must be treated as `NOT READY` until packaging cleanup workflow handles them.
+- `PASS`: Stale artifact cleanup gate passed before packaging; only current `1.0.18.0` artifact set exists in readiness scope paths.
 
 Build notes:
 
 - `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 2026 MSBuild).
 - Warnings observed and retained for follow-up:
   - `MSB4011` duplicate common props import from DesktopBridge props chain.
+  - `NU1701` package restore compatibility warning on `LibVLCSharp.WPF` in packaging restore context.
   - `NU1702` packaging project framework-resolution compatibility warning for project reference.
 
 Artifact paths (required reporting):
 
 - Store upload artifact (`.msixupload`):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64.msixupload`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64.msixupload`
 - Architecture package (`.msix`, x64):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64_Test\LocalCam.Package_1.0.0.0_x64.msix`
-  - `D:\Projects\LocalCam\LocalCam.Package\bin\x64\Release\Upload\LocalCam.Package_1.0.0.0_x64\LocalCam.Package_1.0.0.0_x64.msix`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64_Test\LocalCam.Package_1.0.19.0_x64.msix`
+  - `D:\Projects\LocalCam\LocalCam.Package\bin\x64\Release\Upload\LocalCam.Package_1.0.19.0_x64\LocalCam.Package_1.0.19.0_x64.msix`
 - Bundle artifact (`.msixbundle`, x64-only when bundle mode is used):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64.msixbundle` -> `not found`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64.msixbundle` -> `not found`
 

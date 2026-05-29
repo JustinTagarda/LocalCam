@@ -17,6 +17,10 @@
     <AppxPackageDir>$(MSBuildThisFileDirectory)AppPackages\</AppxPackageDir>
     <Platform>x64</Platform>
     <Platforms>x64</Platforms>
+    <ExpectedStoreIdentityName>JustinTagardaSoftware.LocalCam</ExpectedStoreIdentityName>
+    <ExpectedStoreIdentityPublisher>CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F</ExpectedStoreIdentityPublisher>
+    <ExpectedStoreDisplayName>LocalCam</ExpectedStoreDisplayName>
+    <ExpectedStorePublisherDisplayName>JustinTagarda</ExpectedStorePublisherDisplayName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -46,6 +50,25 @@
   <ItemGroup>
     <ProjectReference Include="..\LocalCam.csproj" />
   </ItemGroup>
+
+  <Target Name="ValidateStoreManifestIdentity" BeforeTargets="Build">
+    <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Name">
+      <Output TaskParameter="Result" PropertyName="ActualStoreIdentityName" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Publisher">
+      <Output TaskParameter="Result" PropertyName="ActualStoreIdentityPublisher" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Properties']/*[local-name()='DisplayName']/text()">
+      <Output TaskParameter="Result" PropertyName="ActualStoreDisplayName" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Properties']/*[local-name()='PublisherDisplayName']/text()">
+      <Output TaskParameter="Result" PropertyName="ActualStorePublisherDisplayName" />
+    </XmlPeek>
+    <Error Condition="'$(ActualStoreIdentityName)' != '$(ExpectedStoreIdentityName)'" Text="Package.appxmanifest Identity Name mismatch. Expected '$(ExpectedStoreIdentityName)', found '$(ActualStoreIdentityName)'." />
+    <Error Condition="'$(ActualStoreIdentityPublisher)' != '$(ExpectedStoreIdentityPublisher)'" Text="Package.appxmanifest Identity Publisher mismatch. Expected '$(ExpectedStoreIdentityPublisher)', found '$(ActualStoreIdentityPublisher)'." />
+    <Error Condition="'$(ActualStoreDisplayName)' != '$(ExpectedStoreDisplayName)'" Text="Package.appxmanifest DisplayName mismatch. Expected '$(ExpectedStoreDisplayName)', found '$(ActualStoreDisplayName)'." />
+    <Error Condition="'$(ActualStorePublisherDisplayName)' != '$(ExpectedStorePublisherDisplayName)'" Text="Package.appxmanifest PublisherDisplayName mismatch. Expected '$(ExpectedStorePublisherDisplayName)', found '$(ActualStorePublisherDisplayName)'." />
+  </Target>
 
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" />
