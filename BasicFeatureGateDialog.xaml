@@ -1,0 +1,36 @@
+<Window x:Class="LocalCam.BasicFeatureGateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Feature Limited in Basic"
+        Width="560"
+        SizeToContent="Height"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="MessageText"
+                   Grid.Row="0"
+                   TextWrapping="Wrap"
+                   FontSize="15"
+                   Margin="0,0,0,16" />
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Upgrade"
+                    MinWidth="120"
+                    Margin="0,0,8,0"
+                    Click="Upgrade_Click" />
+            <Button Content="Close"
+                    MinWidth="120"
+                    IsCancel="True"
+                    Click="Close_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

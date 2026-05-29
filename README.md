@@ -106,11 +106,31 @@ Launch the app from the Debug output:
 
 - Project rules and operating instructions: [AGENTS.md](D:/Projects/LocalCam/AGENTS.md)
 - Product behavior specification: [SPECIFICATION.md](D:/Projects/LocalCam/SPECIFICATION.md)
+- Basic/Premium restoration policy: [docs/BASIC_PREMIUM_GATING_POLICY.md](D:/Projects/LocalCam/docs/BASIC_PREMIUM_GATING_POLICY.md)
+- Basic/Premium validation checklist: [docs/BASIC_PREMIUM_GATING_TEST_CHECKLIST.md](D:/Projects/LocalCam/docs/BASIC_PREMIUM_GATING_TEST_CHECKLIST.md)
+
+## Policy Guardrails
+
+- For changes touching stream start, recording, entitlement, or purchase flow, treat the Basic/Premium policy doc as the restoration source of truth.
+- Re-validate with the Basic/Premium gating checklist before considering such changes complete.
 
 ## Distribution
 
 - LocalCam supports Microsoft Store packaging readiness validation for pre-submission workflows.
 - Store packaging is maintained with `x64`-only policy and Store upload mode requirements.
+
+## Premium Add-On (Store)
+
+- Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.
+- Purchase path: all upgrade actions use in-app `Windows.Services.Store` purchase (`RequestPurchaseAsync`) rather than direct PDP links.
+- Startup mode check: Premium entitlement is checked after first render; footer mode text and upgrade control stay hidden until the check completes.
+- Entitlement fallback: previously verified Premium cache is used only when Store entitlement checks are unavailable.
+- Footer behavior:
+  - owned entitlement: `Premium` text shown, `Upgrade` hidden
+  - not owned entitlement: `Basic` text shown, compact `Upgrade` button shown
+- Runtime configuration:
+  - Premium durable add-on Store ID baseline: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`, Durable).
+  - In unpackaged environments, purchase is reported as not supported.
 
 ## Store Packaging Baseline
 
@@ -133,4 +153,39 @@ Launch the app from the Debug output:
 - Validate package version format as `Major.Minor.Build.0`.
 - Validate output artifacts include Store upload artifact (`.msixupload`) and `x64` architecture package (`.msix`) in Release packaging flow.
 - Treat stale artifacts under `LocalCam.Package/AppPackages` and `LocalCam.Package/bin/x64/Release/Upload` as `NOT READY` until cleaned by packaging workflow.
+
+### Current Readiness Audit (2026-05-29)
+
+Status: `NOT READY`
+
+Gate results from `Release|x64` packaging validation:
+
+- `PASS`: Packaging project exists and is wired: `LocalCam.Package/LocalCam.Package.wapproj`.
+- `PASS`: Manifest exists and is parseable: `LocalCam.Package/Package.appxmanifest`.
+- `PASS`: Fixed identity and target data match:
+  - `Identity Name`: `JustinTagardaSoftware.LocalCam`
+  - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
+  - `TargetDeviceFamily Name`: `Windows.Desktop`
+- `PASS`: Manifest/package version format is `Major.Minor.Build.0` (`1.0.0.0`).
+- `PASS`: UI footer version text is derived from package version and rendered as `Major.Minor.Build.0`.
+- `PASS`: Packaging mode is Store upload mode (`UapAppxPackageBuildMode=StoreUpload`).
+- `PASS`: Package architecture policy is `x64` only (`AppxBundle=Never`, `AppxBundlePlatforms=x64`, `Platform/Platforms=x64`).
+- `PASS`: Manifest asset files exist and dimensions are valid:
+  - `StoreLogo.png` `50x50`
+  - `Square44x44Logo.png` `44x44`
+  - `Square150x150Logo.png` `150x150`
+  - `Wide310x150Logo.png` `310x150`
+  - `SplashScreen.png` `620x300`
+- `PASS`: Store upload artifact generated (`.msixupload` only).
+- `FAIL`: Stale artifact cleanup gate is not satisfied because readiness scope folders contain artifacts and must be treated as `NOT READY` until packaging cleanup workflow handles them.
+
+Artifact paths (required reporting):
+
+- Store upload artifact (`.msixupload`):
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64.msixupload`
+- Architecture package (`.msix`, x64):
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64_Test\LocalCam.Package_1.0.0.0_x64.msix`
+  - `D:\Projects\LocalCam\LocalCam.Package\bin\x64\Release\Upload\LocalCam.Package_1.0.0.0_x64\LocalCam.Package_1.0.0.0_x64.msix`
+- Bundle artifact (`.msixbundle`, x64-only when bundle mode is used):
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.0.0_x64.msixbundle` -> `not found`
 
