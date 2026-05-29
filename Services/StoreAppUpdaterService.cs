@@ -67,7 +67,16 @@ namespace LocalCam.Services {
 
             var updates = await ResolveUpdatesForInstallAsync(_storeContext, cancellationToken).ConfigureAwait(false);
             if (updates.Count == 0) {
-                PushState(StoreUpdateUiState.Hidden());
+                var state = new StoreUpdateUiState(
+                    IsUpdateButtonVisible: false,
+                    IsUpdateButtonEnabled: false,
+                    IsProgressVisible: true,
+                    PhaseText: "Completed",
+                    ProgressPercent: 100,
+                    DetailText: string.Empty,
+                    ResultText: "No update available right now.");
+                PushState(state);
+                PersistLastKnownUiState(state);
                 return;
             }
 
@@ -167,7 +176,7 @@ namespace LocalCam.Services {
             }
             else {
                 PushState(GetLastKnownUiState());
-                if (hidden || shouldCallStore) {
+                if (hidden || shouldCallStore || !hidden) {
                     ScheduleRetry();
                 }
             }
@@ -176,10 +185,6 @@ namespace LocalCam.Services {
         private async Task<IReadOnlyList<StorePackageUpdate>> ResolveUpdatesForInstallAsync(StoreContext context, CancellationToken cancellationToken) {
             if (_cachedUpdates.Count > 0) {
                 return _cachedUpdates.ToArray();
-            }
-            var (shouldCallStore, _) = EvaluateThrottle(DateTimeOffset.UtcNow);
-            if (!shouldCallStore) {
-                return Array.Empty<StorePackageUpdate>();
             }
 
             cancellationToken.ThrowIfCancellationRequested();
