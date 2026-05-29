@@ -67,14 +67,7 @@ namespace LocalCam.Services {
 
             var updates = await ResolveUpdatesForInstallAsync(_storeContext, cancellationToken).ConfigureAwait(false);
             if (updates.Count == 0) {
-                var state = new StoreUpdateUiState(
-                    IsUpdateButtonVisible: false,
-                    IsUpdateButtonEnabled: false,
-                    IsProgressVisible: true,
-                    PhaseText: "Completed",
-                    ProgressPercent: 100,
-                    DetailText: string.Empty,
-                    ResultText: "No update available right now.");
+                var state = StoreUpdateUiState.Hidden();
                 PushState(state);
                 PersistLastKnownUiState(state);
                 return;
@@ -176,7 +169,7 @@ namespace LocalCam.Services {
             }
             else {
                 PushState(GetLastKnownUiState());
-                if (hidden || shouldCallStore || !hidden) {
+                if (hidden || shouldCallStore) {
                     ScheduleRetry();
                 }
             }
@@ -416,6 +409,38 @@ namespace LocalCam.Services {
             var active = _trackedQueueItems.FirstOrDefault(IsQueueItemInProgress);
             if (active is null) {
                 _isUpdateInProgress = false;
+                var terminal = _trackedQueueItems
+                    .Select(item => item.GetCurrentStatus().UpdateStatus.PackageUpdateState)
+                    .ToArray();
+                if (terminal.Any(state => state == StorePackageUpdateState.Completed)) {
+                    HandleQueueTerminalText("Completed", "Completed.");
+                    return;
+                }
+
+                if (terminal.Any(state => state == StorePackageUpdateState.Canceled)) {
+                    HandleQueueTerminalText("Canceled", "Canceled. Retry when ready.");
+                    return;
+                }
+
+                if (terminal.Any(state => state == StorePackageUpdateState.ErrorLowBattery)) {
+                    HandleQueueTerminalText("Failed", "Failed. Charge battery and retry.");
+                    return;
+                }
+
+                if (terminal.Any(state => state == StorePackageUpdateState.ErrorWiFiRequired)) {
+                    HandleQueueTerminalText("Failed", "Failed. Wi-Fi is required.");
+                    return;
+                }
+
+                if (terminal.Any(state => state == StorePackageUpdateState.ErrorWiFiRecommended)) {
+                    HandleQueueTerminalText("Failed", "Failed. Connect to Wi-Fi and retry.");
+                    return;
+                }
+
+                if (terminal.Any(state => state == StorePackageUpdateState.OtherError)) {
+                    HandleQueueTerminalText("Failed", "Failed. Retry later.");
+                    return;
+                }
                 return;
             }
 
@@ -460,6 +485,19 @@ namespace LocalCam.Services {
             return state == StorePackageUpdateState.Pending ||
                    state == StorePackageUpdateState.Downloading ||
                    state == StorePackageUpdateState.Deploying;
+        }
+
+        private void HandleQueueTerminalText(string phase, string resultText) {
+            var state = new StoreUpdateUiState(
+                IsUpdateButtonVisible: true,
+                IsUpdateButtonEnabled: true,
+                IsProgressVisible: true,
+                PhaseText: phase,
+                ProgressPercent: phase == "Completed" ? 100 : 0,
+                DetailText: string.Empty,
+                ResultText: resultText);
+            PushState(state);
+            PersistLastKnownUiState(state);
         }
 
         private StoreUpdateUiState GetLastKnownUiState() {
