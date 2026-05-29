@@ -1,13 +1,16 @@
 using System.Security.Principal;
 using WinRT.Interop;
+using Windows.ApplicationModel;
 using Windows.Services.Store;
 
 namespace LocalCam.Services {
     internal sealed class StoreContextProvider : IStoreContextProvider {
+        public bool HasPackageIdentity => IsPackaged;
+
         public bool IsPackaged {
             get {
                 try {
-                    _ = Windows.ApplicationModel.Package.Current;
+                    _ = Package.Current;
                     return true;
                 }
                 catch {
@@ -30,6 +33,34 @@ namespace LocalCam.Services {
                 catch {
                     return false;
                 }
+            }
+        }
+
+        public string? TryGetPackageFullName() {
+            try {
+                return Package.Current.Id.FullName;
+            }
+            catch {
+                return null;
+            }
+        }
+
+        public string? TryGetPackageVersion() {
+            try {
+                var version = Package.Current.Id.Version;
+                return $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+            }
+            catch {
+                return null;
+            }
+        }
+
+        public string? TryGetPackageSignatureKind() {
+            try {
+                return Package.Current.SignatureKind.ToString();
+            }
+            catch {
+                return null;
             }
         }
 

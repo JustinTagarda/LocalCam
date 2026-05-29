@@ -119,6 +119,17 @@ Launch the app from the Debug output:
 - LocalCam supports Microsoft Store packaging readiness validation for pre-submission workflows.
 - Store packaging is maintained with `x64`-only policy and Store upload mode requirements.
 
+## Store App Update Flow
+
+- Microsoft Store app updates use `Windows.Services.Store.StoreContext`.
+- Update checks run after first render and do not block startup.
+- Update checks are gated to packaged runtime only; unpackaged runs keep updater UI hidden.
+- Check throttling is persisted (`>=30` minute cooldown, max `10` checks per rolling 24 hours).
+- When updates are available, a compact footer `Update` button becomes visible.
+- Clicking `Update` starts `RequestDownloadAndInstallStorePackageUpdatesAsync`.
+- In-app update progress shows phase, percent, details, and terminal result (`Completed`, `Canceled`, `Failed` guidance).
+- Active Store queue state is recovered on startup via Store queue APIs so progress can continue across restarts.
+
 ## Premium Add-On (Store)
 
 - Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.

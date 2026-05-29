@@ -108,10 +108,13 @@ namespace LocalCam {
         private readonly IStoreContextProvider _storeContextProvider;
         private readonly IPremiumPurchaseService _premiumPurchaseService;
         private readonly IPremiumEntitlementService _premiumEntitlementService;
+        private readonly StoreAppUpdaterService _storeAppUpdaterService;
         private bool _hasResolvedPremiumUiState;
+        private bool _hasInitializedStoreUpdater;
         private bool _isPremiumOwned;
         private bool _isPremiumPurchaseBusy;
         private DispatcherTimer? _basicRecordingDailyLimitTimer;
+        private CancellationTokenSource? _storeUpdaterCts;
 
         public MainWindow()
             : this(Array.Empty<TapoCameraDetection>()) {
@@ -136,7 +139,14 @@ namespace LocalCam {
                 _settings,
                 ResolvePurchaseOwnerWindowHandle,
                 PremiumAddOnStoreId);
+            _storeAppUpdaterService = new StoreAppUpdaterService(
+                _storeContextProvider,
+                ResolvePurchaseOwnerWindowHandle,
+                () => _settings,
+                PersistSettingsForUpdater,
+                ApplyStoreUpdateUiState);
             UpdatePremiumUiVisibility();
+            ApplyStoreUpdateUiState(StoreUpdateUiState.Hidden());
             ApplyPersistedWindowBounds();
             UpdateMaximizeButtonIcon();
             PopulateCameraTiles(_detections);
@@ -1215,14 +1225,94 @@ namespace LocalCam {
         private void Window_ContentRendered(object? sender, EventArgs e) {
             _ = sender;
             _ = e;
-            if (_hasResolvedPremiumUiState) {
+            if (!_hasResolvedPremiumUiState) {
+                _hasResolvedPremiumUiState = true;
+                _ = Dispatcher.BeginInvoke(new Action(async () => {
+                    await RefreshPremiumEntitlementAsync("post_render");
+                }), DispatcherPriority.Background);
+            }
+
+            if (_hasInitializedStoreUpdater) {
                 return;
             }
 
-            _hasResolvedPremiumUiState = true;
+            _hasInitializedStoreUpdater = true;
+            _storeUpdaterCts = new CancellationTokenSource();
             _ = Dispatcher.BeginInvoke(new Action(async () => {
-                await RefreshPremiumEntitlementAsync("post_render");
+                await StartStoreUpdaterAfterFirstRenderAsync(_storeUpdaterCts.Token);
             }), DispatcherPriority.Background);
+        }
+
+        private async Task StartStoreUpdaterAfterFirstRenderAsync(CancellationToken cancellationToken) {
+            try {
+                await _storeAppUpdaterService.InitializeAfterFirstRenderAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) {
+                // App is shutting down.
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "store_update_initialization_failed",
+                    message: "Store updater initialization failed.",
+                    category: "store_update",
+                    exception: ex);
+            }
+        }
+
+        private async void UpdateButton_Click(object sender, RoutedEventArgs e) {
+            _ = sender;
+            _ = e;
+            if (_isClosing) {
+                return;
+            }
+
+            try {
+                await _storeAppUpdaterService.StartUpdateAsync(_storeUpdaterCts?.Token ?? CancellationToken.None);
+            }
+            catch (OperationCanceledException) {
+                // App is shutting down.
+            }
+        }
+
+        private void ApplyStoreUpdateUiState(StoreUpdateUiState state) {
+            if (!Dispatcher.CheckAccess()) {
+                Dispatcher.Invoke(() => ApplyStoreUpdateUiState(state));
+                return;
+            }
+
+            if (UpdateButton is not null) {
+                UpdateButton.Visibility = state.IsUpdateButtonVisible ? Visibility.Visible : Visibility.Collapsed;
+                UpdateButton.IsEnabled = state.IsUpdateButtonEnabled;
+                UpdateButton.Focusable = state.IsUpdateButtonVisible && state.IsUpdateButtonEnabled;
+            }
+
+            if (UpdateProgressPanel is not null) {
+                UpdateProgressPanel.Visibility = state.IsProgressVisible ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            if (UpdatePhaseText is not null) {
+                UpdatePhaseText.Text = state.PhaseText;
+            }
+
+            if (UpdateProgressBar is not null) {
+                UpdateProgressBar.Value = Math.Clamp(state.ProgressPercent, 0, 100);
+            }
+
+            if (UpdateDetailText is not null) {
+                UpdateDetailText.Text = state.DetailText;
+                UpdateDetailText.Visibility = string.IsNullOrWhiteSpace(state.DetailText) ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (UpdateResultText is not null) {
+                UpdateResultText.Text = state.ResultText;
+                UpdateResultText.Visibility = string.IsNullOrWhiteSpace(state.ResultText) ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+
+        private void PersistSettingsForUpdater() {
+            TrySaveSettings(
+                eventName: "store_update_settings_save_failed",
+                logMessage: "Failed to persist store updater settings.");
         }
 
         private async Task RefreshPremiumEntitlementAsync(string source) {
@@ -3375,6 +3465,10 @@ namespace LocalCam {
             _isClosing = true;
             UninstallMouseHook();
             _scanCancellation?.Cancel();            ShutdownStreamingEngine();
+            _storeUpdaterCts?.Cancel();
+            _storeUpdaterCts?.Dispose();
+            _storeUpdaterCts = null;
+            _storeAppUpdaterService.Shutdown();
 
             base.OnClosed(e);
         }
@@ -3382,6 +3476,8 @@ namespace LocalCam {
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
             _isClosing = true;
             _scanCancellation?.Cancel();            PersistWindowBounds();
+            _storeUpdaterCts?.Cancel();
+            _storeAppUpdaterService.Shutdown();
             base.OnClosing(e);
         }
 

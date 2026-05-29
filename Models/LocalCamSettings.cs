@@ -17,5 +17,11 @@ namespace LocalCam.Models {
         public double? MainWindowTop { get; set; }
         public double? MainWindowWidth { get; set; }
         public double? MainWindowHeight { get; set; }
+        public List<string> StoreUpdateCheckHistoryUtc { get; set; } = new();
+        public bool StoreUpdateLastKnownAvailable { get; set; }
+        public string? StoreUpdateLastKnownPhase { get; set; }
+        public int StoreUpdateLastKnownProgressPercent { get; set; }
+        public string? StoreUpdateLastKnownDetailText { get; set; }
+        public string? StoreUpdateLastKnownResultText { get; set; }
     }
 }

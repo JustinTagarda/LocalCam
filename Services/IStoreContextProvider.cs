@@ -4,6 +4,10 @@ namespace LocalCam.Services {
     internal interface IStoreContextProvider {
         bool IsPackaged { get; }
         bool IsElevated { get; }
+        bool HasPackageIdentity { get; }
+        string? TryGetPackageFullName();
+        string? TryGetPackageVersion();
+        string? TryGetPackageSignatureKind();
         StoreContext? TryGetStoreContext(IntPtr ownerWindowHandle);
     }
 }
