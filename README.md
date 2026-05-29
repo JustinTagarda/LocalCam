@@ -162,6 +162,7 @@ Gate results from `Release|x64` packaging validation:
 
 - `PASS`: Packaging project exists and is wired: `LocalCam.Package/LocalCam.Package.wapproj`.
 - `PASS`: Manifest exists and is parseable: `LocalCam.Package/Package.appxmanifest`.
+- `PASS`: SDK pin source exists for Store-readiness validation: `D:\Projects\LocalCam\global.json`.
 - `PASS`: Fixed identity and target data match:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
@@ -178,6 +179,13 @@ Gate results from `Release|x64` packaging validation:
   - `SplashScreen.png` `620x300`
 - `PASS`: Store upload artifact generated (`.msixupload` only).
 - `FAIL`: Stale artifact cleanup gate is not satisfied because readiness scope folders contain artifacts and must be treated as `NOT READY` until packaging cleanup workflow handles them.
+
+Build notes:
+
+- `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 2026 MSBuild).
+- Warnings observed and retained for follow-up:
+  - `MSB4011` duplicate common props import from DesktopBridge props chain.
+  - `NU1702` packaging project framework-resolution compatibility warning for project reference.
 
 Artifact paths (required reporting):
 
