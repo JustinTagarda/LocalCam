@@ -1377,19 +1377,29 @@ namespace LocalCam {
         private async void UpgradeButton_Click(object sender, RoutedEventArgs e) {
             _ = sender;
             _ = e;
-            await TryStartPremiumPurchaseFlowAsync();
+            await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog: true);
         }
 
-        private async Task TryStartPremiumPurchaseFlowAsync() {
+        private async Task TryStartPremiumPurchaseFlowAsync(bool requireConfirmationDialog = false) {
             if (!Dispatcher.CheckAccess()) {
                 await Dispatcher.InvokeAsync(async () => {
-                    await TryStartPremiumPurchaseFlowAsync();
+                    await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog);
                 });
                 return;
             }
 
             if (_isPremiumPurchaseBusy || _isPremiumOwned) {
                 return;
+            }
+
+            if (requireConfirmationDialog) {
+                var confirmationDialog = new BasicFeatureGateDialog("Upgrade to Premium for full access.") {
+                    Owner = this
+                };
+                var confirmationResult = confirmationDialog.ShowDialog();
+                if (confirmationResult != true || !confirmationDialog.UpgradeRequested) {
+                    return;
+                }
             }
 
             _isPremiumPurchaseBusy = true;
@@ -1487,7 +1497,7 @@ namespace LocalCam {
 
             var result = dialog.ShowDialog();
             if (result == true && dialog.UpgradeRequested) {
-                await TryStartPremiumPurchaseFlowAsync();
+                await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog: false);
             }
         }
 

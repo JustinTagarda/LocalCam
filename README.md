@@ -129,13 +129,17 @@ Launch the app from the Debug output:
 - The compact footer `Update` button is shown only after a fresh positive Store availability result or while an active Store update queue item is in progress.
 - If availability/recheck returns zero updates, the `Update` button is hidden immediately and cached availability is cleared.
 - Clicking `Update` starts `RequestDownloadAndInstallStorePackageUpdatesAsync`.
+- If Store permission UX is pending, the update modal shows `Waiting for permission...` while the request remains active.
 - Store update progress is shown in a dedicated modal window (not in the footer) with phase, percent, details, and terminal result (`Completed`, `Canceled`, `Failed` guidance).
 - Active Store queue state is recovered on startup via Store queue APIs so progress can continue across restarts.
+- Queue recovery now fail-closes to hidden updater UI when no active/relevant queue state remains.
+- Store update diagnostics include release-expectation context fields (submission publish state, rollout mode, flight audience status) when recorded.
 
 ## Premium Add-On (Store)
 
 - Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.
 - Purchase path: all upgrade actions use in-app `Windows.Services.Store` purchase (`RequestPurchaseAsync`) rather than direct PDP links.
+- Purchase confirmation: all upgrade entry points show the in-app modal `Upgrade` confirmation dialog before opening Store purchase UI.
 - Purchase binding: Store purchase uses per-invocation owner-window binding to the active top-level app window handle when available.
 - Startup mode check: Premium entitlement is checked after first render; footer mode text and upgrade control stay hidden until the check completes.
 - Entitlement fallback: previously verified Premium cache is used only when Store entitlement checks are unavailable.

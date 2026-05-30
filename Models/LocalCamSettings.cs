@@ -23,5 +23,8 @@ namespace LocalCam.Models {
         public int StoreUpdateLastKnownProgressPercent { get; set; }
         public string? StoreUpdateLastKnownDetailText { get; set; }
         public string? StoreUpdateLastKnownResultText { get; set; }
+        public string? StoreUpdateExpectedSubmissionState { get; set; }
+        public string? StoreUpdateExpectedRolloutMode { get; set; }
+        public string? StoreUpdateExpectedFlightAudience { get; set; }
     }
 }

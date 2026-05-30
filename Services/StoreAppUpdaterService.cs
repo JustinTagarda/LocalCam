@@ -25,6 +25,7 @@ namespace LocalCam.Services {
         private IAsyncOperationWithProgress<StorePackageUpdateResult, StorePackageUpdateStatus>? _activeInstallOperation;
         private bool _isShutdown;
         private bool _isUpdateInProgress;
+        private bool _receivedInstallProgress;
 
         public StoreAppUpdaterService(
             IStoreContextProvider storeContextProvider,
@@ -86,6 +87,8 @@ namespace LocalCam.Services {
 
             try {
                 _activeInstallOperation = _storeContext.RequestDownloadAndInstallStorePackageUpdatesAsync(updates);
+                _receivedInstallProgress = false;
+                _ = ShowWaitingForPermissionStateIfNeededAsync();
                 _activeInstallOperation.Progress = (_, progress) => HandleProgress(progress);
                 var result = await _activeInstallOperation;
                 HandleTerminalState(result.OverallState);
@@ -212,6 +215,7 @@ namespace LocalCam.Services {
         }
 
         private void HandleProgress(StorePackageUpdateStatus status) {
+            _receivedInstallProgress = true;
             var stateText = status.PackageUpdateState switch {
                 StorePackageUpdateState.Pending => "Preparing",
                 StorePackageUpdateState.Downloading => "Downloading",
@@ -308,6 +312,7 @@ namespace LocalCam.Services {
         }
 
         private IReadOnlyDictionary<string, object?> BuildCheckDiagnosticsData(int resultCount, bool skipped, string reason) {
+            var settings = _settingsProvider();
             return new Dictionary<string, object?> {
                 ["packageIdentityPresent"] = _storeContextProvider.HasPackageIdentity,
                 ["packageFullName"] = _storeContextProvider.TryGetPackageFullName() ?? "not_found",
@@ -317,7 +322,10 @@ namespace LocalCam.Services {
                 ["skipped"] = skipped,
                 ["skipReason"] = reason,
                 ["checksLast24Hours"] = _checkHistoryUtc.Count,
-                ["resultCount"] = resultCount
+                ["resultCount"] = resultCount,
+                ["expectedSubmissionPublishState"] = settings.StoreUpdateExpectedSubmissionState ?? "not_recorded",
+                ["expectedRolloutMode"] = settings.StoreUpdateExpectedRolloutMode ?? "not_recorded",
+                ["expectedFlightAudienceStatus"] = settings.StoreUpdateExpectedFlightAudience ?? "not_recorded"
             };
         }
 
@@ -421,6 +429,7 @@ namespace LocalCam.Services {
         private void UpdateStateFromQueueItems() {
             if (_trackedQueueItems.Count == 0) {
                 _isUpdateInProgress = false;
+                PushState(StoreUpdateUiState.Hidden());
                 return;
             }
 
@@ -459,6 +468,7 @@ namespace LocalCam.Services {
                     HandleQueueTerminalText("Failed", "Failed. Retry later.");
                     return;
                 }
+                PushState(StoreUpdateUiState.Hidden());
                 return;
             }
 
@@ -506,9 +516,10 @@ namespace LocalCam.Services {
         }
 
         private void HandleQueueTerminalText(string phase, string resultText) {
+            var hasAvailableUpdates = _cachedUpdates.Count > 0;
             var state = new StoreUpdateUiState(
-                IsUpdateButtonVisible: true,
-                IsUpdateButtonEnabled: true,
+                IsUpdateButtonVisible: hasAvailableUpdates,
+                IsUpdateButtonEnabled: hasAvailableUpdates,
                 IsProgressVisible: true,
                 PhaseText: phase,
                 ProgressPercent: phase == "Completed" ? 100 : 0,
@@ -516,7 +527,30 @@ namespace LocalCam.Services {
                 ResultText: resultText,
                 IsTerminal: true);
             PushState(state);
-            PersistAvailability(true);
+            PersistAvailability(hasAvailableUpdates);
+        }
+
+        private async Task ShowWaitingForPermissionStateIfNeededAsync() {
+            try {
+                await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                if (_isShutdown || !_isUpdateInProgress || _activeInstallOperation is null || _receivedInstallProgress) {
+                    return;
+                }
+
+                var state = new StoreUpdateUiState(
+                    IsUpdateButtonVisible: true,
+                    IsUpdateButtonEnabled: false,
+                    IsProgressVisible: true,
+                    PhaseText: "Preparing",
+                    ProgressPercent: 0,
+                    DetailText: "Waiting for permission...",
+                    ResultText: string.Empty,
+                    IsTerminal: false);
+                PushState(state);
+            }
+            catch (OperationCanceledException) {
+                // App is shutting down.
+            }
         }
 
         private void PersistAvailability(bool isAvailable) {
