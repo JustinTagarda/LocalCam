@@ -19,3 +19,10 @@ AppPackages/
 
 # Local store listing assets
 /store-assets/
+
+# Local secrets
+.env*
+*.pem
+*.pfx
+*.key
+secrets*.json
