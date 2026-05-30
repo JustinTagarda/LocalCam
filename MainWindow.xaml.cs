@@ -115,6 +115,7 @@ namespace LocalCam {
         private bool _isPremiumPurchaseBusy;
         private DispatcherTimer? _basicRecordingDailyLimitTimer;
         private CancellationTokenSource? _storeUpdaterCts;
+        private StoreUpdateProgressWindow? _storeUpdateProgressWindow;
 
         public MainWindow()
             : this(Array.Empty<TapoCameraDetection>()) {
@@ -1286,27 +1287,32 @@ namespace LocalCam {
                 UpdateButton.Focusable = state.IsUpdateButtonVisible && state.IsUpdateButtonEnabled;
             }
 
-            if (UpdateProgressPanel is not null) {
-                UpdateProgressPanel.Visibility = state.IsProgressVisible ? Visibility.Visible : Visibility.Collapsed;
+            if (state.IsProgressVisible) {
+                EnsureStoreUpdateProgressWindow();
+                _storeUpdateProgressWindow?.ApplyState(state);
+            }
+            else if (_storeUpdateProgressWindow is not null) {
+                _storeUpdateProgressWindow.CloseFromOwner();
+                _storeUpdateProgressWindow = null;
+            }
+        }
+
+        private void EnsureStoreUpdateProgressWindow() {
+            if (_storeUpdateProgressWindow is not null) {
+                if (!_storeUpdateProgressWindow.IsVisible) {
+                    _storeUpdateProgressWindow.Show();
+                }
+
+                _storeUpdateProgressWindow.Activate();
+                return;
             }
 
-            if (UpdatePhaseText is not null) {
-                UpdatePhaseText.Text = state.PhaseText;
-            }
-
-            if (UpdateProgressBar is not null) {
-                UpdateProgressBar.Value = Math.Clamp(state.ProgressPercent, 0, 100);
-            }
-
-            if (UpdateDetailText is not null) {
-                UpdateDetailText.Text = state.DetailText;
-                UpdateDetailText.Visibility = string.IsNullOrWhiteSpace(state.DetailText) ? Visibility.Collapsed : Visibility.Visible;
-            }
-
-            if (UpdateResultText is not null) {
-                UpdateResultText.Text = state.ResultText;
-                UpdateResultText.Visibility = string.IsNullOrWhiteSpace(state.ResultText) ? Visibility.Collapsed : Visibility.Visible;
-            }
+            _storeUpdateProgressWindow = new StoreUpdateProgressWindow {
+                Owner = this
+            };
+            _storeUpdateProgressWindow.Closed += (_, _) => { _storeUpdateProgressWindow = null; };
+            _storeUpdateProgressWindow.Show();
+            _storeUpdateProgressWindow.Activate();
         }
 
         private void PersistSettingsForUpdater() {
@@ -3469,6 +3475,8 @@ namespace LocalCam {
             _storeUpdaterCts?.Dispose();
             _storeUpdaterCts = null;
             _storeAppUpdaterService.Shutdown();
+            _storeUpdateProgressWindow?.CloseFromOwner();
+            _storeUpdateProgressWindow = null;
 
             base.OnClosed(e);
         }
@@ -3478,6 +3486,8 @@ namespace LocalCam {
             _scanCancellation?.Cancel();            PersistWindowBounds();
             _storeUpdaterCts?.Cancel();
             _storeAppUpdaterService.Shutdown();
+            _storeUpdateProgressWindow?.CloseFromOwner();
+            _storeUpdateProgressWindow = null;
             base.OnClosing(e);
         }
 

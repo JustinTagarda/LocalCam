@@ -514,6 +514,13 @@
                                     IsEnabled="False"
                                     Focusable="False"
                                     Click="UpgradeButton_Click" />
+                            <TextBlock x:Name="FooterVersionText"
+                                       Foreground="#8FA2BE"
+                                       FontSize="11"
+                                       TextWrapping="NoWrap"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       Text="v1.0.0.0" />
                             <Button x:Name="UpdateButton"
                                     Style="{StaticResource AppStatusUpdateButtonStyle}"
                                     VerticalAlignment="Center"
@@ -539,45 +546,6 @@
                                                VerticalAlignment="Center" />
                                 </StackPanel>
                             </Button>
-                            <StackPanel x:Name="UpdateProgressPanel"
-                                        Orientation="Vertical"
-                                        VerticalAlignment="Center"
-                                        Margin="8,0,0,0"
-                                        Visibility="Collapsed">
-                                <TextBlock x:Name="UpdatePhaseText"
-                                           Foreground="#8FA2BE"
-                                           FontSize="11"
-                                           TextWrapping="NoWrap"
-                                           Text="Preparing" />
-                                <ProgressBar x:Name="UpdateProgressBar"
-                                             Width="140"
-                                             Height="4"
-                                             Minimum="0"
-                                             Maximum="100"
-                                             Value="0"
-                                             Margin="0,1,0,0" />
-                                <TextBlock x:Name="UpdateDetailText"
-                                           Foreground="#8FA2BE"
-                                           FontSize="10"
-                                           TextWrapping="NoWrap"
-                                           TextTrimming="CharacterEllipsis"
-                                           MaxWidth="180"
-                                           Text="" />
-                                <TextBlock x:Name="UpdateResultText"
-                                           Foreground="#8FA2BE"
-                                           FontSize="10"
-                                           TextWrapping="NoWrap"
-                                           TextTrimming="CharacterEllipsis"
-                                           MaxWidth="180"
-                                           Text="" />
-                            </StackPanel>
-                            <TextBlock x:Name="FooterVersionText"
-                                       Foreground="#8FA2BE"
-                                       FontSize="11"
-                                       TextWrapping="NoWrap"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,0,0"
-                                       Text="v1.0.0.0" />
                         </StackPanel>
                     </Grid>
                 </Grid>

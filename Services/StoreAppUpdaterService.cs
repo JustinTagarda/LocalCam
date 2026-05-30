@@ -67,9 +67,9 @@ namespace LocalCam.Services {
 
             var updates = await ResolveUpdatesForInstallAsync(_storeContext, cancellationToken).ConfigureAwait(false);
             if (updates.Count == 0) {
+                ClearPersistedAvailability();
                 var state = StoreUpdateUiState.Hidden();
                 PushState(state);
-                PersistLastKnownUiState(state);
                 return;
             }
 
@@ -81,7 +81,8 @@ namespace LocalCam.Services {
                 PhaseText: "Preparing",
                 ProgressPercent: 0,
                 DetailText: "Preparing Microsoft Store update...",
-                ResultText: string.Empty));
+                ResultText: string.Empty,
+                IsTerminal: false));
 
             try {
                 _activeInstallOperation = _storeContext.RequestDownloadAndInstallStorePackageUpdatesAsync(updates);
@@ -165,10 +166,11 @@ namespace LocalCam.Services {
             if (_cachedUpdates.Count > 0) {
                 var availableState = StoreUpdateUiState.IdleAvailable();
                 PushState(availableState);
-                PersistLastKnownUiState(availableState);
+                PersistAvailability(true);
             }
             else {
-                PushState(GetLastKnownUiState());
+                ClearPersistedAvailability();
+                PushState(StoreUpdateUiState.Hidden());
                 if (hidden || shouldCallStore) {
                     ScheduleRetry();
                 }
@@ -180,10 +182,25 @@ namespace LocalCam.Services {
                 return _cachedUpdates.ToArray();
             }
 
+            var now = DateTimeOffset.UtcNow;
+            var (shouldCallStore, reason) = EvaluateThrottle(now);
+            if (!shouldCallStore) {
+                JsonLogStore.Information(
+                    eventName: "store_update_click_recheck_skipped",
+                    message: "Update click recheck skipped due to local throttle policy.",
+                    category: StoreDiagnosticsCategory,
+                    data: BuildCheckDiagnosticsData(_cachedUpdates.Count, skipped: true, reason));
+                return Array.Empty<StorePackageUpdate>();
+            }
+
+            RecordCheck(now);
             cancellationToken.ThrowIfCancellationRequested();
             var updates = await context.GetAppAndOptionalStorePackageUpdatesAsync();
             cancellationToken.ThrowIfCancellationRequested();
             CacheUpdates(updates);
+            if (updates.Count == 0) {
+                ClearPersistedAvailability();
+            }
             return _cachedUpdates.ToArray();
         }
 
@@ -228,9 +245,9 @@ namespace LocalCam.Services {
                 PhaseText: stateText,
                 ProgressPercent: percent,
                 DetailText: detail,
-                ResultText: string.Empty);
+                ResultText: string.Empty,
+                IsTerminal: false);
             PushState(state);
-            PersistLastKnownUiState(state);
         }
 
         private void HandleTerminalState(StorePackageUpdateState state) {
@@ -259,9 +276,10 @@ namespace LocalCam.Services {
                 PhaseText: phase,
                 ProgressPercent: phase == "Completed" ? 100 : 0,
                 DetailText: string.Empty,
-                ResultText: resultText);
+                ResultText: resultText,
+                IsTerminal: true);
             PushState(state);
-            PersistLastKnownUiState(state);
+            PersistAvailability(_cachedUpdates.Count > 0);
         }
 
         private bool TryResolveStoreRuntime(out StoreContext? context) {
@@ -475,9 +493,9 @@ namespace LocalCam.Services {
                 PhaseText: phaseText,
                 ProgressPercent: percent,
                 DetailText: detail,
-                ResultText: string.Empty);
+                ResultText: string.Empty,
+                IsTerminal: false);
             PushState(state);
-            PersistLastKnownUiState(state);
         }
 
         private static bool IsQueueItemInProgress(StoreQueueItem queueItem) {
@@ -495,36 +513,19 @@ namespace LocalCam.Services {
                 PhaseText: phase,
                 ProgressPercent: phase == "Completed" ? 100 : 0,
                 DetailText: string.Empty,
-                ResultText: resultText);
+                ResultText: resultText,
+                IsTerminal: true);
             PushState(state);
-            PersistLastKnownUiState(state);
+            PersistAvailability(true);
         }
 
-        private StoreUpdateUiState GetLastKnownUiState() {
+        private void PersistAvailability(bool isAvailable) {
             var settings = _settingsProvider();
-            if (!settings.StoreUpdateLastKnownAvailable) {
-                return StoreUpdateUiState.Hidden();
-            }
-
-            return new StoreUpdateUiState(
-                IsUpdateButtonVisible: true,
-                IsUpdateButtonEnabled: true,
-                IsProgressVisible: !string.IsNullOrWhiteSpace(settings.StoreUpdateLastKnownPhase),
-                PhaseText: settings.StoreUpdateLastKnownPhase ?? string.Empty,
-                ProgressPercent: Math.Clamp(settings.StoreUpdateLastKnownProgressPercent, 0, 100),
-                DetailText: settings.StoreUpdateLastKnownDetailText ?? string.Empty,
-                ResultText: settings.StoreUpdateLastKnownResultText ?? string.Empty);
-        }
-
-        private void PersistLastKnownUiState(StoreUpdateUiState state) {
-            var settings = _settingsProvider();
-            settings.StoreUpdateLastKnownAvailable = state.IsUpdateButtonVisible;
-            settings.StoreUpdateLastKnownPhase = state.PhaseText;
-            settings.StoreUpdateLastKnownProgressPercent = state.ProgressPercent;
-            settings.StoreUpdateLastKnownDetailText = state.DetailText;
-            settings.StoreUpdateLastKnownResultText = state.ResultText;
+            settings.StoreUpdateLastKnownAvailable = isAvailable;
             _persistSettings();
         }
+
+        private void ClearPersistedAvailability() => PersistAvailability(false);
 
         private void PushState(StoreUpdateUiState state) {
             _stateCallback(state);
@@ -538,11 +539,12 @@ namespace LocalCam.Services {
         string PhaseText,
         int ProgressPercent,
         string DetailText,
-        string ResultText) {
+        string ResultText,
+        bool IsTerminal) {
         public static StoreUpdateUiState Hidden() =>
-            new(false, false, false, string.Empty, 0, string.Empty, string.Empty);
+            new(false, false, false, string.Empty, 0, string.Empty, string.Empty, false);
 
         public static StoreUpdateUiState IdleAvailable() =>
-            new(true, true, false, string.Empty, 0, string.Empty, string.Empty);
+            new(true, true, false, string.Empty, 0, string.Empty, string.Empty, false);
     }
 }

@@ -125,9 +125,11 @@ Launch the app from the Debug output:
 - Update checks run after first render and do not block startup.
 - Update checks are gated to packaged runtime only; unpackaged runs keep updater UI hidden.
 - Check throttling is persisted (`>=30` minute cooldown, max `10` checks per rolling 24 hours).
-- When updates are available, a compact footer `Update` button becomes visible.
+- Footer order is `[Basic/Premium] [Upgrade] [version] [Update]`.
+- The compact footer `Update` button is shown only after a fresh positive Store availability result or while an active Store update queue item is in progress.
+- If availability/recheck returns zero updates, the `Update` button is hidden immediately and cached availability is cleared.
 - Clicking `Update` starts `RequestDownloadAndInstallStorePackageUpdatesAsync`.
-- In-app update progress shows phase, percent, details, and terminal result (`Completed`, `Canceled`, `Failed` guidance).
+- Store update progress is shown in a dedicated modal window (not in the footer) with phase, percent, details, and terminal result (`Completed`, `Canceled`, `Failed` guidance).
 - Active Store queue state is recovered on startup via Store queue APIs so progress can continue across restarts.
 
 ## Premium Add-On (Store)
@@ -168,7 +170,7 @@ Launch the app from the Debug output:
 - Validate output artifacts include Store upload artifact (`.msixupload`) and `x64` architecture package (`.msix`) in Release packaging flow.
 - Treat stale artifacts under `LocalCam.Package/AppPackages` and `LocalCam.Package/bin/x64/Release/Upload` as `NOT READY` until cleaned by packaging workflow.
 
-### Current Readiness Audit (2026-05-29)
+### Current Readiness Audit (2026-05-30)
 
 Status: `READY`
 
@@ -176,7 +178,7 @@ Gate results from `Release|x64` packaging validation:
 
 - `PASS`: Packaging project exists and is wired: `LocalCam.Package/LocalCam.Package.wapproj`.
 - `PASS`: Manifest exists and is parseable: `LocalCam.Package/Package.appxmanifest`.
-- `PASS`: SDK pin source exists for Store-readiness validation: `D:\Projects\LocalCam\global.json`.
+- `PASS`: SDK pin source exists for Store-readiness validation: `D:\Projects\global.json` and `D:\Projects\LocalCam\global.json`.
 - `PASS`: Fixed identity and target data match:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
@@ -193,11 +195,11 @@ Gate results from `Release|x64` packaging validation:
   - `Wide310x150Logo.png` `310x150`
   - `SplashScreen.png` `620x300`
 - `PASS`: Store upload artifact generated (`.msixupload` only).
-- `PASS`: Stale artifact cleanup gate passed before packaging; only current `1.0.18.0` artifact set exists in readiness scope paths.
+- `PASS`: Stale artifact cleanup gate passed before packaging; only current `1.0.19.0` artifact set exists in readiness scope paths.
 
 Build notes:
 
-- `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 2026 MSBuild).
+- `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 18 MSBuild 18.5.4).
 - Warnings observed and retained for follow-up:
   - `MSB4011` duplicate common props import from DesktopBridge props chain.
   - `NU1701` package restore compatibility warning on `LibVLCSharp.WPF` in packaging restore context.
