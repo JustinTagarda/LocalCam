@@ -32,19 +32,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
+    <Content Include="$(MSBuildThisFileDirectory)Assets\StoreLogo.png">
       <Link>Assets\StoreLogo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Square44x44Logo.png">
       <Link>Assets\Square44x44Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Square150x150Logo.png">
       <Link>Assets\Square150x150Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Wide310x150Logo.png">
       <Link>Assets\Wide310x150Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
+    <Content Include="$(MSBuildThisFileDirectory)Assets\SplashScreen.png">
       <Link>Assets\SplashScreen.png</Link>
     </Content>
   </ItemGroup>
@@ -53,7 +53,7 @@
     <ProjectReference Include="..\LocalCam.csproj" />
   </ItemGroup>
 
-  <Target Name="ValidateStoreManifestIdentity" BeforeTargets="Build">
+  <Target Name="PrepareStorePackageArtifacts" BeforeTargets="_CopyProjectAppxManifestToAppxUpload">
     <ReadLinesFromFile File="$(LastStoreUploadInfoPath)" Condition="Exists('$(LastStoreUploadInfoPath)')">
       <Output TaskParameter="Lines" PropertyName="LastStoreUploadArtifactPath" />
     </ReadLinesFromFile>
@@ -81,10 +81,6 @@
       <LastStoreUploadVersion>$([System.Text.RegularExpressions.Regex]::Match('$(LastStoreUploadArtifactPath)', 'LocalCam\.Package_(\d+\.\d+\.\d+\.\d+)_x64\.msixupload').Groups[1].Value)</LastStoreUploadVersion>
     </PropertyGroup>
     <Error Condition="'$(LastStoreUploadVersion)' == '$(ActualStoreVersion)'" Text="Package.appxmanifest Identity Version '$(ActualStoreVersion)' matches the most recently generated Store package. Increment the version before building a new Store package." />
-    <Error Condition="Exists('$(AppxPackageDir)$(MSBuildProjectName)_$(ActualStoreVersion)_x64.msixupload')" Text="Package.appxmanifest Identity Version '$(ActualStoreVersion)' has already been packaged. Increment the version before building a new Store package." />
-  </Target>
-
-  <Target Name="CleanStaleStorePackageArtifacts" BeforeTargets="Build" DependsOnTargets="ValidateStoreManifestIdentity">
     <RemoveDir Directories="$(AppxPackageDir)" Condition="Exists('$(AppxPackageDir)')" />
     <RemoveDir Directories="$(MSBuildThisFileDirectory)bin\x64\Release\Upload" Condition="Exists('$(MSBuildThisFileDirectory)bin\x64\Release\Upload')" />
   </Target>
