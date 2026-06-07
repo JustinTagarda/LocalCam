@@ -21,6 +21,8 @@
     <ExpectedStoreIdentityPublisher>CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F</ExpectedStoreIdentityPublisher>
     <ExpectedStoreDisplayName>LocalCam</ExpectedStoreDisplayName>
     <ExpectedStorePublisherDisplayName>JustinTagarda</ExpectedStorePublisherDisplayName>
+    <ExpectedStoreVersionPattern>^\d+\.\d+\.\d+\.0$</ExpectedStoreVersionPattern>
+    <LastStoreUploadInfoPath>$(MSBuildThisFileDirectory)obj\x64\Release\_upkginfo.txt</LastStoreUploadInfoPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,19 +32,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="$(MSBuildThisFileDirectory)Assets\StoreLogo.png">
+    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
       <Link>Assets\StoreLogo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)Assets\Square44x44Logo.png">
+    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
       <Link>Assets\Square44x44Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)Assets\Square150x150Logo.png">
+    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
       <Link>Assets\Square150x150Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)Assets\Wide310x150Logo.png">
+    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
       <Link>Assets\Wide310x150Logo.png</Link>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)Assets\SplashScreen.png">
+    <Content Include="$(MSBuildThisFileDirectory)..\Assets\icon.png">
       <Link>Assets\SplashScreen.png</Link>
     </Content>
   </ItemGroup>
@@ -52,11 +54,17 @@
   </ItemGroup>
 
   <Target Name="ValidateStoreManifestIdentity" BeforeTargets="Build">
+    <ReadLinesFromFile File="$(LastStoreUploadInfoPath)" Condition="Exists('$(LastStoreUploadInfoPath)')">
+      <Output TaskParameter="Lines" PropertyName="LastStoreUploadArtifactPath" />
+    </ReadLinesFromFile>
     <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Name">
       <Output TaskParameter="Result" PropertyName="ActualStoreIdentityName" />
     </XmlPeek>
     <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Publisher">
       <Output TaskParameter="Result" PropertyName="ActualStoreIdentityPublisher" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Identity']/@Version">
+      <Output TaskParameter="Result" PropertyName="ActualStoreVersion" />
     </XmlPeek>
     <XmlPeek XmlInputPath="Package.appxmanifest" Query="/*[local-name()='Package']/*[local-name()='Properties']/*[local-name()='DisplayName']/text()">
       <Output TaskParameter="Result" PropertyName="ActualStoreDisplayName" />
@@ -68,6 +76,17 @@
     <Error Condition="'$(ActualStoreIdentityPublisher)' != '$(ExpectedStoreIdentityPublisher)'" Text="Package.appxmanifest Identity Publisher mismatch. Expected '$(ExpectedStoreIdentityPublisher)', found '$(ActualStoreIdentityPublisher)'." />
     <Error Condition="'$(ActualStoreDisplayName)' != '$(ExpectedStoreDisplayName)'" Text="Package.appxmanifest DisplayName mismatch. Expected '$(ExpectedStoreDisplayName)', found '$(ActualStoreDisplayName)'." />
     <Error Condition="'$(ActualStorePublisherDisplayName)' != '$(ExpectedStorePublisherDisplayName)'" Text="Package.appxmanifest PublisherDisplayName mismatch. Expected '$(ExpectedStorePublisherDisplayName)', found '$(ActualStorePublisherDisplayName)'." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(ActualStoreVersion)', '$(ExpectedStoreVersionPattern)'))" Text="Package.appxmanifest Identity Version must use Major.Minor.Build.0 format. Found '$(ActualStoreVersion)'." />
+    <PropertyGroup>
+      <LastStoreUploadVersion>$([System.Text.RegularExpressions.Regex]::Match('$(LastStoreUploadArtifactPath)', 'LocalCam\.Package_(\d+\.\d+\.\d+\.\d+)_x64\.msixupload').Groups[1].Value)</LastStoreUploadVersion>
+    </PropertyGroup>
+    <Error Condition="'$(LastStoreUploadVersion)' == '$(ActualStoreVersion)'" Text="Package.appxmanifest Identity Version '$(ActualStoreVersion)' matches the most recently generated Store package. Increment the version before building a new Store package." />
+    <Error Condition="Exists('$(AppxPackageDir)$(MSBuildProjectName)_$(ActualStoreVersion)_x64.msixupload')" Text="Package.appxmanifest Identity Version '$(ActualStoreVersion)' has already been packaged. Increment the version before building a new Store package." />
+  </Target>
+
+  <Target Name="CleanStaleStorePackageArtifacts" BeforeTargets="Build" DependsOnTargets="ValidateStoreManifestIdentity">
+    <RemoveDir Directories="$(AppxPackageDir)" Condition="Exists('$(AppxPackageDir)')" />
+    <RemoveDir Directories="$(MSBuildThisFileDirectory)bin\x64\Release\Upload" Condition="Exists('$(MSBuildThisFileDirectory)bin\x64\Release\Upload')" />
   </Target>
 
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
