@@ -138,7 +138,9 @@ Launch the app from the Debug output:
 ## Premium Add-On (Store)
 
 - Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.
+- Entitlement compatibility: ownership of either legacy add-on `9P9KCJ3NFZFT` (`localcam_premium_lifetime`) or active add-on `9P18G2P91QV6` (`localcam_premium_lifetime_2`) grants Premium.
 - Purchase path: all upgrade actions use in-app `Windows.Services.Store` purchase (`RequestPurchaseAsync`) rather than direct PDP links.
+- Purchase target: all new Premium purchases target active add-on `9P18G2P91QV6`.
 - Purchase confirmation: all upgrade entry points show the in-app modal `Upgrade` confirmation dialog before opening Store purchase UI.
 - Purchase binding: Store purchase uses per-invocation owner-window binding to the active top-level app window handle when available.
 - Startup mode check: Premium entitlement is checked after first render; footer mode text and upgrade control stay hidden until the check completes.
@@ -148,7 +150,8 @@ Launch the app from the Debug output:
   - owned entitlement: `Premium` text shown, `Upgrade` hidden
   - not owned entitlement: `Basic` text shown, compact `Upgrade` button shown
 - Runtime configuration:
-  - Premium durable add-on Store ID baseline: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`, Durable).
+  - Legacy recognized Premium durable add-on: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`, Durable).
+  - Active recognized and purchasable Premium durable add-on: `9P18G2P91QV6` (`localcam_premium_lifetime_2`, Durable).
   - In unpackaged environments, purchase is reported as not supported.
 
 ## Store Packaging Baseline

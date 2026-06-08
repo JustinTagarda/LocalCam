@@ -9,6 +9,7 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
+        Icon="pack://application:,,,/Assets/icon.ico"
         WindowStyle="ToolWindow"
         Background="#101722">
     <Border Margin="0"

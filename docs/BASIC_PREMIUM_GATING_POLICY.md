@@ -13,7 +13,11 @@ This policy defines feature access behavior for Basic and Premium modes.
 
 ## Entitlement Source of Truth
 - Premium ownership is determined by Microsoft Store durable add-on entitlement.
-- Durable add-on Store ID: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`).
+- Recognized Premium durable add-on Store IDs:
+  - Legacy: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`).
+  - Active: `9P18G2P91QV6` (`localcam_premium_lifetime_2`).
+- Ownership of either recognized add-on grants Premium access, including ownership obtained through a redeemed Microsoft Store promotional code.
+- All new in-app Premium purchases must target only active add-on Store ID `9P18G2P91QV6`.
 - Premium unlock must not come from editable local flags.
 
 ## Mode Definitions
@@ -29,6 +33,17 @@ This policy defines feature access behavior for Basic and Premium modes.
 ## Premium Access
 - No stream-count or recording-duration gating.
 - All currently available app features remain fully accessible.
+
+## Development Mode Exception (Unpackaged / Non-Store Run)
+When LocalCam runs as a local development build (for example, launched directly from Debug executable output and not Store-installed/package-identity runtime):
+- Do not surface Basic/Premium gating UX.
+- Keep `Basic/Premium` status text hidden/collapsed/clipped.
+- Keep `Upgrade` button hidden/collapsed/clipped.
+- Do not trigger Basic/Premium upsell prompts from this development-mode path.
+
+Scope and non-override:
+- This exception applies only to unpackaged/non-Store development runs.
+- Packaged Store-installed behavior remains governed by Store entitlement verification and the existing Basic/Premium rules in this document.
 
 ## Blocked Action UX
 When a Basic limit blocks an action:
@@ -70,7 +85,8 @@ Behavior:
 - Basic cannot exceed 30 minutes total recording per local day.
 - Premium has no gating for these limits.
 - Every Basic-gated block path shows the upgrade dialog.
-- Upgrade dialog routes through shared in-app purchase path.
+- Upgrade dialog routes through shared in-app purchase path targeting active add-on Store ID `9P18G2P91QV6`.
+- Ownership of either the legacy or active durable add-on grants Premium access.
 - App remains stable and builds via required FAST build.
 
 ## Implementation Touchpoints (Current)
@@ -82,9 +98,10 @@ Behavior:
 
 ## Restoration Procedure
 If regressions occur, restore in this order:
-1. Entitlement source: confirm add-on Store ID and entitlement check behavior.
-2. Stream gating: re-apply 2-stream Basic cap to all stream-start paths.
-3. Recording gating: re-apply 30-minute/day Basic cap and active-session stop-at-limit behavior.
-4. Blocked dialog: re-apply modal dialog with Upgrade button using shared purchase route.
-5. Persistence: confirm daily usage storage/reset behavior.
-6. Validation: execute checklist in `docs/BASIC_PREMIUM_GATING_TEST_CHECKLIST.md`.
+1. Entitlement source: confirm both recognized add-on Store IDs and entitlement check behavior.
+2. Purchase target: confirm all new purchases target only active add-on Store ID `9P18G2P91QV6`.
+3. Stream gating: re-apply 2-stream Basic cap to all stream-start paths.
+4. Recording gating: re-apply 30-minute/day Basic cap and active-session stop-at-limit behavior.
+5. Blocked dialog: re-apply modal dialog with Upgrade button using shared purchase route.
+6. Persistence: confirm daily usage storage/reset behavior.
+7. Validation: execute checklist in `docs/BASIC_PREMIUM_GATING_TEST_CHECKLIST.md`.

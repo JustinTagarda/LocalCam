@@ -57,7 +57,6 @@ namespace LocalCam {
         private const string SnapshotDiagnosticsCategory = "SnapshotDiagnostics";
         private const string RecordingDiagnosticsCategory = "RecordingDiagnostics";
         private const string RtspSettingsInvalidMessage = "RTSP credentials are missing or invalid.";
-        private const string PremiumAddOnStoreId = "9P9KCJ3NFZFT";
         private const int BasicConcurrentStreamLimit = 2;
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
@@ -113,6 +112,7 @@ namespace LocalCam {
         private bool _hasInitializedStoreUpdater;
         private bool _isPremiumOwned;
         private bool _isPremiumPurchaseBusy;
+        private bool _isPremiumEntitlementRefreshBusy;
         private DispatcherTimer? _basicRecordingDailyLimitTimer;
         private CancellationTokenSource? _storeUpdaterCts;
         private StoreUpdateProgressWindow? _storeUpdateProgressWindow;
@@ -128,18 +128,19 @@ namespace LocalCam {
             InitializeComponent();
             UpdateFooterVersionText();
             SourceInitialized += MainWindow_SourceInitialized;
+            Activated += MainWindow_Activated;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
             LoadSettings();
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
-                PremiumAddOnStoreId);
+                PremiumAddOnStoreConfiguration.ActivePremiumAddOnStoreId);
             _premiumEntitlementService = new PremiumEntitlementService(
                 _storeContextProvider,
                 _settings,
                 ResolvePurchaseOwnerWindowHandle,
-                PremiumAddOnStoreId);
+                PremiumAddOnStoreConfiguration.RecognizedPremiumAddOnStoreIds);
             _storeAppUpdaterService = new StoreAppUpdaterService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
@@ -1322,6 +1323,11 @@ namespace LocalCam {
         }
 
         private async Task RefreshPremiumEntitlementAsync(string source) {
+            if (_isPremiumEntitlementRefreshBusy) {
+                return;
+            }
+
+            _isPremiumEntitlementRefreshBusy = true;
             try {
                 var result = await _premiumEntitlementService.CheckPremiumEntitlementAsync();
                 _isPremiumOwned = result.IsPremiumOwned;
@@ -1350,6 +1356,23 @@ namespace LocalCam {
                         ["source"] = source
                     });
             }
+            finally {
+                _isPremiumEntitlementRefreshBusy = false;
+            }
+        }
+
+        private async void MainWindow_Activated(object? sender, EventArgs e) {
+            _ = sender;
+            _ = e;
+
+            if (!_storeContextProvider.IsPackaged ||
+                !_hasResolvedPremiumUiState ||
+                _isPremiumOwned ||
+                _isPremiumPurchaseBusy) {
+                return;
+            }
+
+            await RefreshPremiumEntitlementAsync("window_activated");
         }
 
         private void UpdatePremiumUiVisibility() {

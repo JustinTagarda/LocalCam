@@ -6,24 +6,24 @@ namespace LocalCam.Services {
         private readonly IStoreContextProvider _storeContextProvider;
         private readonly LocalCamSettings _settings;
         private readonly Func<IntPtr> _ownerWindowHandleProvider;
-        private readonly string _premiumAddOnStoreId;
+        private readonly HashSet<string> _recognizedPremiumAddOnStoreIds;
 
         public PremiumEntitlementService(
             IStoreContextProvider storeContextProvider,
             LocalCamSettings settings,
             Func<IntPtr> ownerWindowHandleProvider,
-            string premiumAddOnStoreId) {
+            IEnumerable<string> recognizedPremiumAddOnStoreIds) {
             _storeContextProvider = storeContextProvider;
             _settings = settings;
             _ownerWindowHandleProvider = ownerWindowHandleProvider;
-            _premiumAddOnStoreId = premiumAddOnStoreId.Trim();
+            _recognizedPremiumAddOnStoreIds = NormalizeStoreIds(recognizedPremiumAddOnStoreIds);
         }
 
         public async Task<PremiumEntitlementResult> CheckPremiumEntitlementAsync(CancellationToken cancellationToken = default) {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (string.IsNullOrWhiteSpace(_premiumAddOnStoreId)) {
-                return ResolveFallback("Premium add-on Store ID not configured.");
+            if (_recognizedPremiumAddOnStoreIds.Count == 0) {
+                return ResolveFallback("Premium add-on Store IDs not configured.");
             }
 
             var storeContext = _storeContextProvider.TryGetStoreContext(_ownerWindowHandleProvider());
@@ -35,9 +35,14 @@ namespace LocalCam.Services {
                 var license = await storeContext.GetAppLicenseAsync();
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var owned = license.AddOnLicenses.TryGetValue(_premiumAddOnStoreId, out var addOnLicense) &&
-                            addOnLicense is not null &&
-                            addOnLicense.IsActive;
+                var owned = license.AddOnLicenses.Any(entry =>
+                    IsRecognizedPremiumStoreId(entry.Key) &&
+                    entry.Value is not null &&
+                    entry.Value.IsActive);
+
+                if (!owned) {
+                    owned = await IsPremiumInUserCollectionAsync(storeContext, cancellationToken);
+                }
 
                 if (owned) {
                     _settings.HasVerifiedPremiumEntitlementCache = true;
@@ -56,6 +61,34 @@ namespace LocalCam.Services {
             catch (Exception) {
                 return ResolveFallback("Store entitlement check failed.");
             }
+        }
+
+        private async Task<bool> IsPremiumInUserCollectionAsync(
+            StoreContext storeContext,
+            CancellationToken cancellationToken) {
+            var collectionResult = await storeContext.GetUserCollectionAsync(["Durable"]);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (collectionResult.ExtendedError is not null) {
+                throw collectionResult.ExtendedError;
+            }
+
+            return collectionResult.Products.Values.Any(product =>
+                product.IsInUserCollection &&
+                IsRecognizedPremiumStoreId(product.StoreId));
+        }
+
+        internal bool IsRecognizedPremiumStoreId(string? storeId) {
+            return !string.IsNullOrWhiteSpace(storeId) &&
+                   _recognizedPremiumAddOnStoreIds.Contains(storeId.Trim());
+        }
+
+        internal static HashSet<string> NormalizeStoreIds(IEnumerable<string>? storeIds) {
+            return storeIds?
+                .Where(storeId => !string.IsNullOrWhiteSpace(storeId))
+                .Select(storeId => storeId.Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         private PremiumEntitlementResult ResolveFallback(string reason) {

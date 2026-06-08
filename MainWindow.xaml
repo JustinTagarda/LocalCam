@@ -500,6 +500,7 @@
                             <TextBlock x:Name="AppModeStatusText"
                                        Foreground="#8FA2BE"
                                        FontSize="11"
+                                       FontWeight="Bold"
                                        TextWrapping="NoWrap"
                                        VerticalAlignment="Center"
                                        Visibility="Collapsed"

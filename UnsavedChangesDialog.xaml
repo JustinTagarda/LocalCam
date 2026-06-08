@@ -7,6 +7,7 @@
         WindowStyle="SingleBorderWindow"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
+        Icon="pack://application:,,,/Assets/icon.ico"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="16">
         <Grid.RowDefinitions>
