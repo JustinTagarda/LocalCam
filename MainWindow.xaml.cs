@@ -57,6 +57,7 @@ namespace LocalCam {
         private const string SnapshotDiagnosticsCategory = "SnapshotDiagnostics";
         private const string RecordingDiagnosticsCategory = "RecordingDiagnostics";
         private const string RtspSettingsInvalidMessage = "RTSP credentials are missing or invalid.";
+        private const string PremiumAddOnStoreId = "9P9KCJ3NFZFT";
         private const int BasicConcurrentStreamLimit = 2;
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
@@ -135,12 +136,12 @@ namespace LocalCam {
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
-                PremiumAddOnStoreConfiguration.ActivePremiumAddOnStoreId);
+                PremiumAddOnStoreId);
             _premiumEntitlementService = new PremiumEntitlementService(
                 _storeContextProvider,
                 _settings,
                 ResolvePurchaseOwnerWindowHandle,
-                PremiumAddOnStoreConfiguration.RecognizedPremiumAddOnStoreIds);
+                PremiumAddOnStoreId);
             _storeAppUpdaterService = new StoreAppUpdaterService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,

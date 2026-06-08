@@ -138,9 +138,7 @@ Launch the app from the Debug output:
 ## Premium Add-On (Store)
 
 - Store model: Basic mode remains usable; Premium is unlocked via Microsoft Store durable add-on ownership.
-- Entitlement compatibility: ownership of either legacy add-on `9P9KCJ3NFZFT` (`localcam_premium_lifetime`) or active add-on `9P18G2P91QV6` (`localcam_premium_lifetime_2`) grants Premium.
 - Purchase path: all upgrade actions use in-app `Windows.Services.Store` purchase (`RequestPurchaseAsync`) rather than direct PDP links.
-- Purchase target: all new Premium purchases target active add-on `9P18G2P91QV6`.
 - Purchase confirmation: all upgrade entry points show the in-app modal `Upgrade` confirmation dialog before opening Store purchase UI.
 - Purchase binding: Store purchase uses per-invocation owner-window binding to the active top-level app window handle when available.
 - Startup mode check: Premium entitlement is checked after first render; footer mode text and upgrade control stay hidden until the check completes.
@@ -150,8 +148,7 @@ Launch the app from the Debug output:
   - owned entitlement: `Premium` text shown, `Upgrade` hidden
   - not owned entitlement: `Basic` text shown, compact `Upgrade` button shown
 - Runtime configuration:
-  - Legacy recognized Premium durable add-on: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`, Durable).
-  - Active recognized and purchasable Premium durable add-on: `9P18G2P91QV6` (`localcam_premium_lifetime_2`, Durable).
+  - Premium durable add-on Store ID baseline: `9P9KCJ3NFZFT` (`localcam_premium_lifetime`, Durable).
   - In unpackaged environments, purchase is reported as not supported.
 
 ## Store Packaging Baseline
@@ -168,16 +165,17 @@ Launch the app from the Debug output:
 
 ## Store Pre-Submission Readiness
 
-- Follow `D:\Projects\1-MSSTORE-PACKAGE-PREPARATION.md` for readiness gates and baseline implementation checks.
+- Follow `D:\Projects\4-MSSTORE-PACKAGE-GENERATION.md` for Store package generation and versioning workflow.
+- When generating Store packages, use `FULL-BUILD` and `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe` after confirming `D:\Projects\global.json` pins the installed SDK root.
 - Validate manifest identity and target fields before release packaging:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
   - `TargetDeviceFamily Name`: `Windows.Desktop`
-- Validate package version format as `Major.Minor.Build.0`.
+- Validate package version format as `Major.Minor.Build.0` and increment `Identity Version` before each new Store package build.
 - Validate output artifacts include Store upload artifact (`.msixupload`) and `x64` architecture package (`.msix`) in Release packaging flow.
 - Treat stale artifacts under `LocalCam.Package/AppPackages` and `LocalCam.Package/bin/x64/Release/Upload` as `NOT READY` until cleaned by packaging workflow.
 
-### Current Readiness Audit (2026-05-30)
+### Current Readiness Audit (2026-06-08)
 
 Status: `READY`
 
@@ -185,12 +183,12 @@ Gate results from `Release|x64` packaging validation:
 
 - `PASS`: Packaging project exists and is wired: `LocalCam.Package/LocalCam.Package.wapproj`.
 - `PASS`: Manifest exists and is parseable: `LocalCam.Package/Package.appxmanifest`.
-- `PASS`: SDK pin source exists for Store-readiness validation: `D:\Projects\global.json` and `D:\Projects\LocalCam\global.json`.
+- `PASS`: SDK pin source exists for Store-readiness validation: `D:\Projects\global.json`.
 - `PASS`: Fixed identity and target data match:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
   - `TargetDeviceFamily Name`: `Windows.Desktop`
-- `PASS`: Manifest/package version format is `Major.Minor.Build.0` (`1.0.19.0`).
+- `PASS`: Manifest/package version format is `Major.Minor.Build.0` (`1.0.23.0`).
 - `PASS`: Manifest publisher display name matches Partner Center reserved value (`JustinTagarda`).
 - `PASS`: UI footer version text is derived from package version and rendered as `Major.Minor.Build.0`.
 - `PASS`: Packaging mode is Store upload mode (`UapAppxPackageBuildMode=StoreUpload`).
@@ -202,11 +200,11 @@ Gate results from `Release|x64` packaging validation:
   - `Wide310x150Logo.png` `310x150`
   - `SplashScreen.png` `620x300`
 - `PASS`: Store upload artifact generated (`.msixupload` only).
-- `PASS`: Stale artifact cleanup gate passed before packaging; only current `1.0.19.0` artifact set exists in readiness scope paths.
+- `PASS`: Stale artifact cleanup gate passed before packaging; only current `1.0.23.0` artifact set exists in readiness scope paths.
 
 Build notes:
 
-- `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 18 MSBuild 18.5.4).
+- `Release|x64` packaging build completed successfully via `LocalCam.Package.wapproj` (Visual Studio 18 MSBuild toolchain).
 - Warnings observed and retained for follow-up:
   - `MSB4011` duplicate common props import from DesktopBridge props chain.
   - `NU1701` package restore compatibility warning on `LibVLCSharp.WPF` in packaging restore context.
@@ -215,10 +213,10 @@ Build notes:
 Artifact paths (required reporting):
 
 - Store upload artifact (`.msixupload`):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64.msixupload`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.23.0_x64.msixupload`
 - Architecture package (`.msix`, x64):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64_Test\LocalCam.Package_1.0.19.0_x64.msix`
-  - `D:\Projects\LocalCam\LocalCam.Package\bin\x64\Release\Upload\LocalCam.Package_1.0.19.0_x64\LocalCam.Package_1.0.19.0_x64.msix`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.23.0_x64_Test\LocalCam.Package_1.0.23.0_x64.msix`
+  - `D:\Projects\LocalCam\LocalCam.Package\bin\x64\Release\Upload\LocalCam.Package_1.0.23.0_x64\LocalCam.Package_1.0.23.0_x64.msix`
 - Bundle artifact (`.msixbundle`, x64-only when bundle mode is used):
-  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.19.0_x64.msixbundle` -> `not found`
+  - `D:\Projects\LocalCam\LocalCam.Package\AppPackages\LocalCam.Package_1.0.23.0_x64.msixbundle` -> `not found`
 
