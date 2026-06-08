@@ -24,12 +24,6 @@ namespace LocalCam.Services {
                     "In-app Premium purchase is available only in packaged Store builds with a configured add-on Store ID.");
             }
 
-            if (_storeContextProvider.IsElevated) {
-                return new PremiumPurchaseResult(
-                    PremiumPurchaseOutcome.Blocked,
-                    "In-app purchase is blocked while running as administrator. Run without elevation and try again.");
-            }
-
             var storeContext = _storeContextProvider.TryGetStoreContext(_ownerWindowHandleProvider());
             if (storeContext is null) {
                 return new PremiumPurchaseResult(

@@ -1,4 +1,3 @@
-using System.Security.Principal;
 using WinRT.Interop;
 using Windows.ApplicationModel;
 using Windows.Services.Store;
@@ -12,23 +11,6 @@ namespace LocalCam.Services {
                 try {
                     _ = Package.Current;
                     return true;
-                }
-                catch {
-                    return false;
-                }
-            }
-        }
-
-        public bool IsElevated {
-            get {
-                try {
-                    using var identity = WindowsIdentity.GetCurrent();
-                    if (identity is null) {
-                        return false;
-                    }
-
-                    var principal = new WindowsPrincipal(identity);
-                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
                 }
                 catch {
                     return false;

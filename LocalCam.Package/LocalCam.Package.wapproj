@@ -23,6 +23,7 @@
     <ExpectedStorePublisherDisplayName>JustinTagarda</ExpectedStorePublisherDisplayName>
     <ExpectedStoreVersionPattern>^\d+\.\d+\.\d+\.0$</ExpectedStoreVersionPattern>
     <LastStoreUploadInfoPath>$(MSBuildThisFileDirectory)obj\x64\Release\_upkginfo.txt</LastStoreUploadInfoPath>
+    <StoreSdkPinPath>D:\Projects\global.json</StoreSdkPinPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -83,6 +84,22 @@
     <Error Condition="'$(LastStoreUploadVersion)' == '$(ActualStoreVersion)'" Text="Package.appxmanifest Identity Version '$(ActualStoreVersion)' matches the most recently generated Store package. Increment the version before building a new Store package." />
     <RemoveDir Directories="$(AppxPackageDir)" Condition="Exists('$(AppxPackageDir)')" />
     <RemoveDir Directories="$(MSBuildThisFileDirectory)bin\x64\Release\Upload" Condition="Exists('$(MSBuildThisFileDirectory)bin\x64\Release\Upload')" />
+  </Target>
+
+  <Target Name="ValidateStoreSdkPin" BeforeTargets="PrepareStorePackageArtifacts">
+    <Error Condition="!Exists('$(StoreSdkPinPath)')" Text="Store packaging SDK pin file not found at '$(StoreSdkPinPath)'." />
+    <ReadLinesFromFile File="$(StoreSdkPinPath)">
+      <Output TaskParameter="Lines" ItemName="StoreSdkPinLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <StoreSdkPinText>@(StoreSdkPinLines, ' ')</StoreSdkPinText>
+      <PinnedStoreSdkVersion>$([System.Text.RegularExpressions.Regex]::Match('$(StoreSdkPinText)', '"version"\s*:\s*"([^"]+)"').Groups[1].Value)</PinnedStoreSdkVersion>
+      <ResolvedStoreSdkRoot>$([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetFullPath('$(BundledRuntimeIdentifierGraphFile)'))))</ResolvedStoreSdkRoot>
+      <ResolvedStoreSdkVersion>$([System.IO.Path]::GetFileName('$(ResolvedStoreSdkRoot)'))</ResolvedStoreSdkVersion>
+    </PropertyGroup>
+    <Error Condition="'$(PinnedStoreSdkVersion)' == ''" Text="Unable to read the pinned SDK version from '$(StoreSdkPinPath)'." />
+    <Error Condition="'$(ResolvedStoreSdkVersion)' != '$(PinnedStoreSdkVersion)'" Text="Store packaging SDK mismatch. Expected '$(PinnedStoreSdkVersion)' from '$(StoreSdkPinPath)', found '$(ResolvedStoreSdkVersion)'." />
+    <Error Condition="!$([System.String]::Equals('$(ResolvedStoreSdkRoot)', 'C:\Program Files\dotnet\sdk\$(PinnedStoreSdkVersion)', System.StringComparison.OrdinalIgnoreCase))" Text="Store packaging SDK resolver root mismatch. Expected 'C:\Program Files\dotnet\sdk\$(PinnedStoreSdkVersion)', found '$(ResolvedStoreSdkRoot)'." />
   </Target>
 
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
