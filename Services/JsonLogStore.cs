@@ -3,15 +3,19 @@ using System.Text.Json;
 
 namespace LocalCam.Services {
     internal static class JsonLogStore {
+        private const string InputDiagnosticsCategory = "InputDiagnostics";
+        private const string VerboseLoggingEnvironmentVariable = "LOCALCAM_VERBOSE_LOGGING";
         private static readonly object SyncRoot = new();
         private static readonly JsonSerializerOptions JsonOptions = new() {
             WriteIndented = false
         };
-        private static readonly bool IsLoggingEnabled = DetermineLoggingEnabled();
+        private static readonly bool IsLoggingEnabled = true;
+        private static readonly bool IsVerboseLoggingEnabled = DetermineVerboseLoggingEnabled();
 
         private static string LogDirectory {
             get {
-                return AppContext.BaseDirectory;
+                var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                return Path.Combine(root, "LocalCam", "logs");
             }
         }
 
@@ -68,6 +72,11 @@ namespace LocalCam.Services {
                 return;
             }
 
+            if (string.Equals(category, InputDiagnosticsCategory, StringComparison.OrdinalIgnoreCase) &&
+                !IsVerboseLoggingEnabled) {
+                return;
+            }
+
             try {
                 Initialize();
 
@@ -93,35 +102,16 @@ namespace LocalCam.Services {
             }
         }
 
-        private static bool DetermineLoggingEnabled() {
-#if !DEBUG
-            return false;
-#else
-            return !IsInstalledDistribution();
-#endif
-        }
-
-        private static bool IsInstalledDistribution() {
-            var startupDirectory = Path.GetFullPath(AppContext.BaseDirectory)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            return IsUnderPath(startupDirectory, programFiles)
-                || IsUnderPath(startupDirectory, programFilesX86);
-        }
-
-        private static bool IsUnderPath(string candidate, string root) {
-            if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(root)) {
+        private static bool DetermineVerboseLoggingEnabled() {
+            var rawValue = Environment.GetEnvironmentVariable(VerboseLoggingEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(rawValue)) {
                 return false;
             }
 
-            var comparison = StringComparison.OrdinalIgnoreCase;
-            return candidate.Equals(root, comparison)
-                || candidate.StartsWith(root + Path.DirectorySeparatorChar, comparison)
-                || candidate.StartsWith(root + Path.AltDirectorySeparatorChar, comparison);
+            return rawValue.Equals("1", StringComparison.OrdinalIgnoreCase)
+                || rawValue.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || rawValue.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                || rawValue.Equals("on", StringComparison.OrdinalIgnoreCase);
         }
 
         private sealed record JsonLogEntry(

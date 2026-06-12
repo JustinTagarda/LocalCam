@@ -293,6 +293,8 @@ namespace LocalCam.Networking {
                 HashSet<IPAddress>? mdnsHints = null;
                 var attemptedMethods = new List<TapoDetectionMethodAttempt>();
                 var aggregatedCandidates = new Dictionary<string, TapoCameraCandidateDiagnostics>(StringComparer.Ordinal);
+                var aggregatedDetections = new Dictionary<string, TapoCameraDetection>(StringComparer.Ordinal);
+                TapoDetectionMethod? successfulMethod = null;
 
                 foreach (var method in BuildAttemptOrder(preferredFirstMethod)) {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -380,6 +382,7 @@ namespace LocalCam.Networking {
                         }
 
                         MergeCandidates(aggregatedCandidates, executionResult.Candidates);
+                        MergeDetections(aggregatedDetections, executionResult.Detections);
                         var durationMs = (long)(DateTimeOffset.UtcNow - methodStartedAtUtc).TotalMilliseconds;
                         attemptedMethods.Add(new TapoDetectionMethodAttempt(
                             method,
@@ -392,30 +395,7 @@ namespace LocalCam.Networking {
                             var successMessage =
                                 $"Detected {executionResult.Detections.Count} {Pluralize(executionResult.Detections.Count, "camera")} using {GetMethodDisplayName(method)}.";
                             progress?.Report(new TapoCameraScanActivity(method, successMessage));
-
-                            var result = BuildScanResult(
-                                executionResult.Detections,
-                                subnetDiagnostics,
-                                enumeratedSubnetHosts.Length,
-                                arpSeedTable.Count,
-                                onvifHints?.Count ?? 0,
-                                tapoBroadcastHints?.Count ?? 0,
-                                aggregatedCandidates,
-                                method,
-                                attemptedMethods);
-
-                            JsonLogStore.Information(
-                                eventName: "camera_search_completed",
-                                message: "Local network scan completed.",
-                                category: "camera_search",
-                                data: new Dictionary<string, object?> {
-                                    ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds,
-                                    ["detectionCount"] = result.Detections.Count,
-                                    ["successfulMethod"] = method.ToString(),
-                                    ["attemptedMethods"] = attemptedMethods.Select(static a => a.Method.ToString()).ToArray()
-                                });
-
-                            return result;
+                            successfulMethod ??= method;
                         }
 
                         progress?.Report(new TapoCameraScanActivity(method, executionResult.StatusMessage));
@@ -454,24 +434,42 @@ namespace LocalCam.Networking {
                     }
                 }
 
+                var detections = aggregatedDetections.Values
+                    .OrderBy(static detection => IpToUInt32(detection.IpAddress))
+                    .ToArray();
                 var attemptedMethodNames = attemptedMethods
                     .Select(static attempt => GetMethodDisplayName(attempt.Method))
                     .ToArray();
-                var finalFailureMessage = attemptedMethodNames.Length == 0
-                    ? "No compatible camera detected."
-                    : $"No compatible camera detected. Tried: {string.Join(", ", attemptedMethodNames)}.";
-                progress?.Report(new TapoCameraScanActivity(null, finalFailureMessage));
-
                 var finalResult = BuildScanResult(
-                    Array.Empty<TapoCameraDetection>(),
+                    detections,
                     subnetDiagnostics,
                     enumeratedSubnetHosts.Length,
                     arpSeedTable.Count,
                     onvifHints?.Count ?? 0,
                     tapoBroadcastHints?.Count ?? 0,
                     aggregatedCandidates,
-                    successfulMethod: null,
+                    successfulMethod,
                     attemptedMethods);
+
+                if (finalResult.Detections.Count > 0) {
+                    JsonLogStore.Information(
+                        eventName: "camera_search_completed",
+                        message: "Local network scan completed.",
+                        category: "camera_search",
+                        data: new Dictionary<string, object?> {
+                            ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds,
+                            ["detectionCount"] = finalResult.Detections.Count,
+                            ["successfulMethod"] = finalResult.SuccessfulMethod?.ToString(),
+                            ["attemptedMethods"] = attemptedMethods.Select(static a => a.Method.ToString()).ToArray()
+                        });
+
+                    return finalResult;
+                }
+
+                var finalFailureMessage = attemptedMethodNames.Length == 0
+                    ? "No compatible camera detected."
+                    : $"No compatible camera detected. Tried: {string.Join(", ", attemptedMethodNames)}.";
+                progress?.Report(new TapoCameraScanActivity(null, finalFailureMessage));
 
                 JsonLogStore.Warning(
                     eventName: "camera_search_no_detections",
@@ -590,6 +588,18 @@ namespace LocalCam.Networking {
                     candidate.IsLikelyTapo && !existing.IsLikelyTapo ||
                     candidate.ConfidenceScore > existing.ConfidenceScore) {
                     aggregatedCandidates[key] = candidate;
+                }
+            }
+        }
+
+        private static void MergeDetections(
+            Dictionary<string, TapoCameraDetection> aggregatedDetections,
+            IReadOnlyList<TapoCameraDetection> detections) {
+            foreach (var detection in detections) {
+                var key = detection.IpAddress.ToString();
+                if (!aggregatedDetections.TryGetValue(key, out var existing) ||
+                    detection.ConfidenceScore > existing.ConfidenceScore) {
+                    aggregatedDetections[key] = detection;
                 }
             }
         }
@@ -879,7 +889,7 @@ namespace LocalCam.Networking {
                 discoveredViaTapoUnicast);
         }
 
-        private static CandidateEvaluation EvaluateCandidate(HostProbeResult probe, string? macAddress, string? hostName) {
+        internal static CandidateEvaluation EvaluateCandidate(HostProbeResult probe, string? macAddress, string? hostName) {
             var reasons = new List<string>();
             var score = 0d;
 
@@ -967,6 +977,12 @@ namespace LocalCam.Networking {
                 || probe.DiscoveredViaOnvif
                 || probe.DiscoveredViaTapoBroadcast
                 || probe.DiscoveredViaTapoUnicast;
+            var hasGenericCameraService =
+                hasRtsp
+                || hasOnvif
+                || probe.DiscoveredViaOnvif
+                || probe.DiscoveredViaTapoBroadcast
+                || probe.DiscoveredViaTapoUnicast;
             var hasTpLinkSignal = hasTpLinkMac || hostSuggestsTpLink || fingerprintSuggestsTpLink;
 
             var isLikely =
@@ -977,6 +993,7 @@ namespace LocalCam.Networking {
                 || (probe.DiscoveredViaTapoBroadcast && (hasRtsp || hasOnvif || hasWebManagement))
                 || (probe.DiscoveredViaTapoUnicast && (hasRtsp || hasOnvif || hasWebManagement || hasTpLinkSignal))
                 || (hasTapoControlPort && hasTpLinkSignal && !looksLikeRepeater)
+                || (hasGenericCameraService && score >= 2.0 && !looksLikeRepeater)
                 || (hasRtsp && hasWebManagement && score >= 2.5);
 
             if (looksLikeRepeater
@@ -1906,7 +1923,7 @@ namespace LocalCam.Networking {
             int PrefixLength,
             IReadOnlyList<IPAddress> GatewayAddresses);
 
-        private sealed record HostProbeResult(
+        internal sealed record HostProbeResult(
             IPAddress IpAddress,
             IReadOnlyList<int> OpenPorts,
             string? HttpFingerprint,
@@ -1919,7 +1936,7 @@ namespace LocalCam.Networking {
             IReadOnlyList<TapoCameraCandidateDiagnostics> Candidates,
             string StatusMessage);
 
-        private readonly record struct CandidateEvaluation(bool IsLikelyTapo, double Score, string Reason);
+        internal readonly record struct CandidateEvaluation(bool IsLikelyTapo, double Score, string Reason);
 
         private static string Pluralize(int count, string singular, string? plural = null) {
             return count == 1

@@ -29,7 +29,16 @@ namespace LocalCam.Services {
                 settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
                 return true;
             }
-            catch {
+            catch (Exception ex) {
+                JsonLogStore.Warning(
+                    eventName: "settings_load_failed",
+                    message: "Failed to load settings from disk.",
+                    category: "settings",
+                    data: new Dictionary<string, object?> {
+                        ["settingsPath"] = SettingsPath,
+                        ["exceptionType"] = ex.GetType().FullName,
+                        ["exceptionMessage"] = ex.Message
+                    });
                 settings = new LocalCamSettings();
                 return false;
             }

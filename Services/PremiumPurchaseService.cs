@@ -26,6 +26,14 @@ namespace LocalCam.Services {
 
             var storeContext = _storeContextProvider.TryGetStoreContext(_ownerWindowHandleProvider());
             if (storeContext is null) {
+                JsonLogStore.Warning(
+                    eventName: "premium_purchase_storecontext_unavailable",
+                    message: "Premium purchase could not obtain StoreContext.",
+                    category: "store",
+                    data: new Dictionary<string, object?> {
+                        ["premiumAddOnStoreId"] = _premiumAddOnStoreId,
+                        ["hasPackageIdentity"] = _storeContextProvider.IsPackaged
+                    });
                 return new PremiumPurchaseResult(
                     PremiumPurchaseOutcome.NotSupported,
                     "Microsoft Store purchase context is unavailable.");
@@ -44,7 +52,15 @@ namespace LocalCam.Services {
                     _ => new PremiumPurchaseResult(PremiumPurchaseOutcome.Failed, "Premium purchase failed.")
                 };
             }
-            catch {
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "premium_purchase_failed",
+                    message: "Premium purchase failed due to a Store API error.",
+                    category: "store",
+                    exception: ex,
+                    data: new Dictionary<string, object?> {
+                        ["premiumAddOnStoreId"] = _premiumAddOnStoreId
+                    });
                 return new PremiumPurchaseResult(
                     PremiumPurchaseOutcome.Failed,
                     "Premium purchase failed due to a Store API error.");

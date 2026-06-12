@@ -58,7 +58,17 @@ namespace LocalCam.Services {
                 }
                 return context;
             }
-            catch {
+            catch (Exception ex) {
+                JsonLogStore.Warning(
+                    eventName: "store_context_provider_failed",
+                    message: "StoreContext could not be created.",
+                    category: "store",
+                    data: new Dictionary<string, object?> {
+                        ["hasPackageIdentity"] = HasPackageIdentity,
+                        ["ownerWindowHandleProvided"] = ownerWindowHandle != IntPtr.Zero,
+                        ["exceptionType"] = ex.GetType().FullName,
+                        ["exceptionMessage"] = ex.Message
+                    });
                 return null;
             }
         }
