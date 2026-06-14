@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Windows.ApplicationModel;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -39,6 +40,12 @@ namespace LocalCam {
         }
 
         private sealed class StreamHealthState {
+            public long? LastTime { get; set; }
+            public double LastPosition { get; set; }
+            public int LastDisplayedPictures { get; set; }
+            public int LastDecodedVideo { get; set; }
+            public int LastReadBytes { get; set; }
+            public DateTimeOffset LastSampleAt { get; set; }
             public StreamLifecyclePhase LifecyclePhase { get; set; } = StreamLifecyclePhase.Stopped;
         }
 
@@ -77,6 +84,8 @@ namespace LocalCam {
         private const string PremiumAddOnStoreId = "9P9KCJ3NFZFT";
         private const string PremiumAddOnOfferToken = "localcam_premium_lifetime";
         private const int BasicConcurrentStreamLimit = 2;
+        private static readonly TimeSpan CameraMonitorCycleInterval = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan CameraMonitorRestartSettleDelay = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
                         private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
@@ -96,6 +105,10 @@ namespace LocalCam {
         private bool _layoutRetryPending;
         private bool _isSettingsDialogOpen;
         private int? _expandedCameraIndex;
+        private readonly object _cameraMonitorSync = new();
+        private CancellationTokenSource? _cameraMonitorCancellation;
+        private readonly SemaphoreSlim _cameraMonitorWakeSignal = new(0, 1);
+        private Task? _cameraMonitorTask;
         private IntPtr _mouseHookHandle;
         private IntPtr _lowLevelMouseHookHandle;
         private MouseHookProc? _mouseHookProc;
@@ -153,6 +166,7 @@ namespace LocalCam {
             Activated += MainWindow_Activated;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
+            SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
             LoadSettings();
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
@@ -831,6 +845,7 @@ namespace LocalCam {
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
+                RequestCameraMonitoring();
             }));
             mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
@@ -2094,7 +2109,7 @@ namespace LocalCam {
             UpdateActionButtons();
         }
 
-        private async Task<bool> StartSingleStreamAsync(int tileIndex) {
+        private async Task<bool> StartSingleStreamAsync(int tileIndex, bool updateStatus = true) {
             if (_libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
                 return false;
             }
@@ -2137,7 +2152,10 @@ namespace LocalCam {
                 if (mediaPlayer.Play(media)) {
                     MarkStreamStarted(tileIndex);
                     SetVideoSurfaceActive(tileIndex, isActive: true);
-                    StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
+                    if (updateStatus) {
+                        StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
+                    }
+                    RequestCameraMonitoring();
                     return true;
                 }
             }
@@ -2160,7 +2178,9 @@ namespace LocalCam {
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
             _streamStartOrder.Remove(tileIndex);
             _streamFailureReasons.TryAdd(tileIndex, "The media player rejected the RTSP stream.");
-            StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}.";
+            if (updateStatus) {
+                StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}.";
+            }
             return false;
         }
 
@@ -2247,6 +2267,269 @@ namespace LocalCam {
 
         private bool CanStartStream(int tileIndex) {
             return !IsStreamRunning(tileIndex) && !IsStreamTransitioning(tileIndex);
+        }
+
+        private void RequestCameraMonitoring() {
+            if (_isClosing || _libVlc is null) {
+                return;
+            }
+
+            lock (_cameraMonitorSync) {
+                if (_cameraMonitorTask is null || _cameraMonitorTask.IsCompleted) {
+                    _cameraMonitorCancellation?.Dispose();
+                    _cameraMonitorCancellation = new CancellationTokenSource();
+                    _cameraMonitorTask = RunCameraMonitoringLoopAsync(_cameraMonitorCancellation.Token);
+                    return;
+                }
+
+                if (_cameraMonitorWakeSignal.CurrentCount == 0) {
+                    _cameraMonitorWakeSignal.Release();
+                }
+            }
+        }
+
+        private async Task RunCameraMonitoringLoopAsync(CancellationToken cancellationToken) {
+            try {
+                await Task.Yield();
+                while (!cancellationToken.IsCancellationRequested) {
+                    var activeTileIndexes = await InvokeCameraMonitorOnUiThreadAsync(GetMonitoredTileIndexes, cancellationToken);
+                    if (activeTileIndexes.Length == 0) {
+                        await WaitForCameraMonitorDelayAsync(delay: null, cancellationToken);
+                        continue;
+                    }
+
+                    foreach (var tileIndex in activeTileIndexes) {
+                        if (cancellationToken.IsCancellationRequested) {
+                            break;
+                        }
+
+                        try {
+                            if (!await InvokeCameraMonitorOnUiThreadAsync(() => IsStreamFresh(tileIndex), cancellationToken)) {
+                                await InvokeCameraMonitorOnUiThreadAsync(
+                                    () => RestartCameraStreamAsync(tileIndex, cancellationToken),
+                                    cancellationToken);
+                            }
+                        }
+                        catch (OperationCanceledException) {
+                            throw;
+                        }
+                        catch (Exception ex) {
+                            JsonLogStore.Error(
+                                eventName: "camera_stream_monitor_tile_failed",
+                                message: "The camera stream monitor failed while inspecting a tile.",
+                                category: "camera_connect",
+                                exception: ex,
+                                data: new Dictionary<string, object?> {
+                                    ["cameraIndex"] = tileIndex + 1,
+                                    ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null
+                                });
+                        }
+                    }
+
+                    if (cancellationToken.IsCancellationRequested) {
+                        break;
+                    }
+
+                    if (await InvokeCameraMonitorOnUiThreadAsync(IsAnyStreamRunning, cancellationToken)) {
+                        await WaitForCameraMonitorDelayAsync(CameraMonitorCycleInterval, cancellationToken);
+                    }
+                }
+            }
+            catch (OperationCanceledException) {
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "camera_stream_monitor_failed",
+                    message: "The camera stream monitor failed unexpectedly.",
+                    category: "camera_connect",
+                    exception: ex);
+            }
+        }
+
+        private Task InvokeCameraMonitorOnUiThreadAsync(Action action, CancellationToken cancellationToken) {
+            if (Dispatcher.CheckAccess()) {
+                action();
+                return Task.CompletedTask;
+            }
+
+            return Dispatcher.InvokeAsync(action, DispatcherPriority.Background, cancellationToken).Task;
+        }
+
+        private Task<T> InvokeCameraMonitorOnUiThreadAsync<T>(Func<T> action, CancellationToken cancellationToken) {
+            if (Dispatcher.CheckAccess()) {
+                return Task.FromResult(action());
+            }
+
+            return Dispatcher.InvokeAsync(action, DispatcherPriority.Background, cancellationToken).Task;
+        }
+
+        private Task InvokeCameraMonitorOnUiThreadAsync(Func<Task> action, CancellationToken cancellationToken) {
+            if (Dispatcher.CheckAccess()) {
+                return action();
+            }
+
+            return Dispatcher.InvokeAsync(action, DispatcherPriority.Background, cancellationToken).Task.Unwrap();
+        }
+
+        private int[] GetMonitoredTileIndexes() {
+            return _streamStartOrder
+                .OrderBy(pair => pair.Value)
+                .Select(pair => pair.Key)
+                .Where(index => index >= 0 && index < _cameraTiles.Count && index < _detections.Count)
+                .Where(index => GetStreamLifecyclePhase(index) == StreamLifecyclePhase.Running)
+                .ToArray();
+        }
+
+        private bool IsStreamFresh(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+                return false;
+            }
+
+            var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+            if (mediaPlayer is null || !mediaPlayer.IsPlaying || mediaPlayer.State != VLCState.Playing || mediaPlayer.VoutCount == 0) {
+                return false;
+            }
+
+            var now = DateTimeOffset.Now;
+            if (!_streamHealthStates.TryGetValue(tileIndex, out var state)) {
+                state = new StreamHealthState();
+                _streamHealthStates[tileIndex] = state;
+                CaptureStreamSnapshot(mediaPlayer, state, now);
+                return true;
+            }
+
+            var currentTime = mediaPlayer.Time;
+            var currentPosition = mediaPlayer.Position;
+            var currentDisplayedPictures = state.LastDisplayedPictures;
+            var currentDecodedVideo = state.LastDecodedVideo;
+            var currentReadBytes = state.LastReadBytes;
+
+            using (var media = mediaPlayer.Media) {
+                if (media is not null) {
+                    var stats = media.Statistics;
+                    currentDisplayedPictures = stats.DisplayedPictures;
+                    currentDecodedVideo = stats.DecodedVideo;
+                    currentReadBytes = stats.ReadBytes;
+                }
+            }
+
+            var hasProgressed = !state.LastTime.HasValue ||
+                                currentTime != state.LastTime.Value ||
+                                Math.Abs(currentPosition - state.LastPosition) > 0.0001 ||
+                                currentDisplayedPictures > state.LastDisplayedPictures ||
+                                currentDecodedVideo > state.LastDecodedVideo ||
+                                currentReadBytes > state.LastReadBytes;
+
+            if (hasProgressed) {
+                state.LastTime = currentTime;
+                state.LastPosition = currentPosition;
+                state.LastDisplayedPictures = currentDisplayedPictures;
+                state.LastDecodedVideo = currentDecodedVideo;
+                state.LastReadBytes = currentReadBytes;
+                state.LastSampleAt = now;
+                return true;
+            }
+
+            if (state.LastSampleAt == default) {
+                CaptureStreamSnapshot(mediaPlayer, state, now);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void CaptureStreamSnapshot(VlcMediaPlayer mediaPlayer, StreamHealthState state, DateTimeOffset now) {
+            state.LastTime = mediaPlayer.Time;
+            state.LastPosition = mediaPlayer.Position;
+
+            using var media = mediaPlayer.Media;
+            if (media is not null) {
+                var stats = media.Statistics;
+                state.LastDisplayedPictures = stats.DisplayedPictures;
+                state.LastDecodedVideo = stats.DecodedVideo;
+                state.LastReadBytes = stats.ReadBytes;
+            }
+
+            state.LastSampleAt = now;
+        }
+
+        private async Task RestartCameraStreamAsync(int tileIndex, CancellationToken cancellationToken) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+                return;
+            }
+
+            if (GetStreamLifecyclePhase(tileIndex) != StreamLifecyclePhase.Running || !IsStreamRunning(tileIndex)) {
+                return;
+            }
+
+            var ipAddress = _detections[tileIndex].IpAddress.ToString();
+            var streamPath = NormalizeStreamPath(_settings.StreamPath);
+            JsonLogStore.Warning(
+                eventName: "camera_stream_monitor_stale_detected",
+                message: "A live stream stopped advancing and will be restarted.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = ipAddress,
+                    ["streamPath"] = streamPath
+                });
+
+            SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
+            StopSingleStream(tileIndex, updateStatus: false);
+
+            try {
+                await Task.Delay(CameraMonitorRestartSettleDelay, cancellationToken);
+            }
+            catch (OperationCanceledException) {
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested || _isClosing) {
+                return;
+            }
+
+            if (GetStreamLifecyclePhase(tileIndex) != StreamLifecyclePhase.Stopped) {
+                return;
+            }
+
+            if (await StartSingleStreamAsync(tileIndex, updateStatus: false)) {
+                JsonLogStore.Information(
+                    eventName: "camera_stream_monitor_restart_succeeded",
+                    message: "A stale live stream was restarted successfully.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["cameraIndex"] = tileIndex + 1,
+                        ["ipAddress"] = ipAddress,
+                        ["streamPath"] = streamPath
+                    });
+                return;
+            }
+
+            JsonLogStore.Warning(
+                eventName: "camera_stream_monitor_restart_failed",
+                message: "A stale live stream failed to restart.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = ipAddress,
+                    ["streamPath"] = streamPath
+                });
+        }
+
+        private async Task WaitForCameraMonitorDelayAsync(TimeSpan? delay, CancellationToken cancellationToken) {
+            using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var wakeTask = _cameraMonitorWakeSignal.WaitAsync(waitCancellation.Token);
+            var delayTask = delay.HasValue
+                ? Task.Delay(delay.Value, waitCancellation.Token)
+                : Task.Delay(-1, waitCancellation.Token);
+
+            try {
+                var completedTask = await Task.WhenAny(wakeTask, delayTask);
+                waitCancellation.Cancel();
+                await completedTask;
+            }
+            catch (OperationCanceledException) {
+            }
         }
 
         private int CountRunningStreams() {
@@ -3668,6 +3951,8 @@ namespace LocalCam {
         protected override void OnClosed(EventArgs e) {
             _isClosing = true;
             UninstallMouseHook();
+            SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
+            StopCameraMonitoring();
             _scanCancellation?.Cancel();
             ShutdownStreamingEngine();
             _storeUpdaterCts?.Cancel();
@@ -3684,6 +3969,7 @@ namespace LocalCam {
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
             _isClosing = true;
+            StopCameraMonitoring();
             _scanCancellation?.Cancel();
             PersistWindowBounds();
             _storeUpdaterCts?.Cancel();
@@ -3691,6 +3977,22 @@ namespace LocalCam {
             _storeUpdateProgressWindow?.CloseFromOwner();
             _storeUpdateProgressWindow = null;
             base.OnClosing(e);
+        }
+
+        private void SystemEvents_PowerModeChanged(object? sender, PowerModeChangedEventArgs e) {
+            _ = sender;
+
+            if (_isClosing || e.Mode != PowerModes.Resume) {
+                return;
+            }
+
+            _ = Dispatcher.BeginInvoke(new Action(RequestCameraMonitoring), DispatcherPriority.Background);
+        }
+
+        private void StopCameraMonitoring() {
+            lock (_cameraMonitorSync) {
+                _cameraMonitorCancellation?.Cancel();
+            }
         }
 
         private void Window_LocationChanged(object? sender, EventArgs e) {
