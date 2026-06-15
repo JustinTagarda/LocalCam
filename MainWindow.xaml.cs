@@ -63,10 +63,14 @@ namespace LocalCam {
         private const int WmMove = 0x0003;
         private const int WmSize = 0x0005;
         private const int WmGetMinMaxInfo = 0x0024;
+        private const int WmPowerBroadcast = 0x0218;
         private const int WmWindowPosChanged = 0x0047;
         private const int WmLButtonDown = 0x0201;
         private const int WmLButtonUp = 0x0202;
         private const int WmMoving = 0x0216;
+        private const int PbtApmResumeAutomatic = 0x0012;
+        private const int PbtApmResumeSuspend = 0x0007;
+        private const int PbtApmResumeCritical = 0x0006;
         private const int WhMouse = 7;
         private const int WhMouseLl = 14;
         private const int HcAction = 0;
@@ -840,12 +844,19 @@ namespace LocalCam {
             };
             mediaPlayer.Playing += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
+                var wasRestarting = false;
                 if (tileIndex >= 0) {
+                    wasRestarting = GetStreamLifecyclePhase(tileIndex) == StreamLifecyclePhase.Restarting;
                     _streamFailureReasons.Remove(tileIndex);
+                    if (wasRestarting) {
+                        MarkStreamStarted(tileIndex);
+                    }
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
-                RequestCameraMonitoring();
+                if (tileIndex >= 0 && !wasRestarting) {
+                    RequestCameraMonitoring();
+                }
             }));
             mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
@@ -1594,6 +1605,10 @@ namespace LocalCam {
         }
 
         private async Task ShowBasicFeatureGateDialogAsync(string blockedReason) {
+            if (!_storeContextProvider.IsPackaged) {
+                return;
+            }
+
             var message = $"{blockedReason} Upgrade to Premium for full access.";
             var dialog = new BasicFeatureGateDialog(message) {
                 Owner = this
@@ -1605,6 +1620,9 @@ namespace LocalCam {
             }
         }
 
+        private bool IsBasicPremiumGatingEnabled() {
+            return _storeContextProvider.IsPackaged && !_isPremiumOwned;
+        }
 
         private void UpdateActionButtons() {
             var anyPlaying = IsAnyStreamRunning();
@@ -1903,7 +1921,7 @@ namespace LocalCam {
             var username = _settings.RtspUsername.Trim();
             var password = _settings.RtspPassword;
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
-            var isBasicMode = !_isPremiumOwned;
+            var isBasicMode = IsBasicPremiumGatingEnabled();
             var remainingBasicSlots = isBasicMode ? Math.Max(0, BasicConcurrentStreamLimit - CountActiveStreams()) : int.MaxValue;
 
             if (!HasValidStreamStartSettings(username, password, _settings.StreamPath)) {
@@ -2109,7 +2127,7 @@ namespace LocalCam {
             UpdateActionButtons();
         }
 
-        private async Task<bool> StartSingleStreamAsync(int tileIndex, bool updateStatus = true) {
+        private async Task<bool> StartSingleStreamAsync(int tileIndex, bool updateStatus = true, bool requestMonitorWake = true, bool isMonitorRecovery = false) {
             if (_libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
                 return false;
             }
@@ -2118,7 +2136,7 @@ namespace LocalCam {
                 return false;
             }
 
-            if (!_isPremiumOwned && CountActiveStreams() >= BasicConcurrentStreamLimit) {
+            if (IsBasicPremiumGatingEnabled() && CountActiveStreams() >= BasicConcurrentStreamLimit) {
                 StreamingStatusText.Text = $"Basic supports up to {BasicConcurrentStreamLimit} active live streams.";
                 await ShowBasicFeatureGateDialogAsync($"Basic mode supports up to {BasicConcurrentStreamLimit} active live streams at a time.");
                 return false;
@@ -2140,7 +2158,7 @@ namespace LocalCam {
             }
 
             try {
-                SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Starting);
+                SetStreamLifecyclePhase(tileIndex, isMonitorRecovery ? StreamLifecyclePhase.Restarting : StreamLifecyclePhase.Starting);
                 EnsureVideoSurfaceAttached(tileIndex);
 
                 using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
@@ -2150,12 +2168,16 @@ namespace LocalCam {
                 media.AddOption(":clock-synchro=0");
 
                 if (mediaPlayer.Play(media)) {
-                    MarkStreamStarted(tileIndex);
+                    if (!isMonitorRecovery) {
+                        MarkStreamStarted(tileIndex);
+                    }
                     SetVideoSurfaceActive(tileIndex, isActive: true);
                     if (updateStatus) {
                         StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
                     }
-                    RequestCameraMonitoring();
+                    if (requestMonitorWake) {
+                        RequestCameraMonitoring();
+                    }
                     return true;
                 }
             }
@@ -2492,7 +2514,7 @@ namespace LocalCam {
                 return;
             }
 
-            if (await StartSingleStreamAsync(tileIndex, updateStatus: false)) {
+            if (await StartSingleStreamAsync(tileIndex, updateStatus: false, requestMonitorWake: false, isMonitorRecovery: true)) {
                 JsonLogStore.Information(
                     eventName: "camera_stream_monitor_restart_succeeded",
                     message: "A stale live stream was restarted successfully.",
@@ -2677,7 +2699,7 @@ namespace LocalCam {
                     return;
                 }
 
-                if (!_isPremiumOwned) {
+                if (IsBasicPremiumGatingEnabled()) {
                     var remaining = GetBasicRecordingRemaining();
                     if (remaining <= TimeSpan.Zero) {
                         ReportRecordingActivity("Basic daily recording limit reached (30 minutes).");
@@ -2758,7 +2780,7 @@ namespace LocalCam {
 
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
             var recordingPath = CreateUniqueRecordingPath(targetDirectory, tileIndex, segmentNumber);
-            var basicRemaining = !_isPremiumOwned ? GetBasicRecordingRemaining() : TimeSpan.Zero;
+            var basicRemaining = IsBasicPremiumGatingEnabled() ? GetBasicRecordingRemaining() : TimeSpan.Zero;
 
             try {
                 await Task.Run(() => System.IO.Directory.CreateDirectory(targetDirectory));
@@ -2899,7 +2921,7 @@ namespace LocalCam {
 
             if (tileIndex is int stoppedTileIndex) {
                 var duration = startedAt.HasValue ? DateTimeOffset.Now - startedAt.Value : TimeSpan.Zero;
-                if (!_isPremiumOwned && duration > TimeSpan.Zero) {
+                if (IsBasicPremiumGatingEnabled() && duration > TimeSpan.Zero) {
                     AddBasicRecordingUsage(duration);
                 }
                 LogRecordingInfo(
@@ -2981,7 +3003,7 @@ namespace LocalCam {
 
         private void StartBasicRecordingDailyLimitTimerIfNeeded(TimeSpan remaining) {
             StopBasicRecordingDailyLimitTimer();
-            if (_isPremiumOwned || remaining <= TimeSpan.Zero) {
+            if (!IsBasicPremiumGatingEnabled() || remaining <= TimeSpan.Zero) {
                 return;
             }
 
@@ -3006,6 +3028,9 @@ namespace LocalCam {
             _ = sender;
             _ = e;
             StopBasicRecordingDailyLimitTimer();
+            if (!IsBasicPremiumGatingEnabled()) {
+                return;
+            }
             if (_activeRecordingTileIndex is null) {
                 return;
             }
@@ -3938,14 +3963,63 @@ namespace LocalCam {
         private static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
-            _ = wParam;
-
             if (msg == WmGetMinMaxInfo) {
                 ApplyMonitorWorkAreaToMinMaxInfo(hwnd, lParam);
                 handled = false;
+                return IntPtr.Zero;
+            }
+
+            if (msg == WmPowerBroadcast && TryLogPowerBroadcastResume(hwnd, wParam)) {
+                handled = true;
+                return IntPtr.Zero;
             }
 
             return IntPtr.Zero;
+        }
+
+        private bool TryLogPowerBroadcastResume(IntPtr hwnd, IntPtr wParam) {
+            var powerBroadcastReason = unchecked((int)wParam.ToInt64());
+            var resumeKind = powerBroadcastReason switch {
+                PbtApmResumeAutomatic => "PBT_APMRESUMEAUTOMATIC",
+                PbtApmResumeSuspend => "PBT_APMRESUMESUSPEND",
+                PbtApmResumeCritical => "PBT_APMRESUMECRITICAL",
+                _ => null
+            };
+
+            if (resumeKind is null) {
+                return false;
+            }
+
+            LogResumeNotification(
+                source: "WM_POWERBROADCAST",
+                resumeKind: resumeKind,
+                data: new Dictionary<string, object?> {
+                    ["wParam"] = powerBroadcastReason,
+                    ["windowHandle"] = hwnd == IntPtr.Zero ? null : hwnd.ToInt64()
+                });
+            return true;
+        }
+
+        private void LogResumeNotification(
+            string source,
+            string resumeKind,
+            IReadOnlyDictionary<string, object?>? data = null) {
+            var payload = new Dictionary<string, object?> {
+                ["source"] = source,
+                ["resumeKind"] = resumeKind
+            };
+
+            if (data is not null) {
+                foreach (var pair in data) {
+                    payload[pair.Key] = pair.Value;
+                }
+            }
+
+            JsonLogStore.Information(
+                eventName: "power_resume_observed",
+                message: "A system resume notification was observed.",
+                category: "app",
+                data: payload);
         }
 
         protected override void OnClosed(EventArgs e) {
@@ -3986,7 +4060,12 @@ namespace LocalCam {
                 return;
             }
 
-            _ = Dispatcher.BeginInvoke(new Action(RequestCameraMonitoring), DispatcherPriority.Background);
+            LogResumeNotification(
+                source: "SystemEvents.PowerModeChanged",
+                resumeKind: "PowerModes.Resume",
+                data: new Dictionary<string, object?> {
+                    ["mode"] = e.Mode.ToString()
+                });
         }
 
         private void StopCameraMonitoring() {
