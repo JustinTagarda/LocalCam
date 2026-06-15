@@ -5,7 +5,6 @@ using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using Windows.ApplicationModel;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -170,7 +169,6 @@ namespace LocalCam {
             Activated += MainWindow_Activated;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
-            SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
             LoadSettings();
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
@@ -3997,6 +3995,7 @@ namespace LocalCam {
                     ["wParam"] = powerBroadcastReason,
                     ["windowHandle"] = hwnd == IntPtr.Zero ? null : hwnd.ToInt64()
                 });
+            RequestCameraMonitoring();
             return true;
         }
 
@@ -4025,7 +4024,6 @@ namespace LocalCam {
         protected override void OnClosed(EventArgs e) {
             _isClosing = true;
             UninstallMouseHook();
-            SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
             StopCameraMonitoring();
             _scanCancellation?.Cancel();
             ShutdownStreamingEngine();
@@ -4051,21 +4049,6 @@ namespace LocalCam {
             _storeUpdateProgressWindow?.CloseFromOwner();
             _storeUpdateProgressWindow = null;
             base.OnClosing(e);
-        }
-
-        private void SystemEvents_PowerModeChanged(object? sender, PowerModeChangedEventArgs e) {
-            _ = sender;
-
-            if (_isClosing || e.Mode != PowerModes.Resume) {
-                return;
-            }
-
-            LogResumeNotification(
-                source: "SystemEvents.PowerModeChanged",
-                resumeKind: "PowerModes.Resume",
-                data: new Dictionary<string, object?> {
-                    ["mode"] = e.Mode.ToString()
-                });
         }
 
         private void StopCameraMonitoring() {
