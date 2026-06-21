@@ -26,6 +26,7 @@ namespace LocalCam {
             public required Border Badge { get; init; }
             public required TextBlock Label { get; init; }
             public required VideoView VideoView { get; init; }
+            public required Border VideoBlanker { get; init; }
             public required Button ExpandButton { get; init; }
             public required Button CollapseButton { get; init; }
             public required Button PlayButton { get; init; }
@@ -67,6 +68,7 @@ namespace LocalCam {
         private const int WmLButtonDown = 0x0201;
         private const int WmLButtonUp = 0x0202;
         private const int WmMoving = 0x0216;
+        private const int PbtApmSuspend = 0x0004;
         private const int PbtApmResumeAutomatic = 0x0012;
         private const int PbtApmResumeSuspend = 0x0007;
         private const int PbtApmResumeCritical = 0x0006;
@@ -112,6 +114,8 @@ namespace LocalCam {
         private CancellationTokenSource? _cameraMonitorCancellation;
         private readonly SemaphoreSlim _cameraMonitorWakeSignal = new(0, 1);
         private Task? _cameraMonitorTask;
+        private readonly object _powerTransitionSync = new();
+        private List<int> _suspendedPlayingTileIndexes = new();
         private IntPtr _mouseHookHandle;
         private IntPtr _lowLevelMouseHookHandle;
         private MouseHookProc? _mouseHookProc;
@@ -454,6 +458,14 @@ namespace LocalCam {
             };
             videoHost.Child = videoView;
 
+            var videoBlanker = new Border {
+                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#202736")!,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+
             var badge = new Border {
                 Style = (Style)FindResource("CameraBadgeStyle"),
                 VerticalAlignment = VerticalAlignment.Top,
@@ -597,6 +609,8 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
+            videoOverlay.Children.Add(videoBlanker);
+            Panel.SetZIndex(videoBlanker, 0);
             var overlayToolbarButtons = new StackPanel {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -620,6 +634,7 @@ namespace LocalCam {
             };
             overlayToolbar.Child = overlayToolbarButtons;
             videoOverlay.Children.Add(overlayToolbar);
+            Panel.SetZIndex(overlayToolbar, 1);
             var recordingElapsedText = new TextBlock {
                 Foreground = System.Windows.Media.Brushes.White,
                 FontSize = 12,
@@ -637,6 +652,7 @@ namespace LocalCam {
                 Visibility = Visibility.Collapsed
             };
             videoOverlay.Children.Add(recordingBadge);
+            Panel.SetZIndex(recordingBadge, 1);
             videoView.Content = videoOverlay;
 
             root.Children.Add(placeholder);
@@ -653,6 +669,7 @@ namespace LocalCam {
                 Badge = badge,
                 Label = label,
                 VideoView = videoView,
+                VideoBlanker = videoBlanker,
                 ExpandButton = expandButton,
                 CollapseButton = collapseButton,
                 PlayButton = playButton,
@@ -958,6 +975,7 @@ namespace LocalCam {
             }
 
             tile.VideoView.Visibility = Visibility.Visible;
+            tile.VideoBlanker.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             UpdateTileButtonStates();
@@ -3967,12 +3985,39 @@ namespace LocalCam {
                 return IntPtr.Zero;
             }
 
-            if (msg == WmPowerBroadcast && TryLogPowerBroadcastResume(hwnd, wParam)) {
-                handled = true;
-                return IntPtr.Zero;
+            if (msg == WmPowerBroadcast) {
+                if (TryLogPowerBroadcastSuspend(hwnd, wParam) || TryLogPowerBroadcastResume(hwnd, wParam)) {
+                    handled = true;
+                    return IntPtr.Zero;
+                }
             }
 
             return IntPtr.Zero;
+        }
+
+        private bool TryLogPowerBroadcastSuspend(IntPtr hwnd, IntPtr wParam) {
+            var powerBroadcastReason = unchecked((int)wParam.ToInt64());
+            if (powerBroadcastReason != PbtApmSuspend) {
+                return false;
+            }
+
+            var suspendedTileIndexes = GetRunningStreamTileIndexes();
+            lock (_powerTransitionSync) {
+                _suspendedPlayingTileIndexes = suspendedTileIndexes.ToList();
+            }
+
+            LogPowerNotification(
+                eventName: "power_suspend_observed",
+                message: "A system suspend notification was observed.",
+                notificationKindName: "suspendKind",
+                notificationKind: "PBT_APMSUSPEND",
+                hwnd: hwnd,
+                powerBroadcastReason: powerBroadcastReason,
+                additionalData: new Dictionary<string, object?> {
+                    ["suspendedCameraCount"] = suspendedTileIndexes.Length,
+                    ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
+                });
+            return true;
         }
 
         private bool TryLogPowerBroadcastResume(IntPtr hwnd, IntPtr wParam) {
@@ -3988,37 +4033,157 @@ namespace LocalCam {
                 return false;
             }
 
-            LogResumeNotification(
-                source: "WM_POWERBROADCAST",
-                resumeKind: resumeKind,
-                data: new Dictionary<string, object?> {
-                    ["wParam"] = powerBroadcastReason,
-                    ["windowHandle"] = hwnd == IntPtr.Zero ? null : hwnd.ToInt64()
-                });
-            RequestCameraMonitoring();
+            LogPowerNotification(
+                eventName: "power_resume_observed",
+                message: "A system resume notification was observed.",
+                notificationKindName: "resumeKind",
+                notificationKind: resumeKind,
+                hwnd: hwnd,
+                powerBroadcastReason: powerBroadcastReason);
+            _ = RecoverSuspendedStreamsAfterResumeAsync();
             return true;
         }
 
-        private void LogResumeNotification(
-            string source,
-            string resumeKind,
-            IReadOnlyDictionary<string, object?>? data = null) {
+        private void LogPowerNotification(
+            string eventName,
+            string message,
+            string notificationKindName,
+            string notificationKind,
+            IntPtr hwnd,
+            int powerBroadcastReason,
+            IReadOnlyDictionary<string, object?>? additionalData = null) {
             var payload = new Dictionary<string, object?> {
-                ["source"] = source,
-                ["resumeKind"] = resumeKind
+                ["source"] = "WM_POWERBROADCAST",
+                [notificationKindName] = notificationKind,
+                ["wParam"] = powerBroadcastReason,
+                ["windowHandle"] = hwnd == IntPtr.Zero ? null : hwnd.ToInt64()
             };
 
-            if (data is not null) {
-                foreach (var pair in data) {
+            if (additionalData is not null) {
+                foreach (var pair in additionalData) {
                     payload[pair.Key] = pair.Value;
                 }
             }
 
             JsonLogStore.Information(
-                eventName: "power_resume_observed",
-                message: "A system resume notification was observed.",
+                eventName: eventName,
+                message: message,
                 category: "app",
                 data: payload);
+        }
+
+        private int[] GetRunningStreamTileIndexes() {
+            return _streamStartOrder
+                .OrderBy(pair => pair.Value)
+                .Select(pair => pair.Key)
+                .Where(index => index >= 0 && index < _cameraTiles.Count && index < _detections.Count)
+                .Where(IsStreamRunning)
+                .ToArray();
+        }
+
+        private async Task RecoverSuspendedStreamsAfterResumeAsync() {
+            int[] suspendedTileIndexes;
+            lock (_powerTransitionSync) {
+                if (_suspendedPlayingTileIndexes.Count == 0) {
+                    RequestCameraMonitoring();
+                    return;
+                }
+
+                suspendedTileIndexes = _suspendedPlayingTileIndexes.ToArray();
+                _suspendedPlayingTileIndexes.Clear();
+            }
+
+            if (_isClosing || _libVlc is null) {
+                return;
+            }
+
+            var username = _settings.RtspUsername.Trim();
+            var password = _settings.RtspPassword;
+            if (!HasValidStreamStartSettings(username, password, _settings.StreamPath)) {
+                JsonLogStore.Warning(
+                    eventName: "camera_stream_resume_recovery_skipped",
+                    message: "System resume recovery was skipped because RTSP settings are invalid.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["suspendedCameraCount"] = suspendedTileIndexes.Length,
+                        ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
+                    });
+                RequestCameraMonitoring();
+                return;
+            }
+
+            try {
+                await Task.Delay(CameraMonitorRestartSettleDelay);
+            }
+            catch (OperationCanceledException) {
+                return;
+            }
+
+            if (_isClosing) {
+                return;
+            }
+
+            var restartedTileIndexes = new List<int>();
+            var failedTileIndexes = new List<int>();
+
+            JsonLogStore.Information(
+                eventName: "camera_stream_resume_recovery_started",
+                message: "Recovering streams after system resume.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["suspendedCameraCount"] = suspendedTileIndexes.Length,
+                    ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
+                });
+
+            foreach (var tileIndex in suspendedTileIndexes) {
+                if (_isClosing) {
+                    break;
+                }
+
+                if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+                    continue;
+                }
+
+                if (IsStreamRunning(tileIndex)) {
+                    continue;
+                }
+
+                if (await StartSingleStreamAsync(tileIndex, updateStatus: false, requestMonitorWake: false, isMonitorRecovery: true)) {
+                    restartedTileIndexes.Add(tileIndex);
+                }
+                else {
+                    failedTileIndexes.Add(tileIndex);
+                }
+            }
+
+            RequestCameraMonitoring();
+
+            if (restartedTileIndexes.Count == 0 && failedTileIndexes.Count == 0) {
+                return;
+            }
+
+            if (failedTileIndexes.Count == 0) {
+                JsonLogStore.Information(
+                    eventName: "camera_stream_resume_recovery_completed",
+                    message: "System resume recovery completed successfully.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["restartedCameraCount"] = restartedTileIndexes.Count,
+                        ["restartedCameraIndexes"] = restartedTileIndexes.Select(index => index + 1).ToArray()
+                    });
+            }
+            else {
+                JsonLogStore.Warning(
+                    eventName: "camera_stream_resume_recovery_completed_with_failures",
+                    message: "System resume recovery completed with one or more failures.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["restartedCameraCount"] = restartedTileIndexes.Count,
+                        ["restartedCameraIndexes"] = restartedTileIndexes.Select(index => index + 1).ToArray(),
+                        ["failedCameraCount"] = failedTileIndexes.Count,
+                        ["failedCameraIndexes"] = failedTileIndexes.Select(index => index + 1).ToArray()
+                    });
+            }
         }
 
         protected override void OnClosed(EventArgs e) {

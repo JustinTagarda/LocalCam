@@ -6,7 +6,7 @@
         Title="LocalCam - Network Camera Viewer"
         Height="722"
         Width="980"
-        MinHeight="504"
+        MinHeight="400"
         MinWidth="579.3333333333334"
         WindowStyle="None"
         AllowsTransparency="True"
