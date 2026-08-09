@@ -641,7 +641,7 @@ namespace LocalCam {
             videoOverlay.Children.Add(overlayToolbar);
             Panel.SetZIndex(overlayToolbar, 1);
             var recordingElapsedText = new TextBlock {
-                Foreground = System.Windows.Media.Brushes.White,
+                Foreground = AppThemeService.GetBrush("StopBrush"),
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 Text = "REC 00:00"
@@ -708,7 +708,7 @@ namespace LocalCam {
 
         private static FrameworkElement CreateStopButtonContent() {
             return new Rectangle {
-                Fill = System.Windows.Media.Brushes.White,
+                Fill = AppThemeService.GetBrush("StopBrush"),
                 Width = 11,
                 Height = 11
             };
@@ -724,7 +724,7 @@ namespace LocalCam {
                 Height = 10,
                 RadiusX = 2,
                 RadiusY = 2,
-                Stroke = System.Windows.Media.Brushes.White,
+                Stroke = AppThemeService.GetBrush("StopBrush"),
                 StrokeThickness = 1.4,
                 Fill = System.Windows.Media.Brushes.Transparent,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -733,7 +733,7 @@ namespace LocalCam {
             root.Children.Add(new Ellipse {
                 Width = 4.5,
                 Height = 4.5,
-                Stroke = System.Windows.Media.Brushes.White,
+                Stroke = AppThemeService.GetBrush("StopBrush"),
                 StrokeThickness = 1.4,
                 Fill = System.Windows.Media.Brushes.Transparent,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -752,7 +752,7 @@ namespace LocalCam {
                         Width = 12,
                         Height = 12,
                         Fill = AppThemeService.GetBrush("StopBrush"),
-                        Stroke = System.Windows.Media.Brushes.White,
+                        Stroke = AppThemeService.GetBrush("StopBrush"),
                         StrokeThickness = 1.2,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
@@ -784,7 +784,7 @@ namespace LocalCam {
                 return new System.Windows.Shapes.Path {
                     Data = ExpandButtonGeometry,
                     Fill = System.Windows.Media.Brushes.Transparent,
-                    Stroke = System.Windows.Media.Brushes.White,
+                    Stroke = AppThemeService.GetBrush("StopBrush"),
                     StrokeThickness = 1.6,
                     StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
                     StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,

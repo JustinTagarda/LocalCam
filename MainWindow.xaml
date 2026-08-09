@@ -17,7 +17,7 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <Window.Resources>
-        <SolidColorBrush x:Key="TitleBarIconBrush" Color="#E8EEF5" />
+        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
 
         <Style x:Key="PanelTextBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
@@ -63,7 +63,7 @@
         </Style>
 
         <Style x:Key="PanelCheckBoxStyle" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="#E8EEF5" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Template">
@@ -98,7 +98,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Indicator" Property="Background" Value="#365070" />
+                                <Setter TargetName="Indicator" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
                                 <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
@@ -111,8 +111,8 @@
         </Style>
 
         <Style x:Key="CameraCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="#202736" />
-            <Setter Property="BorderBrush" Value="#2D3648" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="ClipToBounds" Value="True" />
@@ -128,13 +128,13 @@
             <Setter Property="Margin" Value="4" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="ClipToBounds" Value="True" />
-            <Setter Property="Background" Value="#202736" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
         </Style>
 
         <Style x:Key="CameraBadgeStyle" TargetType="Border">
             <Setter Property="Margin" Value="8,8,8,6" />
             <Setter Property="Padding" Value="6,3" />
-            <Setter Property="Background" Value="#880B0F17" />
+            <Setter Property="Background" Value="{DynamicResource OverlayBackgroundBrush}" />
             <Setter Property="CornerRadius" Value="4" />
         </Style>
 
@@ -175,15 +175,15 @@
         </Style>
 
         <Style x:Key="CameraPlaceholderStyle" TargetType="Border">
-            <Setter Property="Background" Value="#202736" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
             <Setter Property="Margin" Value="8,0,8,8" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
 
         <Style x:Key="AppStatusUpgradeButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="Background" Value="#2E6DDE" />
-            <Setter Property="BorderBrush" Value="#2E6DDE" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="4,1,4,1" />
             <Setter Property="Margin" Value="6,1,0,1" />
@@ -201,10 +201,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#3A7AE8" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#2760C8" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5" />
@@ -217,8 +217,8 @@
 
         <Style x:Key="AppStatusUpdateButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="Background" Value="#2E6DDE" />
-            <Setter Property="BorderBrush" Value="#2E6DDE" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="4,1,4,1" />
             <Setter Property="Margin" Value="6,1,0,1" />
@@ -236,10 +236,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#3A7AE8" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#2760C8" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5" />
@@ -403,7 +403,7 @@
                                     Click="UpdateButton_Click">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <Path Data="M6,1 L6,7 M3.5,4.5 L6,7 L8.5,4.5 M2,8.5 L10,8.5 L10,11 L2,11 Z"
-                                          Stroke="White"
+                                          Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
                                           Fill="Transparent"
                                           StrokeThickness="1.1"
                                           StrokeStartLineCap="Round"
@@ -414,7 +414,7 @@
                                           Stretch="Fill"
                                           Margin="0,0,4,0" />
                                     <TextBlock Text="Update"
-                                               Foreground="White"
+                                               Foreground="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
                                                FontWeight="Normal"
                                                VerticalAlignment="Center" />
                                 </StackPanel>

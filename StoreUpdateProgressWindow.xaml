@@ -11,10 +11,10 @@
         ShowInTaskbar="False"
         Icon="pack://application:,,,/Assets/icon.ico"
         WindowStyle="ToolWindow"
-        Background="#101722">
+        Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}">
     <Border Margin="0"
-            Background="#101722"
-            BorderBrush="#2A3242"
+            Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+            BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}"
             BorderThickness="1">
         <Grid Margin="14">
             <Grid.RowDefinitions>
@@ -27,14 +27,14 @@
             </Grid.RowDefinitions>
 
             <TextBlock Text="Microsoft Store update"
-                       Foreground="#E8EEF5"
+                       Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
                        FontSize="14"
                        FontWeight="SemiBold"
                        Margin="0,0,0,10" />
 
             <TextBlock x:Name="PhaseTextBlock"
                        Grid.Row="1"
-                       Foreground="#E8EEF5"
+                       Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
                        FontSize="12"
                        Text="Preparing"
                        Margin="0,0,0,6" />
@@ -49,7 +49,7 @@
 
             <TextBlock x:Name="DetailTextBlock"
                        Grid.Row="3"
-                       Foreground="#8FA2BE"
+                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
                        FontSize="11"
                        TextWrapping="Wrap"
                        Margin="0,0,0,4"
@@ -57,7 +57,7 @@
 
             <TextBlock x:Name="ResultTextBlock"
                        Grid.Row="4"
-                       Foreground="#8FA2BE"
+                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
                        FontSize="11"
                        TextWrapping="Wrap"
                        VerticalAlignment="Top"
