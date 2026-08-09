@@ -23,6 +23,7 @@ namespace LocalCam {
             StreamPathTextBox.Text = NormalizeStreamPath(settings.StreamPath);
             AutoStartWhenConnectedCheckBox.IsChecked = settings.AutoStreamVideo;
             AutoDetectOnStartupCheckBox.IsChecked = settings.AutoDetectOnStartup;
+            ThemePreferenceComboBox.SelectedValue = settings.ThemePreference.ToString();
             _snapshotFolderPathValue = NormalizeSnapshotSaveFolder(settings.SnapshotSaveFolder);
             _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
             RefreshSnapshotFolderDisplay();
@@ -121,6 +122,12 @@ namespace LocalCam {
             UpdateCommitState();
         }
 
+        private void ThemePreferenceComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) {
+            _ = sender;
+            _ = e;
+            UpdateCommitState();
+        }
+
         private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
             if (e.Key == System.Windows.Input.Key.Escape) {
                 e.Handled = true;
@@ -216,6 +223,7 @@ namespace LocalCam {
                 StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
                 AutoStreamVideo = AutoStartWhenConnectedCheckBox.IsChecked == true,
                 AutoDetectOnStartup = AutoDetectOnStartupCheckBox.IsChecked == true,
+                ThemePreference = ParseThemePreference(ThemePreferenceComboBox.SelectedValue as string),
                 SnapshotSaveFolder = _snapshotFolderPathValue,
                 RecordingSaveFolder = _recordingFolderPathValue,
                 LastSuccessfulDetectionMethod = _initialSettings.LastSuccessfulDetectionMethod,
@@ -329,6 +337,12 @@ namespace LocalCam {
             }
         }
 
+        private static AppThemePreference ParseThemePreference(string? value) {
+            return Enum.TryParse(value, ignoreCase: true, out AppThemePreference preference)
+                ? preference
+                : AppThemePreference.System;
+        }
+
         private static bool SettingsEqual(LocalCamSettings a, LocalCamSettings b) {
             return string.Equals(a.RtspUsername, b.RtspUsername, StringComparison.Ordinal) &&
                    string.Equals(a.RtspPassword, b.RtspPassword, StringComparison.Ordinal) &&
@@ -337,6 +351,7 @@ namespace LocalCam {
                    string.Equals(NormalizeRecordingSaveFolder(a.RecordingSaveFolder), NormalizeRecordingSaveFolder(b.RecordingSaveFolder), StringComparison.Ordinal) &&
                    a.AutoStreamVideo == b.AutoStreamVideo &&
                    a.AutoDetectOnStartup == b.AutoDetectOnStartup &&
+                   a.ThemePreference == b.ThemePreference &&
                    string.Equals(a.LastSuccessfulDetectionMethod, b.LastSuccessfulDetectionMethod, StringComparison.Ordinal) &&
                    a.MainWindowLeft == b.MainWindowLeft &&
                    a.MainWindowTop == b.MainWindowTop &&
@@ -351,6 +366,7 @@ namespace LocalCam {
                 StreamPath = settings.StreamPath,
                 AutoStreamVideo = settings.AutoStreamVideo,
                 AutoDetectOnStartup = settings.AutoDetectOnStartup,
+                ThemePreference = settings.ThemePreference,
                 SnapshotSaveFolder = settings.SnapshotSaveFolder,
                 RecordingSaveFolder = settings.RecordingSaveFolder,
                 LastSuccessfulDetectionMethod = settings.LastSuccessfulDetectionMethod,

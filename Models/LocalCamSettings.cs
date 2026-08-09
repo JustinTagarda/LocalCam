@@ -1,10 +1,17 @@
 namespace LocalCam.Models {
+    public enum AppThemePreference {
+        System,
+        Light,
+        Dark
+    }
+
     public sealed class LocalCamSettings {
         public string RtspUsername { get; set; } = string.Empty;
         public string RtspPassword { get; set; } = string.Empty;
         public string StreamPath { get; set; } = "stream1";
         public bool AutoStreamVideo { get; set; } = true;
         public bool AutoDetectOnStartup { get; set; } = true;
+        public AppThemePreference ThemePreference { get; set; } = AppThemePreference.System;
         public string? SnapshotSaveFolder { get; set; }
         public string? RecordingSaveFolder { get; set; }
         public string? LastSuccessfulDetectionMethod { get; set; }

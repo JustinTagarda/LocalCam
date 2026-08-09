@@ -34,10 +34,12 @@ flowchart TD
 
 - `App.xaml.cs`: application bootstrap, diagnostics initialization, and shutdown coordination.
 - `MainWindow.xaml(.cs)`: dashboard, discovery lifecycle, tile state, playback, snapshots, recording, status, Store UI orchestration, and cleanup.
+- `MainWindow` uses standard WPF window chrome; native window management is delegated to Windows while window-bound persistence remains owned by the main-window lifecycle.
 - `Networking/TapoCameraScanner.cs`: interface enumeration, network probing, detection scoring, method preference, and diagnostics data.
 - `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, and save/discard behavior.
 - `Models/LocalCamSettings.cs`: persisted settings and operational state model.
 - `Services/SettingsStore.cs`: JSON settings file load/save.
+- `Services/AppThemeService.cs`: maps the persisted theme preference to WPF `Application.ThemeMode`.
 - `Services/JsonLogStore.cs`: structured JSONL diagnostics.
 - `Services/*Store*`: packaged entitlement, purchase, and update integrations.
 
@@ -45,7 +47,7 @@ flowchart TD
 
 ### Startup and discovery
 
-`App` initializes diagnostics -> `MainWindow` loads settings -> window bounds and tiles are initialized -> LibVLC is initialized -> optional auto-detection scans -> detections populate tiles -> optional auto-stream starts playback.
+`App` initializes diagnostics -> `MainWindow` loads settings -> the persisted WPF theme is applied -> window bounds and tiles are initialized -> LibVLC is initialized -> optional auto-detection scans -> detections populate tiles -> optional auto-stream starts playback.
 
 ### Stream start
 

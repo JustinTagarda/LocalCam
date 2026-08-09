@@ -10,7 +10,7 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="Transparent"
+            Background="{DynamicResource WindowBackgroundBrush}"
         Icon="pack://application:,,,/Assets/icon.ico"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -51,9 +51,9 @@
         </Style>
 
         <Style x:Key="DialogTextBoxStyle" TargetType="TextBox">
-            <Setter Property="Background" Value="#0F1624" />
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="BorderBrush" Value="#34405A" />
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -61,9 +61,9 @@
         </Style>
 
         <Style x:Key="DialogPasswordBoxStyle" TargetType="PasswordBox">
-            <Setter Property="Background" Value="#0F1624" />
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="BorderBrush" Value="#34405A" />
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="Height" Value="28" />
@@ -71,9 +71,9 @@
         </Style>
 
         <Style x:Key="DialogButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="Background" Value="#26364D" />
-            <Setter Property="BorderBrush" Value="#365070" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="12,4" />
             <Setter Property="Cursor" Value="Hand" />
@@ -98,10 +98,10 @@
                                 <Setter Property="Opacity" Value="1" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#304665" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#37557A" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -110,9 +110,9 @@
         </Style>
 
         <Style x:Key="DialogIconButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="#E8EEF5" />
-            <Setter Property="Background" Value="#26364D" />
-            <Setter Property="BorderBrush" Value="#365070" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Width" Value="30" />
@@ -136,10 +136,10 @@
                                 <Setter Property="Opacity" Value="1" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#304665" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#37557A" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -166,11 +166,11 @@
                                     Height="18"
                                     CornerRadius="3"
                                     BorderThickness="1"
-                                    BorderBrush="#5E6C84"
-                                    Background="#0F1624">
+                                    BorderBrush="{DynamicResource InputBorderBrush}"
+                                    Background="{DynamicResource InputBackgroundBrush}">
                                 <Path x:Name="CheckMark"
                                       Data="M3,9 L7,13 L15,4"
-                                      Stroke="#0EA5E9"
+                                    Stroke="{DynamicResource CheckboxBrush}"
                                       StrokeThickness="2"
                                       StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round"
@@ -200,8 +200,8 @@
     </Window.Resources>
 
     <Border Margin="0"
-            Background="#161B25"
-            BorderBrush="#2A3242"
+            Background="{DynamicResource PanelBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             CornerRadius="6">
         <Grid>
@@ -211,7 +211,7 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
-                    Background="#101722"
+                    Background="{DynamicResource WindowBackgroundBrush}"
                     CornerRadius="6,6,0,0"
                     Height="42"
                     MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
@@ -491,12 +491,17 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock x:Name="InlineErrorTextBlock"
-                               Grid.Column="0"
-                               VerticalAlignment="Center"
-                               Foreground="#EF4444"
-                               Visibility="Collapsed"
-                               TextWrapping="Wrap" />
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Theme" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <ComboBox x:Name="ThemePreferenceComboBox" Width="140" Height="28" SelectedValuePath="Tag" SelectionChanged="ThemePreferenceComboBox_SelectionChanged">
+                                <ComboBoxItem Content="System" Tag="System" />
+                                <ComboBoxItem Content="Light" Tag="Light" />
+                                <ComboBoxItem Content="Dark" Tag="Dark" />
+                            </ComboBox>
+                        </StackPanel>
+                        <TextBlock x:Name="InlineErrorTextBlock" Foreground="{DynamicResource ErrorBrush}" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    </StackPanel>
 
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"

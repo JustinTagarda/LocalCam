@@ -4,9 +4,9 @@
 
 | Requirement area | Primary implementation evidence | Current test evidence | Gap |
 |---|---|---|---|
-| Startup/settings | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs` | No test source found | Add persistence and recovery tests |
+| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `SettingsWindow.xaml(.cs)` | No test source found | Add settings recovery, theme mapping, persistence, native-title-bar, and custom-palette UI checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
-| Dashboard/playback | `MainWindow.xaml(.cs)` | No test source found | Add state-transition tests and manual live-stream checklist |
+| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, native WPF window, persisted-bounds, and manual live-stream checks |
 | Settings UI | `SettingsWindow.xaml(.cs)` | No test source found | Add validation, dirty-state, and folder tests |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
@@ -18,6 +18,7 @@
 1. Unit tests for pure normalization, settings comparison, URL construction, folder resolution, detection labeling, and recording state transitions.
 2. Component tests using fake network/media/store boundaries.
 3. UI acceptance checks for control visibility, accessibility, overlays, settings escalation, and window state.
+   - Standard WPF window checks: native minimize/maximize/restore/close, system menu, snap behavior, minimum size, multi-monitor movement, DPI behavior, and persisted bounds.
 4. Controlled-network integration checks for discovery and RTSP startup.
 5. Package/release checks for x64 packaging, Store-only behavior, and update flows.
 

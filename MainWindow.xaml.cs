@@ -57,12 +57,9 @@ namespace LocalCam {
             Restarting
         }
 
-        private static readonly Geometry MaximizeGeometry = Geometry.Parse("M2,2 L12,2 12,12 2,12 Z");
-        private static readonly Geometry RestoreGeometry = Geometry.Parse("M4,2 L12,2 12,10 M4,2 L4,10 12,10 M2,4 L10,4 10,12 2,12 Z");
         private const int WmSetIcon = 0x0080;
         private const int WmMove = 0x0003;
         private const int WmSize = 0x0005;
-        private const int WmGetMinMaxInfo = 0x0024;
         private const int WmPowerBroadcast = 0x0218;
         private const int WmWindowPosChanged = 0x0047;
         private const int WmLButtonDown = 0x0201;
@@ -81,7 +78,6 @@ namespace LocalCam {
         private const int GclpHIconSm = -34;
         private const int SmCxDoubleClk = 36;
         private const int SmCyDoubleClk = 37;
-        private const uint MonitorDefaultToNearest = 2;
         private const string InputDiagnosticsCategory = "InputDiagnostics";
         private const string SnapshotDiagnosticsCategory = "SnapshotDiagnostics";
         private const string RecordingDiagnosticsCategory = "RecordingDiagnostics";
@@ -107,6 +103,7 @@ namespace LocalCam {
         private bool _streamsRunning;
         private bool _isApplyingPersistedWindowBounds;
         private bool _hasAppliedPersistedWindowBounds;
+        private Rect? _lastNormalWindowBounds;
         private bool _layoutRetryPending;
         private bool _isSettingsDialogOpen;
         private int? _expandedCameraIndex;
@@ -174,6 +171,7 @@ namespace LocalCam {
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
             LoadSettings();
+            AppThemeService.Apply(_settings.ThemePreference);
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
@@ -193,7 +191,6 @@ namespace LocalCam {
             UpdatePremiumUiVisibility();
             ApplyStoreUpdateUiState(StoreUpdateUiState.Hidden());
             ApplyPersistedWindowBounds();
-            UpdateMaximizeButtonIcon();
             PopulateCameraTiles(_detections);
             var engineReady = InitializeStreamingEngine();
 
@@ -374,6 +371,11 @@ namespace LocalCam {
                 return restoreBounds;
             }
 
+            if (_lastNormalWindowBounds is Rect lastNormalBounds &&
+                lastNormalBounds.Width > 0 && lastNormalBounds.Height > 0) {
+                return lastNormalBounds;
+            }
+
             return new Rect(
                 Left,
                 Top,
@@ -395,6 +397,9 @@ namespace LocalCam {
             _settings.MainWindowTop = bounds.Top;
             _settings.MainWindowWidth = bounds.Width;
             _settings.MainWindowHeight = bounds.Height;
+            if (WindowState == WindowState.Normal) {
+                _lastNormalWindowBounds = bounds;
+            }
             TrySaveSettings("settings_window_bounds_save_failed", "Failed to persist main window bounds.");
         }
 
@@ -459,7 +464,7 @@ namespace LocalCam {
             videoHost.Child = videoView;
 
             var videoBlanker = new Border {
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#202736")!,
+                Background = AppThemeService.GetBrush("CardBackgroundBrush"),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Visibility = Visibility.Collapsed,
@@ -484,8 +489,8 @@ namespace LocalCam {
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0),
                 ToolTip = "Expand",
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             expandButton.Content = CreateExpandButtonContent();
@@ -498,8 +503,8 @@ namespace LocalCam {
                 Margin = new Thickness(0),
                 ToolTip = "Collapse",
                 Content = CreateCollapseButtonContent(),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             collapseButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
@@ -511,8 +516,8 @@ namespace LocalCam {
                 Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = "Play",
                 Content = CreateStartButtonContent(),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             playButton.Click += async (_, _) => {
@@ -528,8 +533,8 @@ namespace LocalCam {
                 Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = "Stop Stream",
                 Content = CreateStopButtonContent(),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             stopButton.Click += (_, _) => {
@@ -545,8 +550,8 @@ namespace LocalCam {
                 Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = "Snapshot",
                 Content = CreateSnapshotButtonContent(),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             snapshotButton.Click += async (_, _) => {
@@ -560,8 +565,8 @@ namespace LocalCam {
                 Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = "Record",
                 Content = CreateRecordStartButtonContent(),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#AA111827")!,
-                BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC365070")!,
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
             recordButton.Click += async (_, _) => {
@@ -626,7 +631,7 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0, 4, 4, 0),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CC1B2231")!,
+                Background = AppThemeService.GetBrush("OverlayToolbarBrush"),
                 BorderBrush = System.Windows.Media.Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(8),
@@ -645,7 +650,7 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(4, 4, 0, 0),
-                Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CCB91C1C")!,
+                Background = AppThemeService.GetBrush("RecordingBrush"),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(8, 4, 8, 4),
                 Child = recordingElapsedText,
@@ -694,7 +699,7 @@ namespace LocalCam {
         private static FrameworkElement CreateStartButtonContent() {
             return new Path {
                 Data = Geometry.Parse("M4,3 L13,8 L4,13 Z"),
-                Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#22C55E")!,
+                Fill = AppThemeService.GetBrush("PlayBrush"),
                 Stretch = System.Windows.Media.Stretch.Uniform,
                 Width = 14,
                 Height = 14
@@ -746,7 +751,7 @@ namespace LocalCam {
                     new Ellipse {
                         Width = 12,
                         Height = 12,
-                        Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#E11D48")!,
+                        Fill = AppThemeService.GetBrush("StopBrush"),
                         Stroke = System.Windows.Media.Brushes.White,
                         StrokeThickness = 1.2,
                         HorizontalAlignment = HorizontalAlignment.Center,
@@ -766,7 +771,7 @@ namespace LocalCam {
                         Height = 10,
                         RadiusX = 1.5,
                         RadiusY = 1.5,
-                        Fill = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#E11D48")!,
+                        Fill = AppThemeService.GetBrush("StopBrush"),
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
                     }
@@ -1882,6 +1887,7 @@ namespace LocalCam {
                 dialog.ShowDialog();
                 if (dialog.DidSave) {
                     _settings = dialog.Settings;
+                    AppThemeService.Apply(_settings.ThemePreference);
                     TryAutoStartStreams();
                 }
             }
@@ -3768,83 +3774,9 @@ namespace LocalCam {
             return $"rtsp://{escapedUsername}:{escapedPassword}@{host}:554/{streamPath}";
         }
 
-        private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
-            if (e.ClickCount == 2) {
-                ToggleMaximizeRestore();
-                return;
-            }
-
-            if (e.ButtonState == MouseButtonState.Pressed) {
-                DragMove();
-            }
-        }
-
-        private void MinimizeButton_Click(object sender, RoutedEventArgs e) {
-            WindowState = WindowState.Minimized;
-        }
-
-        private void MaximizeRestoreButton_Click(object sender, RoutedEventArgs e) {
-            ToggleMaximizeRestore();
-        }
-
-        private void CloseButton_Click(object sender, RoutedEventArgs e) {
-            Close();
-        }
-
         private void Window_StateChanged(object sender, EventArgs e) {
-            UpdateMaximizeButtonIcon();
             PersistWindowBounds();
         }
-
-        private void ToggleMaximizeRestore() {
-            WindowState = WindowState == WindowState.Maximized
-                ? WindowState.Normal
-                : WindowState.Maximized;
-        }
-
-        private void UpdateMaximizeButtonIcon() {
-            MaximizeIconPath.Data = WindowState == WindowState.Maximized
-                ? RestoreGeometry
-                : MaximizeGeometry;
-        }
-
-        private static void ApplyMonitorWorkAreaToMinMaxInfo(IntPtr hwnd, IntPtr lParam) {
-            if (lParam == IntPtr.Zero) {
-                return;
-            }
-
-            var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
-            if (monitor == IntPtr.Zero) {
-                return;
-            }
-
-            var monitorInfo = new MonitorInfo {
-                cbSize = Marshal.SizeOf<MonitorInfo>()
-            };
-            if (!GetMonitorInfo(monitor, ref monitorInfo)) {
-                return;
-            }
-
-            var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
-
-            var workArea = monitorInfo.rcWork;
-            var monitorArea = monitorInfo.rcMonitor;
-
-            minMaxInfo.ptMaxPosition.x = workArea.Left - monitorArea.Left;
-            minMaxInfo.ptMaxPosition.y = workArea.Top - monitorArea.Top;
-            minMaxInfo.ptMaxSize.x = workArea.Right - workArea.Left;
-            minMaxInfo.ptMaxSize.y = workArea.Bottom - workArea.Top;
-            minMaxInfo.ptMaxTrackSize.x = minMaxInfo.ptMaxSize.x;
-            minMaxInfo.ptMaxTrackSize.y = minMaxInfo.ptMaxSize.y;
-
-            Marshal.StructureToPtr(minMaxInfo, lParam, true);
-        }
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto)]
-        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
 
         [DllImport("user32.dll")]
         private static extern uint GetDoubleClickTime();
@@ -3890,34 +3822,9 @@ namespace LocalCam {
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct RectNative {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
         private struct PointNative {
             public int x;
             public int y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MinMaxInfo {
-            public PointNative ptReserved;
-            public PointNative ptMaxSize;
-            public PointNative ptMaxPosition;
-            public PointNative ptMinTrackSize;
-            public PointNative ptMaxTrackSize;
-        }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-        private struct MonitorInfo {
-            public int cbSize;
-            public RectNative rcMonitor;
-            public RectNative rcWork;
-            public uint dwFlags;
         }
 
         private void MainWindow_SourceInitialized(object? sender, EventArgs e) {
@@ -3979,12 +3886,6 @@ namespace LocalCam {
         private static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
-            if (msg == WmGetMinMaxInfo) {
-                ApplyMonitorWorkAreaToMinMaxInfo(hwnd, lParam);
-                handled = false;
-                return IntPtr.Zero;
-            }
-
             if (msg == WmPowerBroadcast) {
                 if (TryLogPowerBroadcastSuspend(hwnd, wParam) || TryLogPowerBroadcastResume(hwnd, wParam)) {
                     handled = true;

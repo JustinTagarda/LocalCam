@@ -27,6 +27,9 @@ namespace LocalCam.Services {
                 var json = File.ReadAllText(SettingsPath);
                 settings = JsonSerializer.Deserialize<LocalCamSettings>(json, JsonOptions) ?? new LocalCamSettings();
                 settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
+                if (!Enum.IsDefined(settings.ThemePreference)) {
+                    settings.ThemePreference = AppThemePreference.System;
+                }
                 return true;
             }
             catch (Exception ex) {
