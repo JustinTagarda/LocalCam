@@ -526,6 +526,33 @@ Do not include any of the following in a brand-neutral UI wording task:
 - Keep Store packaging architecture to `x64` only.
 - Do not add multi-architecture bundles unless explicitly requested.
 
+## Requirements Documentation Compliance
+
+The current implementation baseline and future development requirements are maintained under `docs/requirements/`. These documents are mandatory development references and must be followed with the same care as the repository-local implementation policies.
+
+Required references:
+
+- `docs/requirements/00-REQUIREMENTS-INDEX.md`: documentation authority, status, and maintenance rules.
+- `docs/requirements/01-BASELINE-PRD.md`: product intent, user workflows, scope, and current capabilities.
+- `docs/requirements/02-SOFTWARE-REQUIREMENTS-SPECIFICATION.md`: functional and non-functional requirements.
+- `docs/requirements/03-ARCHITECTURE-AND-DESIGN-BASELINE.md`: current architecture, data flows, and technical risks.
+- `docs/requirements/04-TRACEABILITY-AND-VERIFICATION-PLAN.md`: requirement evidence, testing expectations, and definition of done.
+- `docs/requirements/05-DECISIONS-AND-CONSTRAINTS.md`: accepted design decisions and durable constraints.
+- `docs/requirements/06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md`: proposed work that is not yet approved implementation scope.
+
+Mandatory rules:
+
+- Before changing behavior, inspect the applicable requirements, architecture, decision, and verification documents.
+- Every behavior change must identify the affected requirement IDs and update the relevant documentation in the same change when the baseline changes.
+- Do not treat recommendations in the future roadmap as approved requirements without explicit user authorization.
+- Do not claim a requirement is implemented unless code evidence and automated or documented manual verification exist.
+- Record unknown or unverified behavior explicitly; do not infer missing requirements or implementation details.
+- Preserve the existing constraints, guardrails, and non-goals unless the user explicitly authorizes a change.
+- When a change introduces broader architectural impact, update the architecture baseline and add or update an ADR-style decision in `05-DECISIONS-AND-CONSTRAINTS.md` before implementation.
+- When a change affects acceptance behavior, update the traceability and verification plan and identify the required test or manual check.
+- Keep documentation references relative to the repository so they remain valid across machines.
+- Do not rewrite or remove requirements history to make an implementation appear compliant; document the discrepancy and resolution.
+
 ## Strict Repository Access Rules
 
 Local agents must never modify the global `AGENTS.md` file under any circumstances.

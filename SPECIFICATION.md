@@ -2,216 +2,152 @@
 
 ## 1. Product Summary
 
-LocalCam is a Windows desktop WPF application for discovering compatible local network cameras and viewing their RTSP streams in a custom client. The implementation is Tapo-first and optimized for TP-Link/Tapo discovery, while also supporting compatible RTSP/ONVIF cameras when they expose similar network services.
+LocalCam is a single-window Windows WPF application for discovering compatible cameras on a local network and viewing their RTSP streams in a multi-camera dashboard. Its implementation is Tapo-first and optimized for TP-Link/Tapo discovery, while its normal user-facing wording remains brand-neutral.
 
-Primary goal:
-- Detect compatible cameras on the LAN
-- Present detected cameras to the user
-- Connect to RTSP streams using user-provided credentials
-- Display live camera feeds in a single window
+The primary workflow is scan, configure RTSP settings, and stream one or more detected cameras.
 
-## 2. Tech Stack
+## 2. Technology and Runtime
 
-- .NET 10 WPF desktop app
-- C# with XAML UI
-- LibVLCSharp.WPF for video playback
-- `System.Net`, `System.Net.NetworkInformation`, `System.Net.Sockets` for LAN scanning
-- Windows desktop-only runtime target: `net10.0-windows`
+- C# and XAML.
+- WPF desktop UI.
+- .NET 10 target: `net10.0-windows10.0.19041.0`.
+- `win-x64` runtime identifier.
+- LibVLCSharp.WPF `3.9.6` with VideoLAN.LibVLC.Windows `3.0.23`.
+- Windows.Services.Store APIs for packaged entitlement, purchase, and update operations.
+- Built-in .NET networking APIs for discovery and JSON serialization/logging.
 
-Source references:
-- [LocalCam.csproj](D:\Projects\LocalCam\LocalCam.csproj)
-- [App.xaml.cs](D:\Projects\LocalCam\App.xaml.cs)
-- [MainWindow.xaml.cs](D:\Projects\LocalCam\MainWindow.xaml.cs)
-- [Networking\TapoCameraScanner.cs](D:\Projects\LocalCam\Networking\TapoCameraScanner.cs)
+The application is built from `LocalCam.csproj`; Store packaging is defined separately in `LocalCam.Package/LocalCam.Package.wapproj` and is x64-only.
 
-## 3. Application Structure
+## 3. Architecture
 
-The app has three main layers:
+The application is organized around four responsibilities:
 
-- Bootstrap layer: application startup and shutdown control
-- Discovery layer: local subnet scanning and candidate detection
-- Presentation/playback layer: startup dialog and main streaming window
+- Bootstrap: `App.xaml.cs` initializes diagnostics and opens the main window.
+- Discovery: `Networking/TapoCameraScanner.cs` performs bounded, best-effort local-network detection.
+- Dashboard and media: `MainWindow.xaml` and `MainWindow.xaml.cs` manage camera tiles, LibVLC playback, snapshots, recording, status, and shutdown cleanup.
+- Persistence and platform services: `Models/LocalCamSettings.cs`, `Services/SettingsStore.cs`, `Services/JsonLogStore.cs`, and the Store service classes manage settings, diagnostics, entitlement, purchases, and updates.
 
-## 4. Startup and Exit Flow
+## 4. Startup and Shutdown
 
-Startup flow:
-1. Application starts in [App.xaml.cs](D:\Projects\LocalCam\App.xaml.cs).
-2. App initializes JSON logging.
-3. App opens `MainWindow` directly.
-4. `MainWindow` performs local-network camera discovery on load.
-5. If detections are found, the viewer populates camera tiles for the detections.
-6. If no detections are found, the user can retry search from the main window.
-7. App exits when the main window closes.
+1. `App.xaml.cs` initializes JSONL diagnostics.
+2. `MainWindow` loads persisted settings and restores window bounds when available.
+3. If auto-detection is enabled, the main window scans the local network on load.
+4. Detected cameras become dashboard tiles; an empty result remains retryable from the dashboard.
+5. Packaged Store builds resolve Premium UI state and initialize Store update checks after first render.
+6. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
 
-Exit flow:
-- If the main window closes, the app stops streams, disposes VLC resources, and terminates.
+## 5. Discovery
 
-## 5. Camera Discovery Specification
+Discovery is heuristic and best-effort. It does not prove camera identity or guarantee that every compatible camera will be found.
 
-Discovery is best-effort and heuristic-based, not authoritative.
+The scanner:
 
-Scan scope:
-- Enumerates active network interfaces
-- Ignores loopback and tunnel interfaces
-- Requires an IPv4 gateway on the interface
-- Ignores APIPA addresses
-- Caps broad subnets to `/24` to avoid excessive host enumeration
-- Skips extremely small or invalid prefixes
+- Enumerates active IPv4 interfaces with gateways.
+- Skips loopback, tunnel, and APIPA interfaces.
+- Limits broad subnet enumeration to `/24`.
+- Uses bounded concurrency and short network timeouts.
+- Probes reachability and common camera/service ports, including `80`, `443`, `554`, `8554`, `2020`, `8080`, and `8443`.
+- Reads ARP data and attempts reverse DNS.
+- Uses HTTP/HTTPS fingerprints, ONVIF WS-Discovery, SSDP/UPnP, mDNS/DNS-SD, ARP-seeded probes, subnet probes, and Tapo UDP signals.
+- Persists the last successful detection method and prefers it for subsequent scans.
 
-Host probing:
-- Pings each candidate host
-- Probes ports:
-  - `80`
-  - `443`
-  - `554`
-  - `8554`
-  - `2020`
-  - `8080`
-  - `8443`
-- Reads the ARP table using `arp -a`
-- Attempts reverse DNS lookup
-- Fetches HTTP/HTTPS headers/body fingerprints from port 80 or 443 when available
+Internal results are represented by Tapo-specific records such as `TapoCameraDetection`, with IP address, hostname, MAC address, open ports, confidence score, and detection reason. Internal names are intentionally not generalized. User-facing method labels are mapped to `ONVIF`, `SSDP`, `local discovery`, `mDNS`, `ARP probe`, and `subnet probe`.
 
-Tapo-first compatible camera scoring signals:
-- RTSP open on `554` or `8554`
-- ONVIF-related open port `2020`
-- Web management ports open
-- HTTP response contains Tapo/TP-Link markers
-- Hostname contains Tapo/TP-Link markers
-- MAC OUI matches known TP-Link prefixes
+## 6. Dashboard and Playback
 
-Output:
-- A list of `TapoCameraDetection` records containing:
-  - IP address
-  - Host name
-  - MAC address
-  - Open ports
-  - Confidence score
-  - Detection reason
+The custom-chrome main window provides:
 
-Important constraint:
-- Detection is probabilistic. The app shows only hosts that meet the internal compatible-camera threshold.
+- Detect Camera, Start All, Stop All, and Settings toolbar actions.
+- A camera tile for each current detection.
+- Per-tile Play/Stop, Snapshot, Record/Stop Recording, and Expand/Collapse actions.
+- Double-click collapse/expand behavior while a tile is playing.
+- Discovery, stream, snapshot, and recording status in the activity/status area.
 
-Implementation reference:
-- [Networking\TapoCameraScanner.cs](D:\Projects\LocalCam\Networking\TapoCameraScanner.cs)
+RTSP playback uses the configured username, password, detected host, port `554`, and normalized stream path:
 
-## 6. Main Window Specification
+`rtsp://{username}:{password}@{host}:554/{streamPath}`
 
-The main window is the streaming dashboard.
+Credentials are URL-escaped before URL construction. The default stream path is `stream1`; blank or slash-prefixed input is normalized. Missing or invalid RTSP configuration opens Settings and displays `RTSP credentials are missing or invalid.`
 
-Behavior:
-- Opens only after a successful startup scan with at least one detection
-- Shows camera tiles for detected cameras
-- Shows detected IP addresses on tiles
-- Allows entering RTSP username and password
-- Allows editing RTSP stream path
-- Starts and stops playback through LibVLC
-- Supports minimize, maximize/restore, and close
-- Uses a custom chrome-less window style
+LibVLC media players are created for active tiles, use low-latency-oriented media options, and are stopped/disposed during stream shutdown and application close.
 
-Stream rules:
-- Each detection maps to one video tile/player
-- RTSP URLs are built as:
-  - `rtsp://{username}:{password}@{ip}:554/{streamPath}`
-- Username/password are URL-escaped
-- Default stream path is `stream1`
-- Empty or slash-prefixed path input is normalized
+## 7. Snapshots and Recording
 
-Playback behavior:
-- Initializes LibVLC on window construction
-- Creates muted media players per active camera tile
-- Applies options for network caching and low jitter
-- Starts only if credentials exist and detections are available
-- Stops all streams before restarting
-- Stops and disposes resources on close
+Snapshots are available only while a tile is playing. They use unique filenames and the effective snapshot folder from Settings. Save failures are reported to the user and logged.
 
-Credential defaults:
-- Reads optional environment variables:
-  - `LOCALCAM_RTSP_USERNAME`
-  - `LOCALCAM_RTSP_PASSWORD`
+Recording is manual and available only while a tile is playing. The implementation enforces:
 
-Implementation reference:
-- [MainWindow.xaml](D:\Projects\LocalCam\MainWindow.xaml)
-- [MainWindow.xaml.cs](D:\Projects\LocalCam\MainWindow.xaml.cs)
+- One active recording session across all cards.
+- Automatic stop of the current recording before switching to another card.
+- `.ts` output without remuxing or transcoding.
+- Maximum segment duration of 60 minutes.
+- Segment rollover while playback remains active.
+- Authoritative cleanup when the recorder stops, ends, or errors.
+- Automatic recording stop when the owning stream stops.
 
-## 7. Configuration Specification
+Packaged Store builds additionally apply Basic/Premium limits defined in `docs/BASIC_PREMIUM_GATING_POLICY.md`: Basic permits two active streams and 30 minutes of recording per local day; Premium removes those limits. Unpackaged development builds hide Basic/Premium UI and do not surface upgrade prompts.
 
-Current configuration surface is minimal and environment-driven.
+## 8. Settings and Persistence
 
-Supported runtime configuration:
-- RTSP username default via `LOCALCAM_RTSP_USERNAME`
-- RTSP password default via `LOCALCAM_RTSP_PASSWORD`
+`SettingsWindow` exposes:
 
-Implicit behavior:
-- No external config file is required for the current implementation
-- No saved user profile or persistent camera list exists yet
-- No selectable camera inventory exists beyond the current scan result
+- RTSP username and password.
+- Stream Path.
+- Auto detect on startup.
+- Auto start when connected.
+- Snapshot Save Folder.
+- Recording Save Folder.
 
-## 8. Non-Functional Constraints
+Settings are persisted to `%LocalAppData%\\LocalCam\\settings.json`. Persisted state also includes the last successful discovery method, window bounds, Basic recording usage, Premium entitlement cache, and Store update state.
 
-Platform:
-- Windows desktop only
+Effective default folders are `%UserProfile%\\Pictures\\LocalCam` for snapshots and `%UserProfile%\\Videos\\LocalCam` for recordings. A user-selected non-default folder is used directly. Default folders are created when needed.
 
-Performance:
-- Scan is concurrent with bounded parallelism
-- Default max parallelism is `48`
-- Port probe and ping timeouts are short to keep startup responsive
+Optional development defaults can be supplied through `LOCALCAM_RTSP_USERNAME` and `LOCALCAM_RTSP_PASSWORD`.
 
-Resource handling:
-- Scan cancellation is supported
-- VLC resources are disposed on exit
-- Media players are stopped before disposal
+## 9. Diagnostics and Error Handling
 
-Security and trust:
-- HTTPS certificate validation is intentionally bypassed during fingerprint probing
-- This is discovery-only probing, not full authentication
-- RTSP credentials are handled locally in memory and used to form stream URLs
+Debug local runs write structured JSONL diagnostics beside the launched executable. Release and installed distributions disable local Debug logging behavior as configured by the application.
 
-## 9. Error Handling Specification
+Logged areas include startup, discovery attempts and results, settings load/save, stream lifecycle, snapshot saves, recording lifecycle, entitlement, purchase, and Store updates.
 
-Discovery failures:
-- If scan returns no candidates, user gets a retryable “no camera detected” state
-- If scan is canceled, the UI reflects cancellation or close behavior
-- If scan throws, the user sees a failure message with the exception message
+The UI reports retryable discovery failure, cancellation, stream initialization failure, missing credentials, individual stream failure, unavailable save folders, recording transitions, and Store update terminal states. Exceptions are not silently discarded in the primary workflows.
 
-Streaming failures:
-- If the video engine fails to initialize, the status text shows the failure
-- If no cameras are detected, streaming is disabled by behavior
-- If credentials are missing, the user is prompted before stream start
-- If individual camera streams fail, the UI reports the failed IPs
+## 10. Store Features
 
-Resource cleanup:
-- On startup window close, cancellation is issued for active scans
-- On main window close, streams are stopped and VLC objects are disposed
+Packaged Store builds support:
 
-## 10. Current Product Scope
+- Durable Premium add-on entitlement through Store ID `9P9KCJ3NFZFT`.
+- In-app Premium purchase confirmation and purchase routing through `RequestPurchaseAsync`.
+- Basic/Premium footer state and gated-action upgrade dialog.
+- Store package update availability checks after first render.
+- Throttled update checks, progress modal, cancellation/failure guidance, and queue-state recovery across restarts.
 
-Implemented:
-- LAN discovery of compatible cameras using Tapo-first heuristics
-- RTSP streaming in a multi-tile dashboard
-- Basic window chrome and polished WPF styling
-- Retry search from the main window
+These features are unavailable or hidden in unpackaged Debug runs.
 
-Not implemented:
-- Persistent camera profiles
-- Manual camera entry or selection workflow
-- Device authentication handshake before streaming
-- Saved credentials
-- Diagnostics export
-- A confirmed device identity model beyond heuristics
-- Multi-page navigation or settings screen
+## 11. Limitations and Non-Goals
 
-## 11. Current Design Intent
+The current implementation does not provide:
 
-The current UI is:
-- Dark-themed
-- Compact and focused
-- Custom-chrome WPF
-- Split into:
-  - a discovery gate
-  - a live streaming dashboard
+- Manual camera IP entry or a persistent camera profile inventory.
+- A device authentication or ONVIF profile-negotiation handshake.
+- Arbitrary RTSP port or custom RTSP URL settings.
+- Guaranteed universal camera compatibility.
+- Diagnostics export.
+- Multi-page navigation.
 
-Functional intent:
-- Minimize setup friction
-- Make scan-to-stream the dominant workflow
-- Keep the app simple enough for immediate camera access on a local network
+HTTPS certificate validation is bypassed for discovery fingerprint probing. RTSP credentials are held locally and used to construct stream URLs; the application does not provide a remote credential service.
+
+The `LocalCam.Tests` project references xUnit and the .NET test SDK, but no test source files are currently present.
+
+## 12. Key Files
+
+- `App.xaml.cs`: bootstrap and logging initialization.
+- `MainWindow.xaml` / `MainWindow.xaml.cs`: dashboard and runtime feature orchestration.
+- `Networking/TapoCameraScanner.cs`: discovery implementation.
+- `Models/LocalCamSettings.cs`: persisted settings model.
+- `SettingsWindow.xaml` / `SettingsWindow.xaml.cs`: settings UI and validation.
+- `Services/SettingsStore.cs`: settings persistence.
+- `Services/JsonLogStore.cs`: diagnostics.
+- `Services/PremiumEntitlementService.cs`: entitlement resolution.
+- `Services/PremiumPurchaseService.cs`: Store purchase handling.
+- `Services/StoreAppUpdaterService.cs`: Store update lifecycle.
