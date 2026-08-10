@@ -33,6 +33,7 @@ namespace LocalCam {
             public required Button StopButton { get; init; }
             public required Button SnapshotButton { get; init; }
             public required Button RecordButton { get; init; }
+            public required Border OverlayToolbar { get; init; }
             public required Border RecordingBadge { get; init; }
             public required TextBlock RecordingElapsedText { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
@@ -161,6 +162,8 @@ namespace LocalCam {
 
         public MainWindow(IReadOnlyList<TapoCameraDetection> detections) {
             _detections = detections.ToArray();
+            _settings = LoadSettings();
+            AppThemeService.Apply(_settings.ThemePreference);
             _storeContextProvider = new StoreContextProvider();
 
             InitializeComponent();
@@ -170,8 +173,6 @@ namespace LocalCam {
             Activated += MainWindow_Activated;
             LocationChanged += Window_LocationChanged;
             SizeChanged += Window_SizeChanged;
-            LoadSettings();
-            AppThemeService.Apply(_settings.ThemePreference);
             _premiumPurchaseService = new PremiumPurchaseService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
@@ -249,16 +250,15 @@ namespace LocalCam {
             }
         }
 
-        private void LoadSettings() {
+        private static LocalCamSettings LoadSettings() {
             if (SettingsStore.TryLoad(out var savedSettings)) {
-                _settings = savedSettings;
-                return;
+                return savedSettings;
             }
 
             var defaultUser = Environment.GetEnvironmentVariable("LOCALCAM_RTSP_USERNAME");
             var defaultPassword = Environment.GetEnvironmentVariable("LOCALCAM_RTSP_PASSWORD");
 
-            _settings = new LocalCamSettings {
+            return new LocalCamSettings {
                 RtspUsername = defaultUser ?? string.Empty,
                 RtspPassword = defaultPassword ?? string.Empty,
                 StreamPath = "stream1",
@@ -681,9 +681,42 @@ namespace LocalCam {
                 StopButton = stopButton,
                 SnapshotButton = snapshotButton,
                 RecordButton = recordButton,
+                OverlayToolbar = overlayToolbar,
                 RecordingBadge = recordingBadge,
                 RecordingElapsedText = recordingElapsedText
             };
+        }
+
+        private void RefreshCameraThemeResources() {
+            foreach (var tile in _cameraTiles) {
+                var overlayBackground = AppThemeService.GetBrush("OverlayBackgroundBrush");
+                var overlayBorder = AppThemeService.GetBrush("OverlayBorderBrush");
+                var stopBrush = AppThemeService.GetBrush("StopBrush");
+
+                tile.VideoBlanker.Background = AppThemeService.GetBrush("CardBackgroundBrush");
+                tile.ExpandButton.Background = overlayBackground;
+                tile.ExpandButton.BorderBrush = overlayBorder;
+                tile.CollapseButton.Background = overlayBackground;
+                tile.CollapseButton.BorderBrush = overlayBorder;
+                tile.PlayButton.Background = overlayBackground;
+                tile.PlayButton.BorderBrush = overlayBorder;
+                tile.StopButton.Background = overlayBackground;
+                tile.StopButton.BorderBrush = overlayBorder;
+                tile.SnapshotButton.Background = overlayBackground;
+                tile.SnapshotButton.BorderBrush = overlayBorder;
+                tile.RecordButton.Background = overlayBackground;
+                tile.RecordButton.BorderBrush = overlayBorder;
+                tile.OverlayToolbar.Background = AppThemeService.GetBrush("OverlayToolbarBrush");
+                tile.RecordingBadge.Background = AppThemeService.GetBrush("RecordingBrush");
+                tile.RecordingElapsedText.Foreground = stopBrush;
+
+                if (tile.PlayButton.Content is Path playPath) {
+                    playPath.Fill = AppThemeService.GetBrush("PlayBrush");
+                }
+                if (tile.StopButton.Content is Shape stopShape) {
+                    stopShape.Fill = stopBrush;
+                }
+            }
         }
 
         private static FrameworkElement CreateExpandButtonContent() {
@@ -1888,6 +1921,7 @@ namespace LocalCam {
                 if (dialog.DidSave) {
                     _settings = dialog.Settings;
                     AppThemeService.Apply(_settings.ThemePreference);
+                    RefreshCameraThemeResources();
                     TryAutoStartStreams();
                 }
             }

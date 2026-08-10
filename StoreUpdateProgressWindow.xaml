@@ -11,10 +11,10 @@
         ShowInTaskbar="False"
         Icon="pack://application:,,,/Assets/icon.ico"
         WindowStyle="ToolWindow"
-        Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}">
+        Background="{DynamicResource WindowBackgroundBrush}">
     <Border Margin="0"
-            Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
-            BorderBrush="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}"
+            Background="{DynamicResource WindowBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
         <Grid Margin="14">
             <Grid.RowDefinitions>
@@ -27,14 +27,14 @@
             </Grid.RowDefinitions>
 
             <TextBlock Text="Microsoft Store update"
-                       Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
                        FontSize="14"
                        FontWeight="SemiBold"
                        Margin="0,0,0,10" />
 
             <TextBlock x:Name="PhaseTextBlock"
                        Grid.Row="1"
-                       Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
                        FontSize="12"
                        Text="Preparing"
                        Margin="0,0,0,6" />
@@ -49,7 +49,7 @@
 
             <TextBlock x:Name="DetailTextBlock"
                        Grid.Row="3"
-                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
                        FontSize="11"
                        TextWrapping="Wrap"
                        Margin="0,0,0,4"
@@ -57,7 +57,7 @@
 
             <TextBlock x:Name="ResultTextBlock"
                        Grid.Row="4"
-                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
                        FontSize="11"
                        TextWrapping="Wrap"
                        VerticalAlignment="Top"

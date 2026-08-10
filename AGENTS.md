@@ -88,6 +88,18 @@
   - App settings persist at `%LocalAppData%\\LocalCam\\settings.json`.
   - Structured JSONL app diagnostics are written under `%LocalAppData%\\LocalCam\\logs`.
 
+## Theme Implementation And Change Guardrails
+
+- LocalCam supports persisted `System`, `Light`, and `Dark` theme preferences through `Application.ThemeMode` in `Services/AppThemeService.cs`.
+- The persisted theme must be applied before `MainWindow.InitializeComponent()` so the first visual tree is created under the selected WPF Fluent theme.
+- User-facing colors must come from Windows-provided WPF Fluent resources. Do not introduce fixed hex colors, a LocalCam-specific accent palette, or legacy `SystemColors` mappings for theme-dependent application content without explicit user instruction.
+- The application-level brush aliases in `App.xaml` are intentionally retained for existing XAML and code-created controls. `AppThemeService.Apply` must refresh those aliases from the active Fluent brush resources after every theme change.
+- Fluent brushes may be frozen. Never mutate a resolved Fluent brush or a frozen LocalCam brush in place; use an unfrozen clone/resource replacement and preserve existing control references safely.
+- Runtime theme changes must refresh both XAML-bound surfaces and dynamically created camera-card controls, overlays, badges, and icons without rebuilding or stopping active streams.
+- Do not change the `System`/`Light`/`Dark` preference meanings, startup ordering, Fluent resource mapping, brush-refresh behavior, or theme persistence without explicit user instruction.
+- Any future theme change must include a live check of persisted Light, Dark, and System modes, including changing the preference while Settings is open and reopening the dialog.
+- If a theme change causes a crash, inspect both `%LocalAppData%\\LocalCam\\logs` and Windows Application/.NET Runtime event logs before modifying the theme code.
+
 - Distribution:
   - LocalCam runs as a non-Store desktop app from project build output.
   - Store-specific packaging, entitlement, and update workflows are decommissioned.

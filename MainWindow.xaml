@@ -17,7 +17,7 @@
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
     <Window.Resources>
-        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource TextFillColorPrimary}" />
 
         <Style x:Key="PanelTextBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
@@ -63,7 +63,7 @@
         </Style>
 
         <Style x:Key="PanelCheckBoxStyle" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Template">
@@ -98,7 +98,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Indicator" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+                                <Setter TargetName="Indicator" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                                 <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
@@ -181,7 +181,7 @@
         </Style>
 
         <Style x:Key="AppStatusUpgradeButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -216,7 +216,7 @@
         </Style>
 
         <Style x:Key="AppStatusUpdateButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -403,7 +403,7 @@
                                     Click="UpdateButton_Click">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <Path Data="M6,1 L6,7 M3.5,4.5 L6,7 L8.5,4.5 M2,8.5 L10,8.5 L10,11 L2,11 Z"
-                                          Stroke="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
+                                          Stroke="{DynamicResource PrimaryTextBrush}"
                                           Fill="Transparent"
                                           StrokeThickness="1.1"
                                           StrokeStartLineCap="Round"
@@ -414,7 +414,7 @@
                                           Stretch="Fill"
                                           Margin="0,0,4,0" />
                                     <TextBlock Text="Update"
-                                               Foreground="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}"
+                                               Foreground="{DynamicResource PrimaryTextBrush}"
                                                FontWeight="Normal"
                                                VerticalAlignment="Center" />
                                 </StackPanel>

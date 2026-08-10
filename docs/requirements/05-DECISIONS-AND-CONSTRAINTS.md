@@ -49,3 +49,13 @@ Settings, media output, and diagnostics remain local. Any future cloud or remote
 Status: Accepted
 
 These documents describe the application as implemented. They do not retroactively claim requirements were designed before implementation, and any mismatch is recorded as a gap or recommendation.
+
+## DEC-009: Host-driven Fluent theme resources with safe runtime refresh
+
+Status: Accepted
+
+LocalCam uses WPF `Application.ThemeMode` and the Windows-provided Fluent resource tokens for System, Light, and Dark appearance. It does not define a custom fixed-color palette. Existing LocalCam brush aliases remain as compatibility seams for XAML and dynamically created controls.
+
+The persisted preference is applied before the first `MainWindow` visual tree is initialized. When the preference changes at runtime, `AppThemeService` refreshes the aliases by cloning the active Fluent brushes and replacing the alias resources. This is required because WPF Fluent brushes can be frozen and direct mutation can crash the process. Camera-card visuals created in code are refreshed in place after the runtime change.
+
+Guardrail: do not replace Fluent resource tokens with fixed colors, mutate frozen brushes, remove the pre-initialization theme application, or change the preference semantics without explicit user authorization and corresponding FR-020 verification updates.

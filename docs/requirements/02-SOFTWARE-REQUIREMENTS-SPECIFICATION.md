@@ -25,7 +25,7 @@ Status: Current implementation baseline
 | FR-017 | The application shall persist selected non-default save folders and use default Pictures/Videos LocalCam folders when unset. | Must | Implemented | Persistence test |
 | FR-018 | The application shall write structured diagnostics for startup, discovery, settings, streaming, snapshots, recording, entitlement, and updates. | Should | Implemented | Log schema check |
 | FR-019 | Packaged builds shall support Store entitlement, Premium purchase, and update flows according to the existing policy documents. | Should | Implemented/packaged-only | Package validation |
-| FR-020 | The application shall provide persistent System, Light, and Dark theme preferences, apply the selected WPF theme at startup, and apply a newly saved preference immediately. | Should | Partial | Settings persistence and native-title-bar UI check; custom palette coverage remains |
+| FR-020 | The application shall provide persistent System, Light, and Dark theme preferences, apply the selected WPF theme before the first window visual tree is initialized, refresh LocalCam brush instances after a preference change, and use Windows-provided Fluent theme resources for light/dark surface distinction and accent text. | Should | Partial | Settings persistence, startup-order, brush-refresh, native-title-bar UI check, and host-theme visual check; automated theme coverage remains |
 
 ## Non-functional requirements
 

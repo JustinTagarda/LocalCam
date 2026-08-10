@@ -17,7 +17,7 @@
         Closing="Window_Closing"
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
-        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
+        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource TextFillColorPrimary}" />
 
         <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
@@ -39,10 +39,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -148,7 +148,7 @@
         </Style>
 
         <Style x:Key="DialogCheckBoxStyle" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Template">
@@ -182,12 +182,12 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
-                                <Setter TargetName="CheckBorder" Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="CheckBorder" Property="Background" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5" />
@@ -199,21 +199,21 @@
         </Style>
 
         <Style x:Key="DialogComboBoxStyle" TargetType="ComboBox">
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
-            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="6,2" />
         </Style>
 
         <Style x:Key="DialogComboBoxItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
-            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
             <Setter Property="Padding" Value="6,3" />
             <Style.Triggers>
                 <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
-                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" />
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -243,8 +243,8 @@
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                         <Image Source="/Assets/icon.png" Width="20" Height="20" Margin="0,0,8,0" />
-                        <TextBlock Text="Settings"
-                                   Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                         <TextBlock Text="Settings"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                    FontSize="13"
                                    FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
@@ -283,7 +283,7 @@
 
                 <TextBlock Grid.Row="0"
                            Text="Startup"
-                           Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
@@ -294,8 +294,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Behavior"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="Behavior"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <CheckBox x:Name="AutoDetectOnStartupCheckBox"
@@ -312,8 +312,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Detection"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="Detection"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <CheckBox x:Name="AutoStartWhenConnectedCheckBox"
@@ -326,12 +326,12 @@
 
                 <Border Grid.Row="3"
                         Height="1"
-                        Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}"
+                        Background="{DynamicResource BorderBrush}"
                         Margin="0,2,0,12" />
 
                 <TextBlock Grid.Row="4"
                            Text="RTSP Credentials"
-                           Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
@@ -342,8 +342,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="RTSP Username"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="RTSP Username"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <TextBox x:Name="RtspUsernameTextBox"
@@ -358,8 +358,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="RTSP Password"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="RTSP Password"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <PasswordBox x:Name="RtspPasswordBox"
@@ -374,8 +374,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Stream Path"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="Stream Path"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <TextBox x:Name="StreamPathTextBox"
@@ -386,12 +386,12 @@
 
                 <Border Grid.Row="8"
                         Height="1"
-                        Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}"
+                        Background="{DynamicResource BorderBrush}"
                         Margin="0,2,0,12" />
 
                 <TextBlock Grid.Row="9"
                            Text="Snapshot"
-                           Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
@@ -402,8 +402,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Snapshot Folder"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="Snapshot Folder"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <Grid Grid.Column="1">
@@ -426,7 +426,7 @@
                                 ToolTip="Browse snapshot folder"
                                 Click="BrowseSnapshotFolderButton_Click">
                             <Path Data="M2,6 L6,6 L8,4 L14,4 L14,12 L2,12 Z"
-                                  Stroke="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                                   Stroke="{DynamicResource PrimaryTextBrush}"
                                   StrokeThickness="1.3"
                                   Fill="Transparent"
                                   StrokeLineJoin="Round" />
@@ -437,7 +437,7 @@
                                 ToolTip="Reset to default (Pictures\\LocalCam)"
                                 Click="ResetSnapshotFolderButton_Click">
                             <Path Data="M4,4 A4,4 0 1 1 3.9,4 M4,1 L4,4 L7,4"
-                                  Stroke="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                                   Stroke="{DynamicResource PrimaryTextBrush}"
                                   StrokeThickness="1.3"
                                   Fill="Transparent"
                                   StrokeStartLineCap="Round"
@@ -449,7 +449,7 @@
 
                 <TextBlock Grid.Row="11"
                            Text="Recording"
-                           Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
@@ -460,8 +460,8 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="Recording Folder"
-                               Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
+                     <TextBlock Text="Recording Folder"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
                     <Grid Grid.Column="1">
@@ -484,7 +484,7 @@
                                 ToolTip="Browse recording folder"
                                 Click="BrowseRecordingFolderButton_Click">
                             <Path Data="M2,6 L6,6 L8,4 L14,4 L14,12 L2,12 Z"
-                                  Stroke="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                                   Stroke="{DynamicResource PrimaryTextBrush}"
                                   StrokeThickness="1.3"
                                   Fill="Transparent"
                                   StrokeLineJoin="Round" />
@@ -495,7 +495,7 @@
                                 ToolTip="Reset to default (Videos\\LocalCam)"
                                 Click="ResetRecordingFolderButton_Click">
                             <Path Data="M4,4 A4,4 0 1 1 3.9,4 M4,1 L4,4 L7,4"
-                                  Stroke="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+                                   Stroke="{DynamicResource PrimaryTextBrush}"
                                   StrokeThickness="1.3"
                                   Fill="Transparent"
                                   StrokeStartLineCap="Round"

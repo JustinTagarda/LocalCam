@@ -39,7 +39,7 @@ flowchart TD
 - `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, and save/discard behavior.
 - `Models/LocalCamSettings.cs`: persisted settings and operational state model.
 - `Services/SettingsStore.cs`: JSON settings file load/save.
-- `Services/AppThemeService.cs`: maps the persisted theme preference to WPF `Application.ThemeMode`.
+- `Services/AppThemeService.cs`: maps the persisted theme preference to WPF `Application.ThemeMode` and synchronizes LocalCam brush aliases from the active Fluent brush resources. Brush synchronization replaces frozen-resource instances with cloned brushes rather than mutating them.
 - `Services/JsonLogStore.cs`: structured JSONL diagnostics.
 - `Services/*Store*`: packaged entitlement, purchase, and update integrations.
 
@@ -47,7 +47,11 @@ flowchart TD
 
 ### Startup and discovery
 
-`App` initializes diagnostics -> `MainWindow` loads settings -> the persisted WPF theme is applied -> window bounds and tiles are initialized -> LibVLC is initialized -> optional auto-detection scans -> detections populate tiles -> optional auto-stream starts playback.
+`App` initializes diagnostics -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> LibVLC is initialized -> optional auto-detection scans -> detections populate tiles -> optional auto-stream starts playback.
+
+### Theme change flow
+
+`SettingsWindow` saves a new preference -> `MainWindow` applies the corresponding `ThemeMode` -> `AppThemeService` clones the active Fluent brushes into the existing LocalCam aliases -> XAML-bound controls update through dynamic resources -> dynamically created camera-card controls are refreshed in place -> active streams remain running.
 
 ### Stream start
 
@@ -71,3 +75,4 @@ Active tile requests recording -> output folder is validated -> existing recordi
 - There are no current test source files despite a test project.
 - Store and development paths coexist in the same UI orchestration surface.
 - Credential handling is local and URL construction must remain carefully escaped and never be logged in clear text.
+- WPF Fluent resources may expose frozen brushes; direct mutation during a theme change can terminate the process with `InvalidOperationException`. This is guarded by clone-and-replace synchronization in `AppThemeService`.

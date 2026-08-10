@@ -44,6 +44,8 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Manual `.ts` recording, one active recording across the app, and 60-minute segmentation.
 - Expand/collapse and double-click layout toggling while playing.
 - JSON settings persistence and structured JSONL diagnostics.
+- Persisted System, Light, and Dark preferences using the Windows WPF Fluent theme and host-provided theme resources.
+- Theme changes apply before the initial visual tree is created and refresh existing LocalCam brush aliases and dynamically created camera-card visuals.
 - Separate packaged Store entitlement, purchase, and update services.
 
 ## Scope boundaries
