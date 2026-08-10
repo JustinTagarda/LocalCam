@@ -4,9 +4,9 @@
 
 | Requirement area | Primary implementation evidence | Current test evidence | Gap |
 |---|---|---|---|
-| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)` | No test source found | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-title-bar, host light/dark Fluent-resource, and accent-foreground UI checks |
+| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | No test source found; FAST-BUILD verified | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, and accent-foreground UI checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
-| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, native WPF window, persisted-bounds, and manual live-stream checks |
+| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, native WPF window, persisted-bounds, direct saved-size restore, close-time save, and manual live-stream checks |
 | Settings UI | `SettingsWindow.xaml(.cs)` | No test source found | Add validation, dirty-state, and folder tests |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
@@ -23,6 +23,7 @@ For FR-020, perform the following manual checks on a Windows host whose current 
 4. Reopen Settings and confirm the saved preference and visual theme remain aligned.
 5. Repeat the change in both directions and verify no process crash occurs.
 6. If a crash occurs, collect the latest JSONL diagnostics and Windows `Application`, `.NET Runtime`, and `Windows Error Reporting` events.
+7. Confirm no decorative outer client border is present on MainWindow, SettingsWindow, or StoreUpdateProgressWindow, and confirm the Settings Theme ComboBox uses the default WPF closed control, focus visual, arrow, popup, and highlighted-item behavior.
 
 The known regression guard is the frozen-brush failure: `AppThemeService` must clone Fluent brushes and replace aliases; it must not assign `Color` or `Opacity` on a frozen brush.
 
@@ -31,7 +32,7 @@ The known regression guard is the frozen-brush failure: `AppThemeService` must c
 1. Unit tests for pure normalization, settings comparison, URL construction, folder resolution, detection labeling, and recording state transitions.
 2. Component tests using fake network/media/store boundaries.
 3. UI acceptance checks for control visibility, accessibility, overlays, settings escalation, and window state.
-   - Standard WPF window checks: native minimize/maximize/restore/close, system menu, snap behavior, minimum size, multi-monitor movement, DPI behavior, and persisted bounds.
+   - Standard WPF window checks: native minimize/maximize/restore/close, system menu, snap behavior, minimum size, multi-monitor movement, DPI behavior, persisted bounds, direct saved-size restore, and close-time persistence after the final move or resize.
 4. Controlled-network integration checks for discovery and RTSP startup.
 5. Package/release checks for x64 packaging, Store-only behavior, and update flows.
 

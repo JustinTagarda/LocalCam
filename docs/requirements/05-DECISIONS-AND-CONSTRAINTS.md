@@ -59,3 +59,15 @@ LocalCam uses WPF `Application.ThemeMode` and the Windows-provided Fluent resour
 The persisted preference is applied before the first `MainWindow` visual tree is initialized. When the preference changes at runtime, `AppThemeService` refreshes the aliases by cloning the active Fluent brushes and replacing the alias resources. This is required because WPF Fluent brushes can be frozen and direct mutation can crash the process. Camera-card visuals created in code are refreshed in place after the runtime change.
 
 Guardrail: do not replace Fluent resource tokens with fixed colors, mutate frozen brushes, remove the pre-initialization theme application, or change the preference semantics without explicit user authorization and corresponding FR-020 verification updates.
+
+## DEC-010: Native window frames and flattened client roots
+
+Status: Accepted
+
+MainWindow, SettingsWindow, and StoreUpdateProgressWindow use native Windows/WPF window frames. Their client areas begin with flattened root grids rather than decorative outer border wrappers. Settings no longer owns a custom title bar, close button, or manual drag behavior.
+
+Internal borders remain valid for semantic UI surfaces such as status panels, camera cards, separators, control templates, and dropdown popups. This decision does not prohibit those borders.
+
+The Settings Theme ComboBox uses a complete custom template because the default WPF ComboBox template does not maintain the application's Fluent-backed light/dark surface styling. The template must preserve dynamic resources, System/Light/Dark behavior, keyboard/dropdown interaction, and item highlighting.
+
+Guardrail: do not reintroduce custom window chrome, decorative outer frame borders, fixed theme colors, or partial/default Theme ComboBox styling without explicit user authorization and updates to FR-021 and its verification evidence.

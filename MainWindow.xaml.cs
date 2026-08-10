@@ -314,8 +314,8 @@ namespace LocalCam {
             try {
                 Left = _settings.MainWindowLeft ?? Left;
                 Top = _settings.MainWindowTop ?? Top;
-                Width = Math.Max(MinWidth, _settings.MainWindowWidth ?? Width);
-                Height = Math.Max(MinHeight, _settings.MainWindowHeight ?? Height);
+                Width = _settings.MainWindowWidth ?? Width;
+                Height = _settings.MainWindowHeight ?? Height;
 
                 if (!IsWindowVisibleOnScreen()) {
                     CenterWindowOnPrimaryScreen();
@@ -4140,10 +4140,10 @@ namespace LocalCam {
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
-            _isClosing = true;
             StopCameraMonitoring();
             _scanCancellation?.Cancel();
             PersistWindowBounds();
+            _isClosing = true;
             _storeUpdaterCts?.Cancel();
             _storeAppUpdaterService.Shutdown();
             _storeUpdateProgressWindow?.CloseFromOwner();

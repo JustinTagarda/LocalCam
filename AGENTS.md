@@ -68,10 +68,11 @@
 ## Current Implementation Snapshot
 
 - Runtime/UI:
-  - Single-window WPF desktop app (`MainWindow`) with custom window chrome.
+  - Single-window WPF desktop app (`MainWindow`) using the native Windows frame and a flattened client-area root grid.
   - Camera discovery runs on load and can be retried from the same window.
   - Camera tiles are shown based on current detections, with expand/collapse behavior and responsive layout.
   - Settings dialog is available for RTSP credentials and stream path.
+  - Settings and the update-progress window use native WPF window frames with flattened client-area root grids; Settings retains a themed custom control surface but no custom title bar.
   - Auto-stream toggle is supported and persisted.
 
 - Discovery:
@@ -99,6 +100,15 @@
 - Do not change the `System`/`Light`/`Dark` preference meanings, startup ordering, Fluent resource mapping, brush-refresh behavior, or theme persistence without explicit user instruction.
 - Any future theme change must include a live check of persisted Light, Dark, and System modes, including changing the preference while Settings is open and reopening the dialog.
 - If a theme change causes a crash, inspect both `%LocalAppData%\\LocalCam\\logs` and Windows Application/.NET Runtime event logs before modifying the theme code.
+
+## Window Framing And Theme Control Guardrails
+
+- MainWindow, SettingsWindow, and StoreUpdateProgressWindow use native WPF/Windows window frames. Do not reintroduce `WindowStyle="None"`, `AllowsTransparency="True"`, custom title bars, client-area close buttons, or manual `DragMove()` logic without explicit user instruction.
+- Keep the client-area root of those windows flattened to a `Grid`; do not add an outer decorative `Border` solely for window framing, border brush, border thickness, corner radius, or clipping.
+- Internal layout borders remain allowed when they represent a real panel, status surface, input, card, separator, or popup surface. Do not remove those as part of window-frame cleanup.
+- Settings theme selection must use a complete themed ComboBox template for the closed control and dropdown popup. It must use dynamic Fluent-backed aliases, preserve System/Light/Dark semantics, and remain visually consistent with Settings inputs and buttons.
+- Do not replace the native window frame with a custom surface, introduce fixed theme colors, or change theme persistence/selection behavior without explicit instruction.
+- Any future window-frame or Theme ComboBox modification requires a live check of MainWindow, SettingsWindow, StoreUpdateProgressWindow, and the Theme dropdown in System, Light, and Dark modes, plus a FAST-BUILD verification.
 
 - Distribution:
   - LocalCam runs as a non-Store desktop app from project build output.

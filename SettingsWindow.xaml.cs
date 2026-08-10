@@ -53,16 +53,6 @@ namespace LocalCam {
             Close();
         }
 
-        private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) {
-            if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed) {
-                DragMove();
-            }
-        }
-
-        private void CloseButton_Click(object sender, RoutedEventArgs e) {
-            Close();
-        }
-
         private void BrowseSnapshotFolderButton_Click(object sender, RoutedEventArgs e) {
             var picker = new OpenFolderDialog {
                 Title = "Select snapshot save folder",

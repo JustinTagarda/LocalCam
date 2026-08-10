@@ -12,11 +12,7 @@
         Icon="pack://application:,,,/Assets/icon.ico"
         WindowStyle="ToolWindow"
         Background="{DynamicResource WindowBackgroundBrush}">
-    <Border Margin="0"
-            Background="{DynamicResource WindowBackgroundBrush}"
-            BorderBrush="{DynamicResource BorderBrush}"
-            BorderThickness="1">
-        <Grid Margin="14">
+    <Grid Background="{DynamicResource WindowBackgroundBrush}" Margin="14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -72,6 +68,5 @@
                     Margin="0,10,0,0"
                     IsEnabled="False"
                     Click="CloseButton_Click" />
-        </Grid>
-    </Border>
+    </Grid>
 </Window>

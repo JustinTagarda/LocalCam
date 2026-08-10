@@ -31,7 +31,7 @@
         <Style x:Key="PanelButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="Cursor" Value="Hand" />
@@ -183,7 +183,7 @@
         <Style x:Key="AppStatusUpgradeButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="4,1,4,1" />
             <Setter Property="Margin" Value="6,1,0,1" />
@@ -218,7 +218,7 @@
         <Style x:Key="AppStatusUpdateButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="4,1,4,1" />
             <Setter Property="Margin" Value="6,1,0,1" />
@@ -252,13 +252,7 @@
 
     </Window.Resources>
 
-    <Border Margin="0"
-            Background="{DynamicResource WindowBackgroundBrush}"
-            BorderBrush="{DynamicResource BorderBrush}"
-            BorderThickness="1"
-            CornerRadius="6"
-            ClipToBounds="True">
-        <Grid Background="{x:Null}">
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
@@ -424,8 +418,7 @@
                 </Grid>
             </Border>
 
-        </Grid>
-    </Border>
+    </Grid>
 </Window>
 
 

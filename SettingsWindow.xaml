@@ -5,51 +5,16 @@
         Width="620"
         MinWidth="620"
         SizeToContent="Height"
-        WindowStyle="None"
-        AllowsTransparency="True"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-            Background="{DynamicResource WindowBackgroundBrush}"
+        Background="{x:Null}"
         Icon="pack://application:,,,/Assets/icon.ico"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         Closing="Window_Closing"
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
-        <SolidColorBrush x:Key="TitleBarIconBrush" Color="{DynamicResource TextFillColorPrimary}" />
-
-        <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Width" Value="52" />
-            <Setter Property="Height" Value="42" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="0,6,0,0">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <Style x:Key="DialogTextBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
@@ -73,7 +38,7 @@
         <Style x:Key="DialogButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="12,4" />
             <Setter Property="Cursor" Value="Hand" />
@@ -112,7 +77,7 @@
         <Style x:Key="DialogIconButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
             <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Width" Value="30" />
@@ -198,72 +163,13 @@
             </Setter>
         </Style>
 
-        <Style x:Key="DialogComboBoxStyle" TargetType="ComboBox">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
-            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="6,2" />
-        </Style>
-
-        <Style x:Key="DialogComboBoxItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
-            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
-            <Setter Property="Padding" Value="6,3" />
-            <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-                    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
     </Window.Resources>
 
-    <Border Margin="0"
-            Background="{DynamicResource PanelBackgroundBrush}"
-            BorderBrush="{DynamicResource BorderBrush}"
-            BorderThickness="1"
-            CornerRadius="6">
-        <Grid>
+    <Grid Background="{DynamicResource PanelBackgroundBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-
-            <Border Grid.Row="0"
-                    Background="{DynamicResource WindowBackgroundBrush}"
-                    CornerRadius="6,6,0,0"
-                    Height="42"
-                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                        <Image Source="/Assets/icon.png" Width="20" Height="20" Margin="0,0,8,0" />
-                         <TextBlock Text="Settings"
-                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                   FontSize="13"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center" />
-                    </StackPanel>
-
-                    <Button Grid.Column="1"
-                            x:Name="CloseButton"
-                            Style="{StaticResource TitleBarCloseButtonStyle}"
-                            Click="CloseButton_Click">
-                        <Path Data="M2,2 L12,12 M12,2 L2,12"
-                              Stroke="{StaticResource TitleBarIconBrush}"
-                              StrokeThickness="1.4"
-                              StrokeStartLineCap="Square"
-                              StrokeEndLineCap="Square" />
-                    </Button>
-                </Grid>
-            </Border>
-
-            <Grid Grid.Row="1" Margin="18,16,18,18">
+            <Grid Grid.Row="0" Margin="18,16,18,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -514,7 +420,7 @@
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Theme" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                            <ComboBox x:Name="ThemePreferenceComboBox" Width="140" Height="28" Style="{StaticResource DialogComboBoxStyle}" ItemContainerStyle="{StaticResource DialogComboBoxItemStyle}" SelectedValuePath="Tag" SelectionChanged="ThemePreferenceComboBox_SelectionChanged">
+                            <ComboBox x:Name="ThemePreferenceComboBox" Width="140" Height="28" SelectedValuePath="Tag" SelectionChanged="ThemePreferenceComboBox_SelectionChanged">
                                 <ComboBoxItem Content="System" Tag="System" />
                                 <ComboBoxItem Content="Light" Tag="Light" />
                                 <ComboBoxItem Content="Dark" Tag="Dark" />
@@ -538,8 +444,7 @@
                     </StackPanel>
                 </Grid>
             </Grid>
-        </Grid>
-    </Border>
+    </Grid>
 </Window>
 
 

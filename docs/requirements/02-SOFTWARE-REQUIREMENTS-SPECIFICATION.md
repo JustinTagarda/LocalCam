@@ -8,7 +8,7 @@ Status: Current implementation baseline
 |---|---|---|---|---|
 | FR-001 | The application shall start as a single-window WPF desktop app. | Must | Implemented | Build and launch |
 | FR-002 | The application shall load persisted settings from `%LocalAppData%\\LocalCam\\settings.json`. | Must | Implemented | Settings integration test |
-| FR-003 | The application shall restore persisted window bounds when valid. | Should | Implemented | Manual UI check |
+| FR-003 | The application shall restore persisted window bounds when valid and persist the latest normal bounds during window movement, resizing, state changes, and close; restore shall apply the saved size without additional application-level clamping. | Should | Implemented | Manual UI check: move/resize, maximize/restore, close/reopen, below-minimum saved-size behavior, and multi-monitor visibility |
 | FR-004 | The application shall discover compatible cameras using bounded, best-effort local-network probing. | Must | Implemented | Scanner tests and controlled-network test |
 | FR-005 | The application shall expose retryable discovery and status feedback. | Must | Implemented | UI acceptance check |
 | FR-006 | The application shall display a camera tile for each current detection. | Must | Implemented | UI acceptance check |
@@ -26,6 +26,7 @@ Status: Current implementation baseline
 | FR-018 | The application shall write structured diagnostics for startup, discovery, settings, streaming, snapshots, recording, entitlement, and updates. | Should | Implemented | Log schema check |
 | FR-019 | Packaged builds shall support Store entitlement, Premium purchase, and update flows according to the existing policy documents. | Should | Implemented/packaged-only | Package validation |
 | FR-020 | The application shall provide persistent System, Light, and Dark theme preferences, apply the selected WPF theme before the first window visual tree is initialized, refresh LocalCam brush instances after a preference change, and use Windows-provided Fluent theme resources for light/dark surface distinction and accent text. | Should | Partial | Settings persistence, startup-order, brush-refresh, native-title-bar UI check, and host-theme visual check; automated theme coverage remains |
+| FR-021 | MainWindow, SettingsWindow, and the update-progress window shall use native Windows/WPF window frames without decorative outer client-border wrappers; Settings shall use the default WPF behavior for its theme selector and dropdown. | Should | Implemented | XAML inspection, FAST-BUILD, and manual native-frame/System-Light-Dark Theme ComboBox check |
 
 ## Non-functional requirements
 
