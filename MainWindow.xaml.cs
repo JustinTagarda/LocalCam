@@ -37,6 +37,7 @@ namespace LocalCam {
             public required Border RecordingBadge { get; init; }
             public required TextBlock RecordingElapsedText { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
+            public string? CameraIdentity { get; set; }
             public bool IsSnapshotSaving { get; set; }
         }
 
@@ -88,6 +89,7 @@ namespace LocalCam {
         private const int BasicConcurrentStreamLimit = 2;
         private static readonly TimeSpan CameraMonitorCycleInterval = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan CameraMonitorRestartSettleDelay = TimeSpan.FromMilliseconds(250);
+        private const int TerminalStreamRecoveryAttemptLimit = 1;
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
         private static readonly TimeSpan RecentCameraReconnectConfirmationTimeout = TimeSpan.FromSeconds(8);
@@ -146,6 +148,7 @@ namespace LocalCam {
         private readonly Dictionary<int, long> _streamStartOrder = new();
         private readonly Dictionary<int, string> _streamFailureReasons = new();
         private readonly Dictionary<int, StreamHealthState> _streamHealthStates = new();
+        private readonly Dictionary<int, int> _terminalStreamRecoveryAttempts = new();
         private long _nextStreamStartOrder = 1;
         private string? _lastLibVlcErrorMessage;
         private readonly IStoreContextProvider _storeContextProvider;
@@ -412,7 +415,15 @@ namespace LocalCam {
             _expandedCameraIndex = null;
             EnsureCameraTileCount(detections.Count);
             for (var i = 0; i < _cameraTiles.Count; i++) {
-                _cameraTiles[i].Label.Text = $"camera {i + 1} - live streaming ({detections[i].IpAddress})";
+                var tile = _cameraTiles[i];
+                var detection = detections[i];
+                var identity = GetCameraIdentity(detection);
+                if (!string.Equals(tile.CameraIdentity, identity, StringComparison.Ordinal)) {
+                    ResetCameraTileForDetectionChange(i);
+                    tile.CameraIdentity = identity;
+                }
+
+                tile.Label.Text = $"camera {i + 1} - detected ({detection.IpAddress})";
                 SetVideoSurfaceActive(i, isActive: false);
             }
 
@@ -440,8 +451,35 @@ namespace LocalCam {
                 var tile = CreateCameraTile(_cameraTiles.Count);
                 _cameraTiles.Add(tile);
                 CameraTilesPanel.Children.Add(tile.Card);
-                AttachMediaPlayer(tile);
             }
+        }
+
+        private static string GetCameraIdentity(TapoCameraDetection detection) {
+            return !string.IsNullOrWhiteSpace(detection.MacAddress)
+                ? $"mac:{detection.MacAddress.Trim().ToUpperInvariant()}"
+                : $"ip:{detection.IpAddress}";
+        }
+
+        private void ResetCameraTileForDetectionChange(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            if (_activeRecordingTileIndex == tileIndex) {
+                StopRecordingSession("camera_detection_changed", updateStatus: false);
+            }
+
+            CancelCachedReconnectAttempt(tileIndex);
+            _streamHealthStates.Remove(tileIndex);
+            _streamStartOrder.Remove(tileIndex);
+            _streamFailureReasons.Remove(tileIndex);
+            _terminalStreamRecoveryAttempts.Remove(tileIndex);
+
+            var tile = _cameraTiles[tileIndex];
+            tile.MediaPlayer?.Stop();
+            tile.VideoView.MediaPlayer = null;
+            tile.MediaPlayer?.Dispose();
+            tile.MediaPlayer = null;
         }
 
         private CameraTileControls CreateCameraTile(int tileIndex) {
@@ -917,11 +955,12 @@ namespace LocalCam {
                    (tile.MediaPlayer is not null && tile.MediaPlayer.IsPlaying);
         }
 
-        private void AttachMediaPlayer(CameraTileControls tile) {
+        private void AttachMediaPlayer(CameraTileControls tile, TapoCameraDetection detection) {
             if (_libVlc is null || tile.MediaPlayer is not null) {
                 return;
             }
 
+            var cameraIdentity = GetCameraIdentity(detection);
             var mediaPlayer = new VlcMediaPlayer(_libVlc) {
                 EnableHardwareDecoding = false,
                 EnableMouseInput = false,
@@ -929,34 +968,33 @@ namespace LocalCam {
             };
             mediaPlayer.Playing += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
-                var wasRestarting = false;
-                if (tileIndex >= 0) {
-                    wasRestarting = GetStreamLifecyclePhase(tileIndex) == StreamLifecyclePhase.Restarting;
-                    _streamFailureReasons.Remove(tileIndex);
-                    if (wasRestarting) {
-                        MarkStreamStarted(tileIndex);
-                    }
+                if (tileIndex < 0 || !ReferenceEquals(tile.MediaPlayer, mediaPlayer) ||
+                    !string.Equals(tile.CameraIdentity, cameraIdentity, StringComparison.Ordinal)) {
+                    return;
                 }
+
+                _streamFailureReasons.Remove(tileIndex);
+                _terminalStreamRecoveryAttempts.Remove(tileIndex);
+                MarkStreamStarted(tileIndex);
                 _streamsRunning = IsAnyStreamRunning();
-                if (tileIndex >= 0 && tileIndex < _detections.Count) {
-                    var detection = CompleteCachedReconnectAttempt(tileIndex) ?? _detections[tileIndex];
-                    RecentCameraConnectionCache.ConfirmPlayback(_settings, detection, DateTimeOffset.UtcNow);
+                if (tileIndex < _detections.Count &&
+                    string.Equals(GetCameraIdentity(_detections[tileIndex]), cameraIdentity, StringComparison.Ordinal)) {
+                    var cachedDetection = CompleteCachedReconnectAttempt(tileIndex);
+                    RecentCameraConnectionCache.ConfirmPlayback(_settings, cachedDetection ?? detection, DateTimeOffset.UtcNow);
                     TrySaveSettings("recent_camera_connection_save_failed", "Failed to save a recent camera connection.");
                 }
                 UpdateActionButtons();
-                if (tileIndex >= 0 && !wasRestarting) {
-                    RequestCameraMonitoring();
-                }
+                RequestCameraMonitoring();
             }));
             mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
-                if (tileIndex >= 0) {
+                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
                     SetVideoSurfaceActive(tileIndex, isActive: false);
                 }
-                if (_activeRecordingTileIndex == tileIndex) {
+                if (_activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     StopRecordingSession("stream_stopped", updateStatus: true);
                 }
                 _streamsRunning = IsAnyStreamRunning();
@@ -964,21 +1002,25 @@ namespace LocalCam {
             }));
             mediaPlayer.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
-                if (tileIndex >= 0) {
+                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
                     SetVideoSurfaceActive(tileIndex, isActive: false);
                 }
-                if (_activeRecordingTileIndex == tileIndex) {
+                if (_activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     StopRecordingSession("stream_ended", updateStatus: true);
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
+                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !HandleCachedReconnectFailure(tileIndex)) {
+                    _ = RecoverTerminalStreamAsync(tileIndex, "ended");
+                }
             }));
             mediaPlayer.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
-                if (tileIndex >= 0) {
+                var wasCachedReconnect = false;
+                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
@@ -998,13 +1040,16 @@ namespace LocalCam {
                             ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null,
                             ["reason"] = userReason ?? _lastLibVlcErrorMessage ?? "LibVLC reported a playback error."
                         });
-                    HandleCachedReconnectFailure(tileIndex);
+                    wasCachedReconnect = HandleCachedReconnectFailure(tileIndex);
                 }
-                if (_activeRecordingTileIndex == tileIndex) {
+                if (_activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     StopRecordingSession("stream_error", updateStatus: true);
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
+                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !wasCachedReconnect) {
+                    _ = RecoverTerminalStreamAsync(tileIndex, "error");
+                }
             }));
 
             tile.MediaPlayer = mediaPlayer;
@@ -1747,19 +1792,20 @@ namespace LocalCam {
             TryAutoStartStreams();
         }
 
-        private void HandleCachedReconnectFailure(int tileIndex) {
+        private bool HandleCachedReconnectFailure(int tileIndex) {
             var detection = CompleteCachedReconnectAttempt(tileIndex);
-            if (detection is null) return;
+            if (detection is null) return false;
             var evicted = RecentCameraConnectionCache.RegisterReconnectFailure(_settings, detection);
             TrySaveSettings("recent_camera_connection_failure_save_failed", "Failed to save recent camera reconnect state.");
             JsonLogStore.Warning(evicted ? "recent_camera_connection_evicted" : "recent_camera_reconnect_failed", evicted ? "A recent camera connection was removed after repeated reconnect failures." : "A recent camera reconnect failed; local discovery will be attempted.", "camera_reconnect", new Dictionary<string, object?> { ["cameraIndex"] = tileIndex + 1, ["ipAddress"] = detection.IpAddress.ToString(), ["evicted"] = evicted });
-            if (_isRecoveryDiscoveryQueued || _isClosing || _isScanning) return;
+            if (_isRecoveryDiscoveryQueued || _isClosing || _isScanning) return true;
             _isRecoveryDiscoveryQueued = true;
             StreamingStatusText.Text = "Searching local network for cameras for failed reconnections...";
             Dispatcher.BeginInvoke(new Action(async () => {
                 try { await StartLocalCameraSearchAsync(); }
                 finally { _isRecoveryDiscoveryQueued = false; }
             }), DispatcherPriority.Background);
+            return true;
         }
 
         private void StartCachedReconnectConfirmation(int tileIndex, TapoCameraDetection detection) {
@@ -1783,6 +1829,7 @@ namespace LocalCam {
             await Dispatcher.InvokeAsync(() => {
                 if (_cacheReconnectAttemptIdsByTile.TryGetValue(tileIndex, out var activeAttemptId) && activeAttemptId == attemptId) {
                     JsonLogStore.Warning("recent_camera_reconnect_timed_out", "A recent camera did not confirm playback before the reconnect deadline.", "camera_reconnect", new Dictionary<string, object?> { ["cameraIndex"] = tileIndex + 1 });
+                    StopSingleStream(tileIndex, updateStatus: false);
                     HandleCachedReconnectFailure(tileIndex);
                 }
             });
@@ -1805,6 +1852,17 @@ namespace LocalCam {
             _cacheReconnectTimeoutsByAttempt.Clear();
             _cacheReconnectAttemptIdsByTile.Clear();
             _cacheReconnectDetectionsByAttempt.Clear();
+        }
+
+        private void CancelCachedReconnectAttempt(int tileIndex) {
+            if (!_cacheReconnectAttemptIdsByTile.Remove(tileIndex, out var attemptId)) {
+                return;
+            }
+
+            _cacheReconnectTimeoutsByAttempt.Remove(attemptId, out var timeout);
+            timeout?.Cancel();
+            timeout?.Dispose();
+            _cacheReconnectDetectionsByAttempt.Remove(attemptId);
         }
 
         private async Task StartLocalCameraSearchAsync() {
@@ -2153,12 +2211,7 @@ namespace LocalCam {
                 }
                 var ipAddress = _detections[i].IpAddress.ToString();
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
-                var mediaPlayer = _cameraTiles[i].MediaPlayer;
-                if (mediaPlayer is null) {
-                    failedEndpoints.Add(ipAddress);
-                    SetVideoSurfaceActive(i, isActive: false);
-                    continue;
-                }
+                VlcMediaPlayer? mediaPlayer;
 
                 try {
                     JsonLogStore.Information(
@@ -2175,12 +2228,13 @@ namespace LocalCam {
                     EnsureVideoSurfaceAttached(i);
                     using var media = CreateRtspPlaybackMedia(streamUrl);
 
-                    if (mediaPlayer.Play(media)) {
+                    ReplaceMediaPlayer(i, _detections[i]);
+                    mediaPlayer = _cameraTiles[i].MediaPlayer;
+                    if (mediaPlayer is not null && mediaPlayer.Play(media)) {
                         startedCount++;
                         if (isBasicMode) {
                             remainingBasicSlots--;
                         }
-                        MarkStreamStarted(i);
                         SetVideoSurfaceActive(i, isActive: true);
                         JsonLogStore.Information(
                             eventName: "camera_connect_succeeded",
@@ -2306,6 +2360,7 @@ namespace LocalCam {
             _streamStartOrder.Clear();
             _streamFailureReasons.Clear();
             _streamHealthStates.Clear();
+            _terminalStreamRecoveryAttempts.Clear();
             _streamsRunning = false;
             ApplyResponsiveCameraLayout();
             UpdateActionButtons();
@@ -2336,10 +2391,7 @@ namespace LocalCam {
 
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
-            var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
-            if (mediaPlayer is null) {
-                return false;
-            }
+            VlcMediaPlayer? mediaPlayer;
 
             try {
                 SetStreamLifecyclePhase(tileIndex, isMonitorRecovery ? StreamLifecyclePhase.Restarting : StreamLifecyclePhase.Starting);
@@ -2351,10 +2403,9 @@ namespace LocalCam {
                 media.AddOption(":clock-jitter=0");
                 media.AddOption(":clock-synchro=0");
 
-                if (mediaPlayer.Play(media)) {
-                    if (!isMonitorRecovery) {
-                        MarkStreamStarted(tileIndex);
-                    }
+                ReplaceMediaPlayer(tileIndex, _detections[tileIndex]);
+                mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+                if (mediaPlayer is not null && mediaPlayer.Play(media)) {
                     SetVideoSurfaceActive(tileIndex, isActive: true);
                     if (updateStatus) {
                         StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
@@ -2401,7 +2452,7 @@ namespace LocalCam {
 
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
-            if (mediaPlayer is not null && mediaPlayer.IsPlaying) {
+            if (mediaPlayer is not null) {
                 mediaPlayer.Stop();
             }
 
@@ -2409,9 +2460,23 @@ namespace LocalCam {
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
             _streamHealthStates.Remove(tileIndex);
             _streamStartOrder.Remove(tileIndex);
+            _terminalStreamRecoveryAttempts.Remove(tileIndex);
             if (updateStatus) {
                 StreamingStatusText.Text = $"Stopped camera {tileIndex + 1}.";
             }
+        }
+
+        private void ReplaceMediaPlayer(int tileIndex, TapoCameraDetection detection) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            var tile = _cameraTiles[tileIndex];
+            tile.MediaPlayer?.Stop();
+            tile.VideoView.MediaPlayer = null;
+            tile.MediaPlayer?.Dispose();
+            tile.MediaPlayer = null;
+            AttachMediaPlayer(tile, detection);
         }
 
         private bool IsStreamRunning(int tileIndex) {
@@ -2719,6 +2784,60 @@ namespace LocalCam {
                     ["cameraIndex"] = tileIndex + 1,
                     ["ipAddress"] = ipAddress,
                     ["streamPath"] = streamPath
+                });
+        }
+
+        private async Task RecoverTerminalStreamAsync(int tileIndex, string reason) {
+            if (_isClosing || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+                return;
+            }
+
+            var attemptCount = _terminalStreamRecoveryAttempts.TryGetValue(tileIndex, out var existingAttempts)
+                ? existingAttempts + 1
+                : 1;
+            if (attemptCount > TerminalStreamRecoveryAttemptLimit) {
+                return;
+            }
+
+            _terminalStreamRecoveryAttempts[tileIndex] = attemptCount;
+            var ipAddress = _detections[tileIndex].IpAddress.ToString();
+            JsonLogStore.Warning(
+                eventName: "camera_stream_terminal_recovery_requested",
+                message: "A camera stream ended unexpectedly and will be restarted.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = ipAddress,
+                    ["reason"] = reason,
+                    ["attempt"] = attemptCount
+                });
+
+            try {
+                await Task.Delay(CameraMonitorRestartSettleDelay);
+            }
+            catch (OperationCanceledException) {
+                return;
+            }
+
+            if (_isClosing || IsStreamRunning(tileIndex) || IsStreamTransitioning(tileIndex)) {
+                return;
+            }
+
+            if (await StartSingleStreamAsync(tileIndex, updateStatus: false, requestMonitorWake: false, isMonitorRecovery: true)) {
+                StreamingStatusText.Text = $"Restarting camera {tileIndex + 1} after stream {reason}.";
+                return;
+            }
+
+            StreamingStatusText.Text = $"Camera {tileIndex + 1} stopped after stream {reason}; restart failed.";
+            JsonLogStore.Warning(
+                eventName: "camera_stream_terminal_recovery_failed",
+                message: "A terminal camera stream recovery attempt failed.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = ipAddress,
+                    ["reason"] = reason,
+                    ["attempt"] = attemptCount
                 });
         }
 

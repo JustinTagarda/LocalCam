@@ -6,8 +6,8 @@
 |---|---|---|---|
 | Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | No test source found; FAST-BUILD verified | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, and accent-foreground UI checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
-| Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `MainWindow.xaml.cs` | Cache-policy tests | Add controlled-network reconnect/fallback check |
-| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, native WPF window, persisted-bounds, direct saved-size restore, close-time save, and manual live-stream checks |
+| Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `MainWindow.xaml.cs` | Cache-policy tests | Add controlled-network reconnect/fallback check, including a delayed `Playing` event after timeout or tile reassignment |
+| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, stale-frame, terminal-event recovery, native WPF window, persisted-bounds, direct saved-size restore, close-time save, and manual live-stream checks |
 | Settings UI | `SettingsWindow.xaml(.cs)` | No test source found | Add validation, dirty-state, and folder tests |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
@@ -59,7 +59,7 @@ The known regression guard is the frozen-brush failure: `AppThemeService` must c
 - Run all available automated tests.
 - Verify the affected happy path and at least one failure path.
 - Confirm settings are backward-compatible with existing JSON.
-- Verify seven-day cache expiry, two-failure eviction, stable-attempt handling, bounded playback confirmation timeout, RTSP-setting invalidation, and discovery fallback.
+- Verify seven-day cache expiry, two-failure eviction, stable camera/playback-attempt handling, bounded playback confirmation timeout, RTSP-setting invalidation, discovery fallback, detection replacement while an old player emits late events, and one terminal-event recovery attempt.
 - Confirm diagnostics contain no credentials or complete RTSP URLs.
 - Update requirement status and evidence links when behavior changes.
 

@@ -60,7 +60,7 @@ flowchart TD
 
 ### Stream start
 
-User or auto-start requests playback -> configuration is validated -> invalid configuration opens Settings -> valid configuration builds escaped RTSP URL -> LibVLC media/player starts -> tile and status state update -> failures are logged and surfaced.
+User or auto-start requests playback -> configuration is validated -> invalid configuration opens Settings -> valid configuration builds escaped RTSP URL -> a player bound to an immutable detection identity starts -> LibVLC `Playing` confirms the live state, refreshes the recent-camera cache, and enables health monitoring -> terminal playback events receive one bounded restart attempt -> failures are logged and surfaced. Detection reconciliation disposes a superseded tile player before assigning a new camera identity, so late LibVLC events cannot affect a reordered tile.
 
 ### Recording
 

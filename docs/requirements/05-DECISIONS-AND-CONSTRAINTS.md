@@ -113,3 +113,9 @@ Guardrails:
 - Do not claim FAST-BUILD or test verification for this repository when another SDK version was used.
 - Any SDK update requires explicit authorization and synchronized updates to `global.json`, `AGENTS.md`, README build instructions, NFR-009, the architecture baseline, this decision record, and the traceability verification steps.
 - If the pinned SDK is not installed, stop and report the gap rather than changing the pin or using a fallback.
+
+## DEC-014: Identity-bound camera playback lifecycle
+
+Status: Accepted
+
+Each tile binds a media-player instance to an immutable camera identity for that playback attempt. Reassigning a tile to a different detection stops and disposes the old player before it can affect the new camera. LibVLC `Playing` is the live-state and recent-cache confirmation boundary; a playback request being accepted is not confirmation. A terminal `EndReached` or `EncounteredError` event receives one bounded restart attempt, while failed recent-cache reconnects continue to use discovery fallback and the two-failure eviction policy.
