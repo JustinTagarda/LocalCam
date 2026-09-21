@@ -25,15 +25,18 @@
         <StackPanel Grid.Row="1"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right">
-            <Button Content="Save and Close"
+            <Button Style="{StaticResource GlobalButtonStyle}"
+                    Content="Save and Close"
                     MinWidth="120"
                     Margin="0,0,8,0"
                     Click="SaveAndClose_Click" />
-            <Button Content="Discard Changes"
+            <Button Style="{StaticResource GlobalButtonStyle}"
+                    Content="Discard Changes"
                     MinWidth="120"
                     Margin="0,0,8,0"
                     Click="DiscardChanges_Click" />
-            <Button Content="Continue Editing"
+            <Button Style="{StaticResource GlobalButtonStyle}"
+                    Content="Continue Editing"
                     MinWidth="120"
                     Click="ContinueEditing_Click" />
         </StackPanel>

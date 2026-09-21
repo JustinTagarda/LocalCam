@@ -82,7 +82,15 @@ Packaged Store builds apply the Basic/Premium policy: Basic allows up to two act
 
 ## Build and Run
 
-Use the Visual Studio 2026 MSBuild toolchain for the routine Debug build:
+Use the Visual Studio 2026 MSBuild toolchain with the repository-pinned .NET SDK `10.0.400` for the routine Debug build. Verify the SDK first:
+
+```powershell
+dotnet --version
+```
+
+The command must report `10.0.400`. Do not use a fallback SDK or change `global.json` without updating the repository toolchain policy and requirements documentation.
+
+Build with:
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" .\LocalCam.csproj /t:Build /p:Configuration=Debug /p:RunAnalyzers=false /m

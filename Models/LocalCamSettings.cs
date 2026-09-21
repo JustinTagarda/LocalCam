@@ -1,4 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace LocalCam.Models {
+    public sealed class RecentCameraConnection {
+        public string IpAddress { get; set; } = string.Empty;
+        public string? MacAddress { get; set; }
+        public string? HostName { get; set; }
+        public string? DetectionMethod { get; set; }
+        public DateTimeOffset LastConfirmedPlaybackUtc { get; set; }
+        public int ConsecutiveReconnectFailures { get; set; }
+    }
+
     public enum AppThemePreference {
         System,
         Light,
@@ -9,8 +20,12 @@ namespace LocalCam.Models {
         public string RtspUsername { get; set; } = string.Empty;
         public string RtspPassword { get; set; } = string.Empty;
         public string StreamPath { get; set; } = "stream1";
-        public bool AutoStreamVideo { get; set; } = true;
-        public bool AutoDetectOnStartup { get; set; } = true;
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool AutoStreamVideo { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool AutoDetectOnStartup { get; set; }
+        public bool? ReconnectRecentCamerasOnStartup { get; set; }
+        public List<RecentCameraConnection> RecentCameraConnections { get; set; } = new();
         public AppThemePreference ThemePreference { get; set; } = AppThemePreference.System;
         public string? SnapshotSaveFolder { get; set; }
         public string? RecordingSaveFolder { get; set; }

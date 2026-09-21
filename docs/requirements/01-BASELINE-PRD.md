@@ -24,7 +24,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 1. Launch the single-window application.
 2. Load settings and restore window bounds.
-3. Discover cameras automatically when enabled, or start discovery manually.
+3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras.
 4. Review detected camera tiles and discovery status.
 5. Configure RTSP credentials and stream path in Settings.
 6. Play one camera, all cameras, or auto-start eligible streams.
@@ -34,6 +34,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 ## Current capabilities
 
 - Multi-method, best-effort local-network discovery.
+- Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Start All/Stop All stream controls.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
@@ -51,7 +52,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 ## Scope boundaries
 
-Current implementation does not provide manual IP entry, persistent camera profiles, arbitrary RTSP ports, custom RTSP URLs, device authentication handshakes, guaranteed universal compatibility, diagnostics export, or multi-page navigation.
+Current implementation does not provide manual IP entry, permanent camera profiles, arbitrary RTSP ports, custom RTSP URLs, device authentication handshakes, guaranteed universal compatibility, diagnostics export, or multi-page navigation.
 
 Store Basic/Premium behavior applies to packaged Store builds. Unpackaged development builds hide Store entitlement and upgrade UI.
 

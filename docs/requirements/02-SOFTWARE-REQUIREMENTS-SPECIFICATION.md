@@ -27,6 +27,8 @@ Status: Current implementation baseline
 | FR-019 | Packaged builds shall support Store entitlement, Premium purchase, and update flows according to the existing policy documents. | Should | Implemented/packaged-only | Package validation |
 | FR-020 | The application shall provide persistent System, Light, and Dark theme preferences, apply the selected WPF theme before the first window visual tree is initialized, refresh LocalCam brush instances after a preference change, and use Windows-provided Fluent theme resources for light/dark surface distinction and accent text. | Should | Partial | Settings persistence, startup-order, brush-refresh, native-title-bar UI check, and host-theme visual check; automated theme coverage remains |
 | FR-021 | MainWindow, SettingsWindow, and the update-progress window shall use native Windows/WPF window frames without decorative outer client-border wrappers; Settings shall use the default WPF behavior for its theme selector and dropdown. | Should | Implemented | XAML inspection, FAST-BUILD, and manual native-frame/System-Light-Dark Theme ComboBox check |
+| FR-022 | The application shall retain recent confirmed camera connections locally for seven days, reconnect them before discovery on startup or Detect Camera, fall back to discovery after reconnect failures, and evict an entry after two consecutive reconnect failures. | Must | Implemented | Cache-policy tests and controlled-network check |
+| FR-023 | The application shall replace auto-detect and auto-stream preferences with a Reconnect recent cameras on startup preference, and invalidate the recent-connection cache when shared RTSP credentials or stream path change. | Must | Implemented | Settings persistence and invalidation tests |
 
 ## Non-functional requirements
 
@@ -40,6 +42,7 @@ Status: Current implementation baseline
 | NFR-006 | Failures in critical workflows shall be visible to users and not silently swallowed. | Must | Partial | Failure-path review |
 | NFR-007 | Settings and diagnostics shall remain local to the device unless future scope explicitly adds remote services. | Must | Implemented | Code/dependency review |
 | NFR-008 | Critical behaviors shall have automated tests or a documented manual verification path. | Must | Partial | Traceability review |
+| NFR-009 | Repository builds, tests, packaging, and generated artifacts shall use the exact .NET SDK version pinned in `global.json`; the current pinned version is `10.0.400` with roll-forward disabled. | Must | Implemented | `global.json` inspection, `dotnet --version`, and Visual Studio 2026 FAST-BUILD |
 
 ## Constraints and non-goals
 

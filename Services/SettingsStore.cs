@@ -27,6 +27,8 @@ namespace LocalCam.Services {
                 var json = File.ReadAllText(SettingsPath);
                 settings = JsonSerializer.Deserialize<LocalCamSettings>(json, JsonOptions) ?? new LocalCamSettings();
                 settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
+                settings.ReconnectRecentCamerasOnStartup ??= settings.AutoDetectOnStartup && settings.AutoStreamVideo;
+                RecentCameraConnectionCache.PruneExpired(settings, DateTimeOffset.UtcNow);
                 if (!Enum.IsDefined(settings.ThemePreference)) {
                     settings.ThemePreference = AppThemePreference.System;
                 }
@@ -50,6 +52,10 @@ namespace LocalCam.Services {
         public static void Save(LocalCamSettings settings) {
             Directory.CreateDirectory(SettingsDirectory);
             settings.StreamPath = NormalizeStreamPath(settings.StreamPath);
+            settings.ReconnectRecentCamerasOnStartup ??= settings.AutoDetectOnStartup && settings.AutoStreamVideo;
+            settings.AutoDetectOnStartup = false;
+            settings.AutoStreamVideo = false;
+            RecentCameraConnectionCache.PruneExpired(settings, DateTimeOffset.UtcNow);
 
             var json = JsonSerializer.Serialize(settings, JsonOptions);
             File.WriteAllText(SettingsPath, json);

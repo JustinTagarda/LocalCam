@@ -7,6 +7,8 @@ Date: 2026-08-10
 
 This directory is the maintained requirements and design baseline for LocalCam. It documents what the current implementation does, how it is verified, and what future work is recommended.
 
+The current repository toolchain baseline is .NET SDK `10.0.400`, pinned by `global.json` with roll-forward disabled.
+
 ## Document map
 
 | Document | Use |
@@ -17,6 +19,7 @@ This directory is the maintained requirements and design baseline for LocalCam. 
 | [04 Traceability and verification](04-TRACEABILITY-AND-VERIFICATION-PLAN.md) | Requirement-to-code evidence and test strategy |
 | [05 Decisions and constraints](05-DECISIONS-AND-CONSTRAINTS.md) | Durable design decisions and repository rules |
 | [06 Future roadmap](06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md) | Recommended next goals and sequencing |
+| [07 UI design requirements](07-UI-DESIGN-REQUIREMENTS.md) | Shared button baseline and scoped camera-area sizing rules |
 
 ## Authority and maintenance
 
@@ -25,6 +28,7 @@ This directory is the maintained requirements and design baseline for LocalCam. 
 - A requirement is current only when its status and code/test evidence agree.
 - New behavior should update the PRD, SRS, traceability, and relevant architecture/decision documents in the same change.
 - Unknown behavior is recorded as `Not found` or `Unverified`; it must not be presented as implemented.
+- Toolchain requirements are authoritative: `global.json`, `AGENTS.md`, and the requirements documents must agree on the pinned .NET SDK version. A toolchain change must update all three sources and its verification evidence in the same change.
 
 ## Requirement notation
 

@@ -52,6 +52,12 @@ These documents describe the application as implemented. They do not retroactive
 
 ## DEC-009: Host-driven Fluent theme resources with safe runtime refresh
 
+## DEC-010: Expiring recent-camera reconnect cache
+
+Status: Accepted
+
+LocalCam retains only locally stored, recently confirmed camera endpoints. Entries expire after seven days, are removed after two consecutive reconnect failures, and are invalidated whenever shared RTSP credentials or stream path change. The cache is uncapped and is an acceleration mechanism, not a permanent camera profile registry; normal local discovery remains the recovery path.
+
 Status: Accepted
 
 LocalCam uses WPF `Application.ThemeMode` and the Windows-provided Fluent resource tokens for System, Light, and Dark appearance. It does not define a custom fixed-color palette. Existing LocalCam brush aliases remain as compatibility seams for XAML and dynamically created controls.
@@ -71,3 +77,39 @@ Internal borders remain valid for semantic UI surfaces such as status panels, ca
 The Settings Theme ComboBox uses a complete custom template because the default WPF ComboBox template does not maintain the application's Fluent-backed light/dark surface styling. The template must preserve dynamic resources, System/Light/Dark behavior, keyboard/dropdown interaction, and item highlighting.
 
 Guardrail: do not reintroduce custom window chrome, decorative outer frame borders, fixed theme colors, or partial/default Theme ComboBox styling without explicit user authorization and updates to FR-021 and its verification evidence.
+
+## DEC-011: App-wide shared button baseline
+
+Status: Accepted
+
+`App.xaml` owns `GlobalButtonStyle`, whose initial configuration is the regular button style formerly owned by `SettingsWindow`. The application-level implicit `Button` style is based on `GlobalButtonStyle`, so unqualified buttons receive the baseline automatically. Window-local and code-created specialized styles must derive from `GlobalButtonStyle` and may override only presentation-specific properties such as icon dimensions, overlay transparency, compact spacing, or status emphasis.
+
+Strict guardrails:
+
+- Do not create or retain an independent button template in a window, dialog, or code path.
+- Do not apply a button style that is not based on `GlobalButtonStyle`.
+- Do not replace the Fluent-backed dynamic button brushes with fixed colors or mutate frozen theme resources.
+- Do not change the baseline padding, minimum width, height, 4px corner radius, cursor, border, hover, pressed, or disabled behavior without explicit authorization and corresponding verification updates.
+- Specialized button behavior (visibility, focusability, commands, icon geometry, overlay placement, and accessibility) remains independent of the shared visual baseline and must not be removed to satisfy style reuse.
+- Any future button-style change must include a static inheritance audit and live System/Light/Dark checks across every window and active camera-card button surface.
+
+## DEC-012: Content-sized camera-area action buttons
+
+Status: Accepted
+
+The in-video action buttons hosted in camera areas use `CameraOverlayIconButtonStyle`, which derives from `GlobalButtonStyle` but overrides `MinWidth` to `0`, leaves `Width` and `Height` unset, and sets uniform `Padding` to `6px`. Each action icon uses a `16x16` content canvas while inner glyphs retain their visual proportions. This keeps Expand, Collapse, Play, Stop Stream, Snapshot, and Record buttons content-sized with automatic height while retaining the shared button behavior.
+
+Guardrail: this exception is limited to camera-area in-video action buttons. Do not change the global button width, height, or padding rules, introduce a non-16x16 action icon canvas, or apply these camera-button settings to toolbar, Settings, dialog, update, status, or other buttons without explicit authorization and corresponding UI design and verification updates.
+
+## DEC-013: Pinned .NET SDK 10.0.400
+
+Status: Accepted
+
+LocalCam pins .NET SDK `10.0.400` in `global.json` with roll-forward disabled. The pinned SDK is part of the repository build contract and must be used for Debug builds, tests, packaging, and generated artifacts with the Visual Studio 2026 MSBuild toolchain.
+
+Guardrails:
+
+- Do not silently downgrade to `10.0.300`, roll forward to another SDK, or bypass `global.json`.
+- Do not claim FAST-BUILD or test verification for this repository when another SDK version was used.
+- Any SDK update requires explicit authorization and synchronized updates to `global.json`, `AGENTS.md`, README build instructions, NFR-009, the architecture baseline, this decision record, and the traceability verification steps.
+- If the pinned SDK is not installed, stop and report the gap rather than changing the pin or using a fallback.

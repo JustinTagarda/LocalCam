@@ -60,6 +60,7 @@
                        Visibility="Collapsed" />
 
             <Button x:Name="CloseButton"
+                    Style="{StaticResource GlobalButtonStyle}"
                     Grid.Row="5"
                     Content="Close"
                     Width="82"

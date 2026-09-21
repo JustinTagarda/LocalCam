@@ -21,8 +21,7 @@ namespace LocalCam {
             RtspUsernameTextBox.Text = settings.RtspUsername;
             RtspPasswordBox.Password = settings.RtspPassword;
             StreamPathTextBox.Text = NormalizeStreamPath(settings.StreamPath);
-            AutoStartWhenConnectedCheckBox.IsChecked = settings.AutoStreamVideo;
-            AutoDetectOnStartupCheckBox.IsChecked = settings.AutoDetectOnStartup;
+            ReconnectRecentCamerasOnStartupCheckBox.IsChecked = settings.ReconnectRecentCamerasOnStartup ?? (settings.AutoDetectOnStartup && settings.AutoStreamVideo);
             ThemePreferenceComboBox.SelectedValue = settings.ThemePreference.ToString();
             _snapshotFolderPathValue = NormalizeSnapshotSaveFolder(settings.SnapshotSaveFolder);
             _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
@@ -211,8 +210,8 @@ namespace LocalCam {
                 RtspUsername = RtspUsernameTextBox.Text.Trim(),
                 RtspPassword = RtspPasswordBox.Password,
                 StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
-                AutoStreamVideo = AutoStartWhenConnectedCheckBox.IsChecked == true,
-                AutoDetectOnStartup = AutoDetectOnStartupCheckBox.IsChecked == true,
+                ReconnectRecentCamerasOnStartup = ReconnectRecentCamerasOnStartupCheckBox.IsChecked == true,
+                RecentCameraConnections = _initialSettings.RecentCameraConnections.Select(CloneRecentConnection).ToList(),
                 ThemePreference = ParseThemePreference(ThemePreferenceComboBox.SelectedValue as string),
                 SnapshotSaveFolder = _snapshotFolderPathValue,
                 RecordingSaveFolder = _recordingFolderPathValue,
@@ -339,8 +338,7 @@ namespace LocalCam {
                    string.Equals(NormalizeStreamPath(a.StreamPath), NormalizeStreamPath(b.StreamPath), StringComparison.Ordinal) &&
                    string.Equals(NormalizeSnapshotSaveFolder(a.SnapshotSaveFolder), NormalizeSnapshotSaveFolder(b.SnapshotSaveFolder), StringComparison.Ordinal) &&
                    string.Equals(NormalizeRecordingSaveFolder(a.RecordingSaveFolder), NormalizeRecordingSaveFolder(b.RecordingSaveFolder), StringComparison.Ordinal) &&
-                   a.AutoStreamVideo == b.AutoStreamVideo &&
-                   a.AutoDetectOnStartup == b.AutoDetectOnStartup &&
+                   a.ReconnectRecentCamerasOnStartup == b.ReconnectRecentCamerasOnStartup &&
                    a.ThemePreference == b.ThemePreference &&
                    string.Equals(a.LastSuccessfulDetectionMethod, b.LastSuccessfulDetectionMethod, StringComparison.Ordinal) &&
                    a.MainWindowLeft == b.MainWindowLeft &&
@@ -354,8 +352,8 @@ namespace LocalCam {
                 RtspUsername = settings.RtspUsername,
                 RtspPassword = settings.RtspPassword,
                 StreamPath = settings.StreamPath,
-                AutoStreamVideo = settings.AutoStreamVideo,
-                AutoDetectOnStartup = settings.AutoDetectOnStartup,
+                ReconnectRecentCamerasOnStartup = settings.ReconnectRecentCamerasOnStartup,
+                RecentCameraConnections = settings.RecentCameraConnections.Select(CloneRecentConnection).ToList(),
                 ThemePreference = settings.ThemePreference,
                 SnapshotSaveFolder = settings.SnapshotSaveFolder,
                 RecordingSaveFolder = settings.RecordingSaveFolder,
@@ -366,5 +364,14 @@ namespace LocalCam {
                 MainWindowHeight = settings.MainWindowHeight
             };
         }
+
+        private static RecentCameraConnection CloneRecentConnection(RecentCameraConnection entry) => new() {
+            IpAddress = entry.IpAddress,
+            MacAddress = entry.MacAddress,
+            HostName = entry.HostName,
+            DetectionMethod = entry.DetectionMethod,
+            LastConfirmedPlaybackUtc = entry.LastConfirmedPlaybackUtc,
+            ConsecutiveReconnectFailures = entry.ConsecutiveReconnectFailures
+        };
     }
 }

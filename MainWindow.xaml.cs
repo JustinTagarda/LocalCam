@@ -90,9 +90,15 @@ namespace LocalCam {
         private static readonly TimeSpan CameraMonitorRestartSettleDelay = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
+        private static readonly TimeSpan RecentCameraReconnectConfirmationTimeout = TimeSpan.FromSeconds(8);
                         private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
+        private readonly Dictionary<int, long> _cacheReconnectAttemptIdsByTile = [];
+        private readonly Dictionary<long, TapoCameraDetection> _cacheReconnectDetectionsByAttempt = [];
+        private readonly Dictionary<long, CancellationTokenSource> _cacheReconnectTimeoutsByAttempt = [];
+        private long _nextCacheReconnectAttemptId;
+        private bool _isRecoveryDiscoveryQueued;
         private readonly List<CameraTileControls> _cameraTiles = new();
         private LibVLC? _libVlc;
         private CancellationTokenSource? _scanCancellation;
@@ -262,8 +268,7 @@ namespace LocalCam {
                 RtspUsername = defaultUser ?? string.Empty,
                 RtspPassword = defaultPassword ?? string.Empty,
                 StreamPath = "stream1",
-                AutoStreamVideo = true,
-                AutoDetectOnStartup = true
+                ReconnectRecentCamerasOnStartup = true
             };
         }
 
@@ -443,8 +448,8 @@ namespace LocalCam {
             var card = new Border {
                 Style = (Style)FindResource("CameraCardStyle")
             };
-            card.SizeChanged += (_, _) => ApplyRoundedClip(card, 8);
-            ApplyRoundedClip(card, 8);
+            card.SizeChanged += (_, _) => ApplyRoundedClip(card, 0);
+            ApplyRoundedClip(card, 0);
             var root = new Grid {
                 ClipToBounds = true
             };
@@ -634,7 +639,7 @@ namespace LocalCam {
                 Background = AppThemeService.GetBrush("OverlayToolbarBrush"),
                 BorderBrush = System.Windows.Media.Brushes.Transparent,
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(4)
             };
             overlayToolbar.Child = overlayToolbarButtons;
@@ -651,7 +656,7 @@ namespace LocalCam {
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(4, 4, 0, 0),
                 Background = AppThemeService.GetBrush("RecordingBrush"),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(0),
                 Padding = new Thickness(8, 4, 8, 4),
                 Child = recordingElapsedText,
                 Visibility = Visibility.Collapsed
@@ -730,20 +735,36 @@ namespace LocalCam {
         }
 
         private static FrameworkElement CreateStartButtonContent() {
-            return new Path {
-                Data = Geometry.Parse("M4,3 L13,8 L4,13 Z"),
-                Fill = AppThemeService.GetBrush("PlayBrush"),
-                Stretch = System.Windows.Media.Stretch.Uniform,
-                Width = 14,
-                Height = 14
+            return new Grid {
+                Width = 16,
+                Height = 16,
+                Children = {
+                    new Path {
+                        Data = Geometry.Parse("M4,3 L13,8 L4,13 Z"),
+                        Fill = AppThemeService.GetBrush("PlayBrush"),
+                        Stretch = System.Windows.Media.Stretch.Uniform,
+                        Width = 14,
+                        Height = 14,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
             };
         }
 
         private static FrameworkElement CreateStopButtonContent() {
-            return new Rectangle {
-                Fill = AppThemeService.GetBrush("StopBrush"),
-                Width = 11,
-                Height = 11
+            return new Grid {
+                Width = 16,
+                Height = 16,
+                Children = {
+                    new Rectangle {
+                        Fill = AppThemeService.GetBrush("StopBrush"),
+                        Width = 11,
+                        Height = 11,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
             };
         }
 
@@ -814,14 +835,25 @@ namespace LocalCam {
 
         private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
             if (!System.IO.File.Exists(imagePath)) {
-                return new System.Windows.Shapes.Path {
-                    Data = ExpandButtonGeometry,
-                    Fill = System.Windows.Media.Brushes.Transparent,
-                    Stroke = AppThemeService.GetBrush("StopBrush"),
-                    StrokeThickness = 1.6,
-                    StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
-                    StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
-                    StrokeLineJoin = System.Windows.Media.PenLineJoin.Round
+                return new Grid {
+                    Width = 16,
+                    Height = 16,
+                    Children = {
+                        new System.Windows.Shapes.Path {
+                            Data = ExpandButtonGeometry,
+                            Fill = System.Windows.Media.Brushes.Transparent,
+                            Stroke = AppThemeService.GetBrush("StopBrush"),
+                            StrokeThickness = 1.6,
+                            StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                            StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+                            StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
+                            Width = 16,
+                            Height = 16,
+                            Stretch = System.Windows.Media.Stretch.Uniform,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center
+                        }
+                    }
                 };
             }
 
@@ -906,6 +938,11 @@ namespace LocalCam {
                     }
                 }
                 _streamsRunning = IsAnyStreamRunning();
+                if (tileIndex >= 0 && tileIndex < _detections.Count) {
+                    var detection = CompleteCachedReconnectAttempt(tileIndex) ?? _detections[tileIndex];
+                    RecentCameraConnectionCache.ConfirmPlayback(_settings, detection, DateTimeOffset.UtcNow);
+                    TrySaveSettings("recent_camera_connection_save_failed", "Failed to save a recent camera connection.");
+                }
                 UpdateActionButtons();
                 if (tileIndex >= 0 && !wasRestarting) {
                     RequestCameraMonitoring();
@@ -961,6 +998,7 @@ namespace LocalCam {
                             ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null,
                             ["reason"] = userReason ?? _lastLibVlcErrorMessage ?? "LibVLC reported a playback error."
                         });
+                    HandleCachedReconnectFailure(tileIndex);
                 }
                 if (_activeRecordingTileIndex == tileIndex) {
                     StopRecordingSession("stream_error", updateStatus: true);
@@ -1362,8 +1400,8 @@ namespace LocalCam {
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
-            if (_settings.AutoDetectOnStartup) {
-                _ = StartLocalCameraSearchAsync();
+            if (_settings.ReconnectRecentCamerasOnStartup == true) {
+                _ = StartRecentCameraReconnectAsync();
                 return;
             }
 
@@ -1682,12 +1720,91 @@ namespace LocalCam {
             var anyPlaying = IsAnyStreamRunning();
             var anyNotPlaying = HasAnyStoppedDetectedCamera();
 
-            DetectCameraButton.Content = _isScanning ? "Cancel Detecting" : "Detect Camera";
+            DetectCameraButtonLabel.Text = _isScanning ? "Cancel Detecting" : "Detect Camera";
+            DetectCameraIcon.Visibility = _isScanning ? Visibility.Collapsed : Visibility.Visible;
+            DetectCameraSpinner.Visibility = _isScanning ? Visibility.Visible : Visibility.Collapsed;
             DetectCameraButton.IsEnabled = !_isDetectButtonToggleDelayActive;
             ToolbarStartStreamsButton.IsEnabled = anyNotPlaying;
             ToolbarStopButton.IsEnabled = anyPlaying;
             SettingsButton.IsEnabled = true;
             UpdateTileButtonStates();
+        }
+
+        private async Task StartRecentCameraReconnectAsync() {
+            if (_isClosing || _isScanning) return;
+            var cachedDetections = RecentCameraConnectionCache.GetValidDetections(_settings, DateTimeOffset.UtcNow);
+            if (cachedDetections.Count == 0) {
+                StreamingStatusText.Text = "Searching local network for cameras...";
+                await StartLocalCameraSearchAsync();
+                return;
+            }
+            JsonLogStore.Information("recent_camera_reconnect_requested", "Attempting to reconnect recent cameras before local discovery.", "camera_reconnect", new Dictionary<string, object?> { ["cameraCount"] = cachedDetections.Count });
+            _detections = cachedDetections;
+            ShowDetections(cachedDetections);
+            CancelCachedReconnectAttempts();
+            for (var index = 0; index < cachedDetections.Count; index++) StartCachedReconnectConfirmation(index, cachedDetections[index]);
+            StreamingStatusText.Text = "Reconnecting to recent cameras...";
+            TryAutoStartStreams();
+        }
+
+        private void HandleCachedReconnectFailure(int tileIndex) {
+            var detection = CompleteCachedReconnectAttempt(tileIndex);
+            if (detection is null) return;
+            var evicted = RecentCameraConnectionCache.RegisterReconnectFailure(_settings, detection);
+            TrySaveSettings("recent_camera_connection_failure_save_failed", "Failed to save recent camera reconnect state.");
+            JsonLogStore.Warning(evicted ? "recent_camera_connection_evicted" : "recent_camera_reconnect_failed", evicted ? "A recent camera connection was removed after repeated reconnect failures." : "A recent camera reconnect failed; local discovery will be attempted.", "camera_reconnect", new Dictionary<string, object?> { ["cameraIndex"] = tileIndex + 1, ["ipAddress"] = detection.IpAddress.ToString(), ["evicted"] = evicted });
+            if (_isRecoveryDiscoveryQueued || _isClosing || _isScanning) return;
+            _isRecoveryDiscoveryQueued = true;
+            StreamingStatusText.Text = "Searching local network for cameras for failed reconnections...";
+            Dispatcher.BeginInvoke(new Action(async () => {
+                try { await StartLocalCameraSearchAsync(); }
+                finally { _isRecoveryDiscoveryQueued = false; }
+            }), DispatcherPriority.Background);
+        }
+
+        private void StartCachedReconnectConfirmation(int tileIndex, TapoCameraDetection detection) {
+            var attemptId = unchecked(++_nextCacheReconnectAttemptId);
+            var timeout = new CancellationTokenSource();
+            _cacheReconnectAttemptIdsByTile[tileIndex] = attemptId;
+            _cacheReconnectDetectionsByAttempt[attemptId] = detection;
+            _cacheReconnectTimeoutsByAttempt[attemptId] = timeout;
+            _ = ConfirmCachedReconnectAsync(tileIndex, attemptId, timeout.Token);
+        }
+
+        private async Task ConfirmCachedReconnectAsync(int tileIndex, long attemptId, CancellationToken cancellationToken) {
+            try {
+                await Task.Delay(RecentCameraReconnectConfirmationTimeout, cancellationToken);
+            }
+            catch (OperationCanceledException) {
+                return;
+            }
+
+            if (_isClosing) return;
+            await Dispatcher.InvokeAsync(() => {
+                if (_cacheReconnectAttemptIdsByTile.TryGetValue(tileIndex, out var activeAttemptId) && activeAttemptId == attemptId) {
+                    JsonLogStore.Warning("recent_camera_reconnect_timed_out", "A recent camera did not confirm playback before the reconnect deadline.", "camera_reconnect", new Dictionary<string, object?> { ["cameraIndex"] = tileIndex + 1 });
+                    HandleCachedReconnectFailure(tileIndex);
+                }
+            });
+        }
+
+        private TapoCameraDetection? CompleteCachedReconnectAttempt(int tileIndex) {
+            if (!_cacheReconnectAttemptIdsByTile.Remove(tileIndex, out var attemptId)) return null;
+            _cacheReconnectTimeoutsByAttempt.Remove(attemptId, out var timeout);
+            timeout?.Cancel();
+            timeout?.Dispose();
+            _cacheReconnectDetectionsByAttempt.Remove(attemptId, out var detection);
+            return detection;
+        }
+
+        private void CancelCachedReconnectAttempts() {
+            foreach (var timeout in _cacheReconnectTimeoutsByAttempt.Values) {
+                timeout.Cancel();
+                timeout.Dispose();
+            }
+            _cacheReconnectTimeoutsByAttempt.Clear();
+            _cacheReconnectAttemptIdsByTile.Clear();
+            _cacheReconnectDetectionsByAttempt.Clear();
         }
 
         private async Task StartLocalCameraSearchAsync() {
@@ -1706,6 +1823,7 @@ namespace LocalCam {
                 });
 
             while (!_isClosing) {
+                CancelCachedReconnectAttempts();
                 _isScanning = true;
                 _isUserScanCancelRequested = false;
                 _scanCancellation = new CancellationTokenSource();
@@ -1861,7 +1979,7 @@ namespace LocalCam {
                 return;
             }
 
-            _ = StartLocalCameraSearchAsync();
+            _ = StartRecentCameraReconnectAsync();
         }
 
         private async Task BeginDetectButtonToggleDelayAsync() {
@@ -1919,7 +2037,15 @@ namespace LocalCam {
             try {
                 dialog.ShowDialog();
                 if (dialog.DidSave) {
+                    var rtspConfigurationChanged = !string.Equals(_settings.RtspUsername, dialog.Settings.RtspUsername, StringComparison.Ordinal) ||
+                        !string.Equals(_settings.RtspPassword, dialog.Settings.RtspPassword, StringComparison.Ordinal) ||
+                        !string.Equals(NormalizeStreamPath(_settings.StreamPath), NormalizeStreamPath(dialog.Settings.StreamPath), StringComparison.Ordinal);
                     _settings = dialog.Settings;
+                    if (rtspConfigurationChanged) {
+                        RecentCameraConnectionCache.InvalidateAll(_settings);
+                        TrySaveSettings("recent_camera_connection_invalidation_save_failed", "Failed to clear recent camera connections after RTSP configuration changed.");
+                        JsonLogStore.Information("recent_camera_connections_invalidated", "Recent camera connections were cleared because RTSP configuration changed.", "camera_reconnect");
+                    }
                     AppThemeService.Apply(_settings.ThemePreference);
                     RefreshCameraThemeResources();
                     TryAutoStartStreams();
@@ -2082,6 +2208,7 @@ namespace LocalCam {
                                 ["streamPath"] = streamPath,
                                 ["reason"] = "media player returned false"
                             });
+                        HandleCachedReconnectFailure(i);
                     }
                 }
                 catch (Exception ex) {
@@ -2100,6 +2227,7 @@ namespace LocalCam {
                             ["ipAddress"] = ipAddress,
                             ["streamPath"] = streamPath
                         });
+                    HandleCachedReconnectFailure(i);
                 }
             }
 
@@ -2140,7 +2268,7 @@ namespace LocalCam {
         }
 
         private void TryAutoStartStreams() {
-            if (_isClosing || _isScanning || !_settings.AutoStreamVideo) {
+            if (_isClosing || _isScanning) {
                 return;
             }
 
@@ -4126,6 +4254,7 @@ namespace LocalCam {
             UninstallMouseHook();
             StopCameraMonitoring();
             _scanCancellation?.Cancel();
+            CancelCachedReconnectAttempts();
             ShutdownStreamingEngine();
             _storeUpdaterCts?.Cancel();
             _storeUpdaterCts?.Dispose();
@@ -4142,6 +4271,7 @@ namespace LocalCam {
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e) {
             StopCameraMonitoring();
             _scanCancellation?.Cancel();
+            CancelCachedReconnectAttempts();
             PersistWindowBounds();
             _isClosing = true;
             _storeUpdaterCts?.Cancel();

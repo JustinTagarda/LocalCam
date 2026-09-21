@@ -35,81 +35,10 @@
             <Setter Property="MinWidth" Value="320" />
         </Style>
 
-        <Style x:Key="DialogButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
-            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="12,4" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="MinWidth" Value="92" />
-            <Setter Property="Height" Value="30" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="True">
-                                <Setter Property="Opacity" Value="1" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="DialogIconButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
-            <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Cursor" Value="Hand" />
+        <Style x:Key="DialogIconButtonStyle" TargetType="Button" BasedOn="{StaticResource GlobalButtonStyle}">
             <Setter Property="Width" Value="30" />
             <Setter Property="Height" Value="30" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="True">
-                                <Setter Property="Opacity" Value="1" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
         <Style x:Key="DialogCheckBoxStyle" TargetType="CheckBox">
@@ -204,27 +133,9 @@
                                 Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
-                    <CheckBox x:Name="AutoDetectOnStartupCheckBox"
+                    <CheckBox x:Name="ReconnectRecentCamerasOnStartupCheckBox"
                               Grid.Column="1"
-                              Content="Auto detect on startup"
-                              Style="{StaticResource DialogCheckBoxStyle}"
-                              Checked="InputChanged"
-                              Unchecked="InputChanged" />
-                </Grid>
-
-                <Grid Grid.Row="2" Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="130" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                     <TextBlock Text="Detection"
-                                Foreground="{DynamicResource SecondaryTextBrush}"
-                               VerticalAlignment="Center"
-                               Margin="0,0,12,0" />
-                    <CheckBox x:Name="AutoStartWhenConnectedCheckBox"
-                              Grid.Column="1"
-                              Content="Auto start when connected"
+                              Content="Reconnect recent cameras on startup"
                               Style="{StaticResource DialogCheckBoxStyle}"
                               Checked="InputChanged"
                               Unchecked="InputChanged" />
@@ -433,12 +344,12 @@
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right">
                         <Button x:Name="UpdateButton"
-                                Style="{StaticResource DialogButtonStyle}"
+                                Style="{StaticResource GlobalButtonStyle}"
                                 Content="Update"
                                 Margin="0,0,8,0"
                                 Click="UpdateButton_Click" />
                         <Button x:Name="CancelButton"
-                                Style="{StaticResource DialogButtonStyle}"
+                                Style="{StaticResource GlobalButtonStyle}"
                                 Content="Cancel"
                                 Click="CancelButton_Click" />
                     </StackPanel>
