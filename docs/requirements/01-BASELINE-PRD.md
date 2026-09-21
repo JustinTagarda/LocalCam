@@ -37,6 +37,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Start All/Stop All stream controls.
+- System suspend/hibernate uses the normal Stop All path and leaves detected camera tiles and connection state intact; resume does not auto-start playback or recording.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
 - Stream path persistence with default `stream1`; RTSP port remains `554`.
 - Settings for credentials, auto-detection, auto-streaming, snapshot folder, and recording folder.

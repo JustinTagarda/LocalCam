@@ -14,10 +14,10 @@ Status: Current implementation baseline
 | FR-006 | The application shall display a camera tile for each current detection. | Must | Implemented | UI acceptance check |
 | FR-007 | The application shall build RTSP URLs from credentials, detected host, port `554`, and normalized stream path. | Must | Implemented | Unit tests |
 | FR-008 | Invalid or missing RTSP configuration shall open Settings and show `RTSP credentials are missing or invalid.`. | Must | Implemented | UI acceptance check |
-| FR-009 | The application shall support per-camera Play/Stop and global Start All/Stop All actions. A stream becomes live only after LibVLC confirms playback; unexpected terminal playback events receive one bounded restart attempt. | Must | Implemented | UI and stream integration checks |
+| FR-009 | The application shall support per-camera Play/Stop and global Start All/Stop All actions. A stream becomes live only after LibVLC confirms playback; unexpected terminal playback events receive one bounded restart attempt. On system suspend or hibernate, the application shall invoke Stop All and retain detected tiles and connection state; system resume shall not auto-start playback. | Must | Implemented | UI and stream integration checks |
 | FR-010 | The application shall clean up stream and LibVLC resources on stop and close. | Must | Implemented | Lifecycle test/manual check |
 | FR-011 | The application shall capture snapshots only from active streams and use unique filenames. | Must | Implemented | Snapshot test |
-| FR-012 | The application shall support one manual recording session across all cards. | Must | Implemented | Recording state tests |
+| FR-012 | The application shall support one manual recording session across all cards and stop it through the normal Stop All path before system suspend or hibernation. | Must | Implemented | Recording state tests and power-transition UI check |
 | FR-013 | Starting recording on another card shall stop the current recording before switching. | Must | Implemented | Recording integration test |
 | FR-014 | Recordings shall use `.ts` output and roll over at 60 minutes while playback remains active. | Must | Implemented | Timer/recorder test |
 | FR-015 | Recorder stop, end, or error shall clear recording UI state and report activity. | Must | Implemented | Failure-path test |

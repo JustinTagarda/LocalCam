@@ -120,8 +120,6 @@ namespace LocalCam {
         private CancellationTokenSource? _cameraMonitorCancellation;
         private readonly SemaphoreSlim _cameraMonitorWakeSignal = new(0, 1);
         private Task? _cameraMonitorTask;
-        private readonly object _powerTransitionSync = new();
-        private List<int> _suspendedPlayingTileIndexes = new();
         private IntPtr _mouseHookHandle;
         private IntPtr _lowLevelMouseHookHandle;
         private MouseHookProc? _mouseHookProc;
@@ -149,6 +147,8 @@ namespace LocalCam {
         private readonly Dictionary<int, string> _streamFailureReasons = new();
         private readonly Dictionary<int, StreamHealthState> _streamHealthStates = new();
         private readonly Dictionary<int, int> _terminalStreamRecoveryAttempts = new();
+        private readonly HashSet<VlcMediaPlayer> _intentionalStoppedMediaPlayers = [];
+        private long _streamRecoveryGeneration;
         private long _nextStreamStartOrder = 1;
         private string? _lastLibVlcErrorMessage;
         private readonly IStoreContextProvider _storeContextProvider;
@@ -440,9 +440,9 @@ namespace LocalCam {
                 }
                 _streamHealthStates.Remove(_cameraTiles.Count - 1);
                 _streamStartOrder.Remove(_cameraTiles.Count - 1);
-                tile.MediaPlayer?.Stop();
+                StopMediaPlayerIntentionally(tile.MediaPlayer);
                 tile.VideoView.MediaPlayer = null;
-                tile.MediaPlayer?.Dispose();
+                DisposeMediaPlayer(tile.MediaPlayer);
                 CameraTilesPanel.Children.Remove(tile.Card);
                 _cameraTiles.RemoveAt(_cameraTiles.Count - 1);
             }
@@ -476,9 +476,9 @@ namespace LocalCam {
             _terminalStreamRecoveryAttempts.Remove(tileIndex);
 
             var tile = _cameraTiles[tileIndex];
-            tile.MediaPlayer?.Stop();
+            StopMediaPlayerIntentionally(tile.MediaPlayer);
             tile.VideoView.MediaPlayer = null;
-            tile.MediaPlayer?.Dispose();
+            DisposeMediaPlayer(tile.MediaPlayer);
             tile.MediaPlayer = null;
         }
 
@@ -973,6 +973,7 @@ namespace LocalCam {
                     return;
                 }
 
+                _intentionalStoppedMediaPlayers.Remove(mediaPlayer);
                 _streamFailureReasons.Remove(tileIndex);
                 _terminalStreamRecoveryAttempts.Remove(tileIndex);
                 MarkStreamStarted(tileIndex);
@@ -1002,7 +1003,8 @@ namespace LocalCam {
             }));
             mediaPlayer.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
-                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
+                var wasIntentionalStop = _intentionalStoppedMediaPlayers.Contains(mediaPlayer);
+                if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
@@ -1013,14 +1015,15 @@ namespace LocalCam {
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
-                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !HandleCachedReconnectFailure(tileIndex)) {
+                if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !HandleCachedReconnectFailure(tileIndex)) {
                     _ = RecoverTerminalStreamAsync(tileIndex, "ended");
                 }
             }));
             mediaPlayer.EncounteredError += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
+                var wasIntentionalStop = _intentionalStoppedMediaPlayers.Contains(mediaPlayer);
                 var wasCachedReconnect = false;
-                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
+                if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
@@ -1040,14 +1043,14 @@ namespace LocalCam {
                             ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null,
                             ["reason"] = userReason ?? _lastLibVlcErrorMessage ?? "LibVLC reported a playback error."
                         });
-                    wasCachedReconnect = HandleCachedReconnectFailure(tileIndex);
+                    wasCachedReconnect = !wasIntentionalStop && HandleCachedReconnectFailure(tileIndex);
                 }
-                if (_activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
+                if (!wasIntentionalStop && _activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     StopRecordingSession("stream_error", updateStatus: true);
                 }
                 _streamsRunning = IsAnyStreamRunning();
                 UpdateActionButtons();
-                if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !wasCachedReconnect) {
+                if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer) && !wasCachedReconnect) {
                     _ = RecoverTerminalStreamAsync(tileIndex, "error");
                 }
             }));
@@ -2340,6 +2343,7 @@ namespace LocalCam {
         }
 
         private void StopAllStreams() {
+            InvalidateAutomaticStreamRecovery();
             _expandedCameraIndex = null;
             StopRecordingSession("all_streams_stopped", updateStatus: false);
             for (var i = 0; i < _cameraTiles.Count; i++) {
@@ -2349,9 +2353,7 @@ namespace LocalCam {
                     continue;
                 }
 
-                if (mediaPlayer.IsPlaying) {
-                    mediaPlayer.Stop();
-                }
+                StopMediaPlayerIntentionally(mediaPlayer);
 
                 SetVideoSurfaceActive(i, isActive: false);
                 SetStreamLifecyclePhase(i, StreamLifecyclePhase.Stopped);
@@ -2441,7 +2443,7 @@ namespace LocalCam {
             return false;
         }
 
-        private void StopSingleStream(int tileIndex, bool updateStatus = true) {
+        private void StopSingleStream(int tileIndex, bool updateStatus = true, bool invalidateAutomaticRecovery = true) {
             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
                 return;
             }
@@ -2450,11 +2452,13 @@ namespace LocalCam {
                 StopRecordingSession("stream_stopped", updateStatus: false);
             }
 
+            if (invalidateAutomaticRecovery) {
+                InvalidateAutomaticStreamRecovery();
+            }
+
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
-            if (mediaPlayer is not null) {
-                mediaPlayer.Stop();
-            }
+            StopMediaPlayerIntentionally(mediaPlayer);
 
             SetVideoSurfaceActive(tileIndex, isActive: false);
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
@@ -2472,11 +2476,33 @@ namespace LocalCam {
             }
 
             var tile = _cameraTiles[tileIndex];
-            tile.MediaPlayer?.Stop();
+            StopMediaPlayerIntentionally(tile.MediaPlayer);
             tile.VideoView.MediaPlayer = null;
-            tile.MediaPlayer?.Dispose();
+            DisposeMediaPlayer(tile.MediaPlayer);
             tile.MediaPlayer = null;
             AttachMediaPlayer(tile, detection);
+        }
+
+        private void InvalidateAutomaticStreamRecovery() {
+            _streamRecoveryGeneration = unchecked(_streamRecoveryGeneration + 1);
+        }
+
+        private void StopMediaPlayerIntentionally(VlcMediaPlayer? mediaPlayer) {
+            if (mediaPlayer is null) {
+                return;
+            }
+
+            _intentionalStoppedMediaPlayers.Add(mediaPlayer);
+            mediaPlayer.Stop();
+        }
+
+        private void DisposeMediaPlayer(VlcMediaPlayer? mediaPlayer) {
+            if (mediaPlayer is null) {
+                return;
+            }
+
+            _intentionalStoppedMediaPlayers.Remove(mediaPlayer);
+            mediaPlayer.Dispose();
         }
 
         private bool IsStreamRunning(int tileIndex) {
@@ -2733,6 +2759,7 @@ namespace LocalCam {
                 return;
             }
 
+            var recoveryGeneration = _streamRecoveryGeneration;
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
             JsonLogStore.Warning(
@@ -2746,7 +2773,7 @@ namespace LocalCam {
                 });
 
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
-            StopSingleStream(tileIndex, updateStatus: false);
+            StopSingleStream(tileIndex, updateStatus: false, invalidateAutomaticRecovery: false);
 
             try {
                 await Task.Delay(CameraMonitorRestartSettleDelay, cancellationToken);
@@ -2755,7 +2782,7 @@ namespace LocalCam {
                 return;
             }
 
-            if (cancellationToken.IsCancellationRequested || _isClosing) {
+            if (cancellationToken.IsCancellationRequested || _isClosing || recoveryGeneration != _streamRecoveryGeneration) {
                 return;
             }
 
@@ -2799,6 +2826,7 @@ namespace LocalCam {
                 return;
             }
 
+            var recoveryGeneration = _streamRecoveryGeneration;
             _terminalStreamRecoveryAttempts[tileIndex] = attemptCount;
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
             JsonLogStore.Warning(
@@ -2819,7 +2847,7 @@ namespace LocalCam {
                 return;
             }
 
-            if (_isClosing || IsStreamRunning(tileIndex) || IsStreamTransitioning(tileIndex)) {
+            if (_isClosing || recoveryGeneration != _streamRecoveryGeneration || IsStreamRunning(tileIndex) || IsStreamTransitioning(tileIndex)) {
                 return;
             }
 
@@ -3818,7 +3846,7 @@ namespace LocalCam {
 
             foreach (var tile in _cameraTiles) {
                 tile.VideoView.MediaPlayer = null;
-                tile.MediaPlayer?.Dispose();
+                DisposeMediaPlayer(tile.MediaPlayer);
                 tile.MediaPlayer = null;
             }
 
@@ -4183,21 +4211,21 @@ namespace LocalCam {
                 return false;
             }
 
-            var suspendedTileIndexes = GetRunningStreamTileIndexes();
-            lock (_powerTransitionSync) {
-                _suspendedPlayingTileIndexes = suspendedTileIndexes.ToList();
-            }
+            var activeStreamCount = CountRunningStreams();
+            var wasRecording = _activeRecordingTileIndex.HasValue;
+            StopAllStreams();
+            StreamingStatusText.Text = "Streams stopped for system suspend.";
 
             LogPowerNotification(
-                eventName: "power_suspend_observed",
-                message: "A system suspend notification was observed.",
+                eventName: "power_suspend_streams_stopped",
+                message: "Streams and any active recording were stopped for system suspend.",
                 notificationKindName: "suspendKind",
                 notificationKind: "PBT_APMSUSPEND",
                 hwnd: hwnd,
                 powerBroadcastReason: powerBroadcastReason,
                 additionalData: new Dictionary<string, object?> {
-                    ["suspendedCameraCount"] = suspendedTileIndexes.Length,
-                    ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
+                    ["stoppedStreamCount"] = activeStreamCount,
+                    ["recordingWasActive"] = wasRecording
                 });
             return true;
         }
@@ -4216,13 +4244,12 @@ namespace LocalCam {
             }
 
             LogPowerNotification(
-                eventName: "power_resume_observed",
-                message: "A system resume notification was observed.",
+                eventName: "power_resume_streams_remain_stopped",
+                message: "System resume was observed; streams remain stopped.",
                 notificationKindName: "resumeKind",
                 notificationKind: resumeKind,
                 hwnd: hwnd,
                 powerBroadcastReason: powerBroadcastReason);
-            _ = RecoverSuspendedStreamsAfterResumeAsync();
             return true;
         }
 
@@ -4252,120 +4279,6 @@ namespace LocalCam {
                 message: message,
                 category: "app",
                 data: payload);
-        }
-
-        private int[] GetRunningStreamTileIndexes() {
-            return _streamStartOrder
-                .OrderBy(pair => pair.Value)
-                .Select(pair => pair.Key)
-                .Where(index => index >= 0 && index < _cameraTiles.Count && index < _detections.Count)
-                .Where(IsStreamRunning)
-                .ToArray();
-        }
-
-        private async Task RecoverSuspendedStreamsAfterResumeAsync() {
-            int[] suspendedTileIndexes;
-            lock (_powerTransitionSync) {
-                if (_suspendedPlayingTileIndexes.Count == 0) {
-                    RequestCameraMonitoring();
-                    return;
-                }
-
-                suspendedTileIndexes = _suspendedPlayingTileIndexes.ToArray();
-                _suspendedPlayingTileIndexes.Clear();
-            }
-
-            if (_isClosing || _libVlc is null) {
-                return;
-            }
-
-            var username = _settings.RtspUsername.Trim();
-            var password = _settings.RtspPassword;
-            if (!HasValidStreamStartSettings(username, password, _settings.StreamPath)) {
-                JsonLogStore.Warning(
-                    eventName: "camera_stream_resume_recovery_skipped",
-                    message: "System resume recovery was skipped because RTSP settings are invalid.",
-                    category: "camera_connect",
-                    data: new Dictionary<string, object?> {
-                        ["suspendedCameraCount"] = suspendedTileIndexes.Length,
-                        ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
-                    });
-                RequestCameraMonitoring();
-                return;
-            }
-
-            try {
-                await Task.Delay(CameraMonitorRestartSettleDelay);
-            }
-            catch (OperationCanceledException) {
-                return;
-            }
-
-            if (_isClosing) {
-                return;
-            }
-
-            var restartedTileIndexes = new List<int>();
-            var failedTileIndexes = new List<int>();
-
-            JsonLogStore.Information(
-                eventName: "camera_stream_resume_recovery_started",
-                message: "Recovering streams after system resume.",
-                category: "camera_connect",
-                data: new Dictionary<string, object?> {
-                    ["suspendedCameraCount"] = suspendedTileIndexes.Length,
-                    ["suspendedCameraIndexes"] = suspendedTileIndexes.Select(index => index + 1).ToArray()
-                });
-
-            foreach (var tileIndex in suspendedTileIndexes) {
-                if (_isClosing) {
-                    break;
-                }
-
-                if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
-                    continue;
-                }
-
-                if (IsStreamRunning(tileIndex)) {
-                    continue;
-                }
-
-                if (await StartSingleStreamAsync(tileIndex, updateStatus: false, requestMonitorWake: false, isMonitorRecovery: true)) {
-                    restartedTileIndexes.Add(tileIndex);
-                }
-                else {
-                    failedTileIndexes.Add(tileIndex);
-                }
-            }
-
-            RequestCameraMonitoring();
-
-            if (restartedTileIndexes.Count == 0 && failedTileIndexes.Count == 0) {
-                return;
-            }
-
-            if (failedTileIndexes.Count == 0) {
-                JsonLogStore.Information(
-                    eventName: "camera_stream_resume_recovery_completed",
-                    message: "System resume recovery completed successfully.",
-                    category: "camera_connect",
-                    data: new Dictionary<string, object?> {
-                        ["restartedCameraCount"] = restartedTileIndexes.Count,
-                        ["restartedCameraIndexes"] = restartedTileIndexes.Select(index => index + 1).ToArray()
-                    });
-            }
-            else {
-                JsonLogStore.Warning(
-                    eventName: "camera_stream_resume_recovery_completed_with_failures",
-                    message: "System resume recovery completed with one or more failures.",
-                    category: "camera_connect",
-                    data: new Dictionary<string, object?> {
-                        ["restartedCameraCount"] = restartedTileIndexes.Count,
-                        ["restartedCameraIndexes"] = restartedTileIndexes.Select(index => index + 1).ToArray(),
-                        ["failedCameraCount"] = failedTileIndexes.Count,
-                        ["failedCameraIndexes"] = failedTileIndexes.Select(index => index + 1).ToArray()
-                    });
-            }
         }
 
         protected override void OnClosed(EventArgs e) {

@@ -62,6 +62,10 @@ flowchart TD
 
 User or auto-start requests playback -> configuration is validated -> invalid configuration opens Settings -> valid configuration builds escaped RTSP URL -> a player bound to an immutable detection identity starts -> LibVLC `Playing` confirms the live state, refreshes the recent-camera cache, and enables health monitoring -> terminal playback events receive one bounded restart attempt -> failures are logged and surfaced. Detection reconciliation disposes a superseded tile player before assigning a new camera identity, so late LibVLC events cannot affect a reordered tile.
 
+### Power transition
+
+`PBT_APMSUSPEND` -> invalidate pending automatic recovery -> invoke the normal Stop All path -> stop any active recording and every player -> retain detections, tiles, shared RTSP settings, and recent-camera cache -> log the completed preparation. A resume notification is logged only; it does not restart playback, recording, discovery, or reconnect work.
+
 ### Recording
 
 Active tile requests recording -> output folder is validated -> existing recording is stopped if necessary -> `.ts` recorder starts -> timer tracks segment duration -> rollover starts the next segment -> recorder events remain authoritative for final state.
