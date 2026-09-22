@@ -44,6 +44,14 @@ Status: Accepted
 
 Settings, media output, and diagnostics remain local. Any future cloud or remote service would require a separate privacy, security, and architecture decision.
 
+## DEC-017: Unified application-data diagnostics retention
+
+Status: Accepted
+
+Debug, Release, and installed builds use the same `JsonLogStore` route and JSONL schema. Logs are stored below the Windows application-data local folder rather than beside the executable. For packaged builds, this is package-owned local data and Windows removes it with the package. Unpackaged desktop runs use the same application-data abstraction with a local fallback because an unpackaged executable has no OS uninstall lifecycle.
+
+Diagnostic messages, exception text, stack traces, and structured data are sanitized before serialization. Credentials, complete RTSP URLs, URL values, and secret-bearing fields are replaced with `[REDACTED]`. Logs rotate by UTC day, and files older than seven days are deleted during startup and periodic retention sweeps.
+
 ## DEC-008: Existing code is the baseline
 
 Status: Accepted

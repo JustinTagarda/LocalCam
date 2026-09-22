@@ -14,7 +14,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - Settings for RTSP credentials, stream path, auto-detection, auto-streaming, snapshot folder, and recording folder.
 - Inline validation that opens Settings when RTSP configuration is missing or invalid.
 - Persisted settings and window bounds.
-- Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and Store update events.
+- Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and Store update events. Debug, Release, and installed builds use one application-data logging route; logs are redacted and retained for seven days.
 - Packaged Microsoft Store entitlement, Premium purchase, and app-update flows.
 
 ## Current Limitations
@@ -64,7 +64,7 @@ Packaged Store builds apply the Basic/Premium policy: Basic allows up to two act
 - LibVLCSharp.WPF `3.9.6` and VideoLAN.LibVLC.Windows `3.0.23` for playback and recording.
 - Windows Store APIs for packaged entitlement, in-app purchase, and package updates.
 - `System.Net`, `System.Net.NetworkInformation`, and `System.Net.Sockets` for discovery.
-- JSON serialization and JSONL diagnostics using built-in .NET APIs.
+- JSON serialization and JSONL diagnostics using built-in .NET APIs and Windows application-data storage.
 - xUnit/Microsoft.NET.Test.Sdk are referenced by `LocalCam.Tests`, but test cases are not currently present.
 
 ## Architecture and Key Files

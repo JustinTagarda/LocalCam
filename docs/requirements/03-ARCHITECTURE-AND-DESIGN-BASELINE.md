@@ -75,7 +75,7 @@ Active tile requests recording -> output folder is validated -> existing recordi
 ## Data stores and boundaries
 
 - Settings: local JSON under `%LocalAppData%\\LocalCam`.
-- Diagnostics: structured JSONL under the application’s local diagnostics location; exact runtime path should be kept aligned with `README.md` and `SPECIFICATION.md`.
+- Diagnostics: structured JSONL under the Windows application-data local folder, with a non-executable-directory fallback for unpackaged desktop runs. Packaged local data is owned by the package and is removed by Windows during package uninstall. Log files rotate daily and files older than seven days are pruned.
 - Media output: default `%UserProfile%\\Pictures\\LocalCam` and `%UserProfile%\\Videos\\LocalCam`, or directly in a selected non-default folder.
 - Network: local discovery and RTSP connections; no server-side application backend is present.
 

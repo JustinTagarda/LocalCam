@@ -8,7 +8,7 @@ Create test source files in `LocalCam.Tests` and extract or isolate pure logic f
 
 ## P0: Protect credentials and diagnostics
 
-Add explicit redaction tests and review every log path to ensure passwords, credentials, and complete RTSP URLs never enter JSONL diagnostics. Consider Windows-protected storage for credentials only after defining migration and recovery behavior.
+The logging portion is implemented: redaction tests cover credentials and URLs, and `JsonLogStore` sanitizes every message, exception, stack trace, and structured field before JSONL serialization. Windows-protected storage for persisted credentials remains a separate future decision after defining migration and recovery behavior.
 
 ## P1: Reduce MainWindow coupling
 

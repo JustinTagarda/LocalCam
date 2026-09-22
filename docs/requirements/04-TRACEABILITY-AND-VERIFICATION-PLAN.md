@@ -11,7 +11,7 @@
 | Settings UI | `SettingsWindow.xaml(.cs)` | No UI test source found | Add validation, dirty-state, folder, placeholder, credential-border, focus, and Update-with-missing-credentials checks |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
-| Diagnostics | `Services/JsonLogStore.cs` | No test source found | Add schema and redaction tests |
+| Diagnostics | `Services/JsonLogStore.cs` | `LocalCam.Tests/JsonLogStoreTests.cs` | Verify packaged application-data cleanup, unpackaged fallback location, release logging, and live seven-day rotation |
 | Store packaging | `LocalCam.Package/`, Store services | Existing policy/checklist docs | Add package validation in release workflow |
 
 ## Shared button-style verification
@@ -50,7 +50,7 @@ For FR-020, perform the following manual checks on a Windows host whose current 
 3. Change the preference in Settings, click `Update`, and confirm the main window updates without closing the app or stopping active streams.
 4. Reopen Settings and confirm the saved preference and visual theme remain aligned.
 5. Repeat the change in both directions and verify no process crash occurs.
-6. If a crash occurs, collect the latest JSONL diagnostics and Windows `Application`, `.NET Runtime`, and `Windows Error Reporting` events.
+6. If a crash occurs, collect the latest JSONL diagnostics from the application-data log folder and Windows `Application`, `.NET Runtime`, and `Windows Error Reporting` events.
 7. Confirm no decorative outer client border is present on MainWindow, SettingsWindow, or StoreUpdateProgressWindow, and confirm the Settings Theme ComboBox uses the default WPF closed control, focus visual, arrow, popup, and highlighted-item behavior.
 
 The known regression guard is the frozen-brush failure: `AppThemeService` must clone Fluent brushes and replace aliases; it must not assign `Color` or `Opacity` on a frozen brush.
@@ -98,7 +98,7 @@ For FR-009, FR-018, NFR-006, and NFR-008, perform the following checks:
 - Confirm settings are backward-compatible with existing JSON.
 - Verify seven-day cache expiry, two-failure eviction, stable camera/playback-attempt handling, bounded playback confirmation timeout, RTSP-setting invalidation, discovery fallback, detection replacement while an old player emits late events, and one terminal-event recovery attempt.
 - With one or more active streams and an active recording, enter both Sleep and Hibernate. Confirm Stop All runs before suspension, detected tiles and connection properties remain, recording is stopped, and automatic/user resume leaves every stream stopped.
-- Confirm diagnostics contain no credentials or complete RTSP URLs.
+- Confirm diagnostics contain no credentials, complete RTSP URLs, URL query secrets, or secret-bearing structured fields.
 - Update requirement status and evidence links when behavior changes.
 
 Toolchain guardrail: if the .NET SDK pin changes, verify `global.json`, `AGENTS.md`, README build instructions, NFR-009, the architecture baseline, and the decision record are updated together. Do not accept a build completed with a different SDK as evidence for the pinned-toolchain requirement.

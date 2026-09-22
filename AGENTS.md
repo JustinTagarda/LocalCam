@@ -96,7 +96,9 @@
 
 - Persistence and diagnostics:
   - App settings persist at `%LocalAppData%\\LocalCam\\settings.json`.
-  - Structured JSONL app diagnostics are written under `%LocalAppData%\\LocalCam\\logs`.
+  - Structured JSONL app diagnostics use one `JsonLogStore` route across Debug, Release, and installed builds.
+  - Packaged builds write under Windows package-local application data, which is removed with the package; unpackaged builds use `%LocalAppData%\\LocalCam\\LocalState\\logs` and never write beside the launched executable.
+  - Diagnostics redact credentials, complete RTSP URLs, and secret-bearing values, and retain log files for seven days.
 
 ## Theme Implementation And Change Guardrails
 
@@ -108,7 +110,7 @@
 - Runtime theme changes must refresh both XAML-bound surfaces and dynamically created camera-card controls, overlays, badges, and icons without rebuilding or stopping active streams.
 - Do not change the `System`/`Light`/`Dark` preference meanings, startup ordering, Fluent resource mapping, brush-refresh behavior, or theme persistence without explicit user instruction.
 - Any future theme change must include a live check of persisted Light, Dark, and System modes, including changing the preference while Settings is open and reopening the dialog.
-- If a theme change causes a crash, inspect both `%LocalAppData%\\LocalCam\\logs` and Windows Application/.NET Runtime event logs before modifying the theme code.
+- If a theme change causes a crash, inspect the latest JSONL diagnostics from the active application-data log folder and Windows Application/.NET Runtime event logs before modifying the theme code.
 
 ## Window Framing And Theme Control Guardrails
 

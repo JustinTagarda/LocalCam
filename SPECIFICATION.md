@@ -106,7 +106,9 @@ Optional development defaults can be supplied through `LOCALCAM_RTSP_USERNAME` a
 
 ## 9. Diagnostics and Error Handling
 
-Debug local runs write structured JSONL diagnostics beside the launched executable. Release and installed distributions disable local Debug logging behavior as configured by the application.
+Debug, Release, and installed distributions use one structured JSONL diagnostics route under Windows application-data storage; logs are never written beside the launched executable. Packaged local data is removed by Windows when the package is uninstalled. Unpackaged desktop runs use the same application-data abstraction with a local fallback because an unpackaged executable has no OS uninstall lifecycle.
+
+Log files rotate by UTC day and files older than seven days are deleted during startup and periodic retention sweeps. Messages, exception details, stack traces, URLs, and structured data are sanitized before serialization so credentials, complete RTSP URLs, and secret-bearing fields are replaced with `[REDACTED]`.
 
 Logged areas include startup, discovery attempts and results, settings load/save, stream lifecycle, snapshot saves, recording lifecycle, entitlement, purchase, and Store updates.
 
