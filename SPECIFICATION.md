@@ -31,8 +31,8 @@ The application is organized around four responsibilities:
 
 1. `App.xaml.cs` initializes JSONL diagnostics.
 2. `MainWindow` loads persisted settings and restores window bounds when available.
-3. If auto-detection is enabled, the main window scans the local network on load.
-4. Detected cameras become dashboard tiles; an empty result remains retryable from the dashboard.
+3. If Reconnect recent cameras on startup is enabled, the main window reconnects recent cameras after the video engine is ready.
+4. Detect and Play retries cache-first reconnect and local discovery, then starts playback for detected cameras; an empty result remains retryable from the dashboard.
 5. Packaged Store builds resolve Premium UI state and initialize Store update checks after first render.
 6. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
 
@@ -57,7 +57,7 @@ Internal results are represented by Tapo-specific records such as `TapoCameraDet
 
 The custom-chrome main window provides:
 
-- Detect Camera, Start All, Stop All, and Settings toolbar actions.
+- Detect and Play, Start All, Stop All, and Settings toolbar actions.
 - A camera tile for each current detection.
 - Per-tile Play/Stop, Snapshot, Record/Stop Recording, and Expand/Collapse actions.
 - Double-click collapse/expand behavior while a tile is playing.
@@ -93,8 +93,8 @@ Packaged Store builds additionally apply Basic/Premium limits defined in `docs/B
 
 - RTSP username and password.
 - Stream Path.
-- Auto detect on startup.
-- Auto start when connected.
+- Reconnect recent cameras on startup.
+- Detect and Play starts playback for detected cameras.
 - Snapshot Save Folder.
 - Recording Save Folder.
 

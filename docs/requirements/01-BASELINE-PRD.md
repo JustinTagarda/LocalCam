@@ -25,11 +25,11 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 1. Launch the single-window application and immediately see the dashboard shell.
 2. Load settings and restore window bounds while the video engine prepares in the background.
 3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
-4. Review detected camera tiles and discovery status.
-5. Configure RTSP credentials and stream path in Settings.
-6. Play one camera, all cameras, or auto-start eligible streams.
-7. Capture snapshots or record one active stream.
-8. Stop streams and recording; resources are cleaned up during shutdown.
+4. Use Detect and Play to reconnect or discover cameras and start playback for the detected cameras.
+5. Review detected camera tiles and discovery status.
+6. Configure RTSP credentials and stream path in Settings.
+7. Play one camera or all cameras manually when needed.
+8. Capture snapshots or record one active stream, then stop streams and recording; resources are cleaned up during shutdown.
 
 ## Current capabilities
 
@@ -40,7 +40,8 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - System suspend/hibernate uses the normal Stop All path and leaves detected camera tiles and connection state intact; resume does not auto-start playback or recording.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
 - Stream path persistence with default `stream1`; RTSP port remains `554`.
-- Settings for credentials, auto-detection, auto-streaming, snapshot folder, and recording folder.
+- Detect and Play for cache-first reconnect, discovery, and playback of detected cameras.
+- Settings for credentials, reconnect recent cameras on startup, snapshot folder, and recording folder.
 - Validation escalation to Settings for invalid RTSP configuration.
 - Snapshot capture with unique filenames.
 - Manual `.ts` recording, one active recording across the app, and 60-minute segmentation.

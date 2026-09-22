@@ -78,11 +78,11 @@
 
 - Runtime/UI:
   - Single-window WPF desktop app (`MainWindow`) using the native Windows frame and a flattened client-area root grid.
-  - Camera discovery runs on load and can be retried from the same window.
+  - Startup can reconnect recent cameras when enabled; Detect and Play retries the cache-first reconnect/discovery flow from the same window.
   - Camera tiles are shown based on current detections, with expand/collapse behavior and responsive layout.
   - Settings dialog is available for RTSP credentials and stream path.
   - Settings and the update-progress window use native WPF window frames with flattened client-area root grids; Settings retains a themed custom control surface but no custom title bar.
-  - Auto-stream toggle is supported and persisted.
+  - Detect and Play starts playback for detected cameras; Reconnect recent cameras on startup is the persisted startup preference.
 
 - Discovery:
   - Local-network discovery is heuristic and best-effort.
@@ -251,7 +251,7 @@ Keep wording such as:
 - `RTSP Username`
 - `RTSP Password`
 - `Stream Path`
-- `Auto-stream`
+- `Reconnect recent cameras on startup`
 - `Snapshot Save Folder`
 - `Recording Save Folder`
 
@@ -297,7 +297,7 @@ Current RTSP URL construction may remain:
 - Applies when starting video stream from:
   - top toolbar `Start All`
   - per-card `Play`
-  - auto-start (persisted auto-stream behavior)
+  - Detect and Play
 
 - Trigger condition:
 - If stream start fails because RTSP configuration is missing, incomplete, or invalid, including:
@@ -419,7 +419,7 @@ Do not include any of the following in a brand-neutral UI wording task:
 - Disabled controls that are marked always visible must remain visible but non-interactive.
 
 - Top toolbar buttons:
-- Detect Camera:
+- Detect and Play:
 - always visible
 - disable while detection is running
 - enable when detection is not running
@@ -602,7 +602,7 @@ These rules are mandatory compliance requirements and must be followed even if t
 - The cache lifetime is seven days after a confirmed LibVLC `Playing` event. Do not refresh it when `Play()` merely accepts a request.
 - The cache is intentionally uncapped. Do not introduce a maximum camera count.
 - Remove a cached entry only after two consecutive reconnect failures. User stop, application shutdown, cancellation, missing RTSP settings, and ordinary stream loss must not count as reconnect failures.
-- Startup and Detect Camera use cache-first reconnect. Missing, expired, timed-out, or failed cached entries must fall back to the existing local discovery path.
+- Startup and Detect and Play use cache-first reconnect. Missing, expired, timed-out, or failed cached entries must fall back to the existing local discovery path.
 - Reconnect attempts must use a stable attempt identity and a bounded confirmation timeout; do not make cache eviction decisions from a potentially reordered tile index alone.
 - Changing the shared RTSP username, password, or stream path must invalidate every cached entry immediately.
 - Do not store per-camera credentials or complete RTSP URLs. Continue to use the shared RTSP configuration and redact secrets from diagnostics.

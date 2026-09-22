@@ -6,12 +6,12 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 
 - Best-effort local-network camera discovery with multiple detection methods.
 - Camera tiles showing detected addresses and discovery status.
-- RTSP playback through LibVLCSharp, with per-camera and Start All/Stop All controls.
-- Auto-detection and optional auto-streaming on startup.
+- RTSP playback through LibVLCSharp, with per-camera, Detect and Play, and Start All/Stop All controls.
+- Detect and Play discovers cameras and starts playback for the detected cameras; startup reconnect is optional.
 - Snapshot capture for active streams.
 - Manual video recording to `.ts` files, with one active recording across the app and 60-minute segment rollover.
 - Expand/collapse controls and double-click layout toggling for active camera tiles.
-- Settings for RTSP credentials, stream path, auto-detection, auto-streaming, snapshot folder, and recording folder.
+- Settings for RTSP credentials, stream path, reconnect recent cameras on startup, snapshot folder, and recording folder.
 - Inline validation that opens Settings when RTSP configuration is missing or invalid.
 - Persisted settings and window bounds.
 - Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and Store update events. Debug, Release, and installed builds use one application-data logging route; logs are redacted and retained for seven days.
@@ -27,10 +27,10 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 
 ## User Workflow
 
-1. Start the app. The main window discovers cameras when auto-detection is enabled.
-2. Review detected camera tiles and retry discovery from the dashboard when needed.
+1. Start the app. When enabled, the main window reconnects recent cameras; otherwise use Detect and Play.
+2. Detect and Play discovers compatible cameras and starts playback for the detected cameras.
 3. Open Settings to provide RTSP username/password and configure the stream path. The default path is `stream1`.
-4. Start an individual stream or use Start All. Use Snapshot or Record on active tiles.
+4. Start an individual stream or use Start All when needed. Use Snapshot or Record on active tiles.
 5. Stop playback before closing; the app also stops streams and disposes video resources during shutdown.
 
 ## Settings and Persistence

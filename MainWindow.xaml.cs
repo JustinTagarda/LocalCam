@@ -2057,7 +2057,7 @@ namespace LocalCam {
             var anyPlaying = IsAnyStreamRunning();
             var anyNotPlaying = HasAnyStoppedDetectedCamera();
 
-            DetectCameraButtonLabel.Text = _isScanning ? "Cancel Detecting" : "Detect Camera";
+            DetectCameraButtonLabel.Text = _isScanning ? "Cancel Detection" : "Detect and Play";
             DetectCameraIcon.Visibility = _isScanning ? Visibility.Collapsed : Visibility.Visible;
             DetectCameraSpinner.Visibility = _isScanning ? Visibility.Visible : Visibility.Collapsed;
             DetectCameraButton.IsEnabled = !_isDetectButtonToggleDelayActive;
@@ -2088,7 +2088,7 @@ namespace LocalCam {
             CancelCachedReconnectAttempts();
             for (var index = 0; index < cachedDetections.Count; index++) StartCachedReconnectConfirmation(index, cachedDetections[index]);
             StreamingStatusText.Text = "Reconnecting to recent cameras...";
-            TryAutoStartStreams();
+            QueueDetectedStreamStart();
         }
 
         private bool HandleCachedReconnectFailure(int tileIndex) {
@@ -2217,6 +2217,7 @@ namespace LocalCam {
                                 ["successfulMethod"] = scanResult.SuccessfulMethod?.ToString()
                             });
                         ShowDetections(scanResult.Detections, scanResult.SuccessfulMethod);
+                        QueueDetectedStreamStart();
                         return;
                     }
 
@@ -2308,7 +2309,12 @@ namespace LocalCam {
             StreamingStatusText.Text = BuildDetectionsStatusText(_detections.Count, successfulMethod);
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
-            Dispatcher.BeginInvoke(TryAutoStartStreams, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void QueueDetectedStreamStart() {
+            Dispatcher.BeginInvoke(
+                new Action(StartDetectedStreamsIfReady),
+                System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void ShowNoDetections(string? prefixMessage = null) {
@@ -2326,7 +2332,7 @@ namespace LocalCam {
             StreamingStatusText.Text = "No compatible camera detected. Retry search?";
         }
 
-        private void DetectCameraButton_Click(object sender, RoutedEventArgs e) {
+        private void DetectAndPlayButton_Click(object sender, RoutedEventArgs e) {
             _ = sender;
             _ = e;
 
@@ -2416,7 +2422,9 @@ namespace LocalCam {
                     }
                     AppThemeService.Apply(_settings.ThemePreference);
                     RefreshCameraThemeResources();
-                    TryAutoStartStreams();
+                    if (highlightMissingCredentials) {
+                        StartDetectedStreamsIfReady();
+                    }
                 }
             }
             finally {
@@ -2664,7 +2672,7 @@ namespace LocalCam {
             }
         }
 
-        private void TryAutoStartStreams() {
+        private void StartDetectedStreamsIfReady() {
             if (_isClosing || _isScanning) {
                 return;
             }
@@ -4535,7 +4543,7 @@ namespace LocalCam {
                 : $"Detected {cameraCount} {Pluralize(cameraCount, "camera")}.";
 
             return HasCompleteStreamingSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword)
-                ? $"{detectionPrefix} Click 'Start All'."
+                ? $"{detectionPrefix} Ready to play."
                 : $"{detectionPrefix} Open Settings and provide the RTSP username, password, and stream path.";
         }
 
