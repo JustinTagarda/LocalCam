@@ -17,8 +17,118 @@ using IOPath = System.IO.Path;
 using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace LocalCam {
+    internal enum StreamFailureKind {
+        Credential,
+        Network,
+        DeviceOrDecode,
+        PlaybackStalled,
+        Unknown
+    }
+
+    internal sealed record StreamFailureDetails(
+        StreamFailureKind Kind,
+        string UserMessage,
+        string? Suggestion,
+        string DiagnosticReason) {
+        public bool RequiresSettings => Kind == StreamFailureKind.Credential;
+    }
+
+    internal static class StreamFailureClassifier {
+        public static StreamFailureDetails Classify(string? reason, string? exceptionMessage, string? libVlcMessage) {
+            var diagnosticText = string.Join(
+                " | ",
+                new[] { reason, exceptionMessage, libVlcMessage }
+                    .Where(static value => !string.IsNullOrWhiteSpace(value)))
+                .Trim();
+            var normalized = diagnosticText.ToLowerInvariant();
+
+            if (ContainsAny(
+                    normalized,
+                    "401",
+                    "403",
+                    "unauthorized",
+                    "authentication",
+                    "auth failed",
+                    "auth failure",
+                    "credential",
+                    "invalid username",
+                    "invalid password",
+                    "access denied",
+                    "login")) {
+                return new StreamFailureDetails(
+                    StreamFailureKind.Credential,
+                    "RTSP credentials were rejected by this camera.",
+                    "Check the RTSP username and password in Settings.",
+                    diagnosticText);
+            }
+
+            if (ContainsAny(
+                    normalized,
+                    "connection refused",
+                    "connection reset",
+                    "timed out",
+                    "timeout",
+                    "no route",
+                    "unreachable",
+                    "host not found",
+                    "couldn't connect",
+                    "cannot connect",
+                    "network")) {
+                return new StreamFailureDetails(
+                    StreamFailureKind.Network,
+                    "Unable to reach this camera.",
+                    "Check the camera's network connection.",
+                    diagnosticText);
+            }
+
+            if (ContainsAny(
+                    normalized,
+                    "decode",
+                    "decoder",
+                    "codec",
+                    "hardware",
+                    "demux",
+                    "video output",
+                    "vout",
+                    "direct3d",
+                    "d3d",
+                    "buffer deadlock",
+                    "render",
+                    "thumbnail",
+                    "0x800706f4")) {
+                return new StreamFailureDetails(
+                    StreamFailureKind.DeviceOrDecode,
+                    "Camera playback failed.",
+                    "Check the camera hardware and RTSP stream compatibility.",
+                    diagnosticText);
+            }
+
+            return new StreamFailureDetails(
+                StreamFailureKind.Unknown,
+                "Camera playback failed.",
+                null,
+                string.IsNullOrWhiteSpace(diagnosticText) ? "unknown" : diagnosticText);
+        }
+
+        private static bool ContainsAny(string value, params string[] candidates) {
+            return candidates.Any(candidate => value.Contains(candidate, StringComparison.Ordinal));
+        }
+    }
+
     public partial class MainWindow : Window {
         private delegate IntPtr MouseHookProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private sealed class StreamRecoveryState {
+            public DateTimeOffset WindowStartedAt { get; set; }
+            public DateTimeOffset CooldownUntil { get; set; }
+            public int AttemptsInWindow { get; set; }
+            public bool Exhausted { get; set; }
+        }
+
+        private sealed class LibVlcLogThrottleState {
+            public DateTimeOffset LastLoggedAt { get; set; }
+            public int SuppressedCount { get; set; }
+        }
 
         private sealed class CameraTileControls {
             public required Border Card { get; init; }
@@ -36,27 +146,10 @@ namespace LocalCam {
             public required Border OverlayToolbar { get; init; }
             public required Border RecordingBadge { get; init; }
             public required TextBlock RecordingElapsedText { get; init; }
+            public required TextBlock PlaybackErrorText { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
             public string? CameraIdentity { get; set; }
             public bool IsSnapshotSaving { get; set; }
-        }
-
-        private sealed class StreamHealthState {
-            public long? LastTime { get; set; }
-            public double LastPosition { get; set; }
-            public int LastDisplayedPictures { get; set; }
-            public int LastDecodedVideo { get; set; }
-            public int LastReadBytes { get; set; }
-            public DateTimeOffset LastSampleAt { get; set; }
-            public StreamLifecyclePhase LifecyclePhase { get; set; } = StreamLifecyclePhase.Stopped;
-        }
-
-        private enum StreamLifecyclePhase {
-            Stopped,
-            Starting,
-            Running,
-            Stopping,
-            Restarting
         }
 
         private const int WmSetIcon = 0x0080;
@@ -87,9 +180,18 @@ namespace LocalCam {
         private const string PremiumAddOnStoreId = "9P9KCJ3NFZFT";
         private const string PremiumAddOnOfferToken = "localcam_premium_lifetime";
         private const int BasicConcurrentStreamLimit = 2;
-        private static readonly TimeSpan CameraMonitorCycleInterval = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan CameraMonitorCycleInterval = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan CameraMonitorIdleInterval = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan CameraMonitorStartupGracePeriod = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan CameraMonitorStaleAfter = TimeSpan.FromSeconds(8);
         private static readonly TimeSpan CameraMonitorRestartSettleDelay = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan CameraMonitorRecoveryCooldown = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan CameraMonitorRecoveryWindow = TimeSpan.FromMinutes(1);
+        private const int CameraMonitorUnhealthySampleLimit = 3;
+        private const int CameraMonitorRecoveryAttemptLimit = 3;
         private const int TerminalStreamRecoveryAttemptLimit = 1;
+        private static readonly TimeSpan PlaybackConfirmationTimeout = TimeSpan.FromSeconds(8);
+        private static readonly TimeSpan LibVlcRepeatedLogInterval = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
         private static readonly TimeSpan RecentCameraReconnectConfirmationTimeout = TimeSpan.FromSeconds(8);
@@ -122,7 +224,6 @@ namespace LocalCam {
         private int? _expandedCameraIndex;
         private readonly object _cameraMonitorSync = new();
         private CancellationTokenSource? _cameraMonitorCancellation;
-        private readonly SemaphoreSlim _cameraMonitorWakeSignal = new(0, 1);
         private Task? _cameraMonitorTask;
         private IntPtr _mouseHookHandle;
         private IntPtr _lowLevelMouseHookHandle;
@@ -148,10 +249,14 @@ namespace LocalCam {
         private DispatcherTimer? _recordingSegmentTimer;
         private CancellationTokenSource? _recordingOutputValidationCts;
         private readonly Dictionary<int, long> _streamStartOrder = new();
-        private readonly Dictionary<int, string> _streamFailureReasons = new();
+        private readonly Dictionary<int, StreamFailureDetails> _streamFailureReasons = new();
         private readonly Dictionary<int, StreamHealthState> _streamHealthStates = new();
+        private readonly Dictionary<int, StreamRecoveryState> _streamRecoveryStates = new();
         private readonly Dictionary<int, int> _terminalStreamRecoveryAttempts = new();
         private readonly HashSet<VlcMediaPlayer> _intentionalStoppedMediaPlayers = [];
+        private readonly Dictionary<VlcMediaPlayer, TaskCompletionSource<bool>> _playbackConfirmationWaiters = new();
+        private readonly object _libVlcLogSync = new();
+        private readonly Dictionary<string, LibVlcLogThrottleState> _libVlcLogThrottleStates = new();
         private long _streamRecoveryGeneration;
         private long _nextStreamStartOrder = 1;
         private string? _lastLibVlcErrorMessage;
@@ -551,7 +656,7 @@ namespace LocalCam {
             CancelCachedReconnectAttempt(tileIndex);
             _streamHealthStates.Remove(tileIndex);
             _streamStartOrder.Remove(tileIndex);
-            _streamFailureReasons.Remove(tileIndex);
+            ClearPlaybackFailure(tileIndex);
             _terminalStreamRecoveryAttempts.Remove(tileIndex);
 
             var tile = _cameraTiles[tileIndex];
@@ -592,6 +697,19 @@ namespace LocalCam {
                 Visibility = Visibility.Collapsed,
                 IsHitTestVisible = false
             };
+
+            var playbackErrorText = new TextBlock {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            playbackErrorText.SetResourceReference(TextBlock.ForegroundProperty, "ErrorBrush");
 
             var badge = new Border {
                 Style = (Style)FindResource("CameraBadgeStyle"),
@@ -738,6 +856,8 @@ namespace LocalCam {
             };
             videoOverlay.Children.Add(videoBlanker);
             Panel.SetZIndex(videoBlanker, 0);
+            videoOverlay.Children.Add(playbackErrorText);
+            Panel.SetZIndex(playbackErrorText, 2);
             var overlayToolbarButtons = new StackPanel {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -805,7 +925,8 @@ namespace LocalCam {
                 RecordButton = recordButton,
                 OverlayToolbar = overlayToolbar,
                 RecordingBadge = recordingBadge,
-                RecordingElapsedText = recordingElapsedText
+                RecordingElapsedText = recordingElapsedText,
+                PlaybackErrorText = playbackErrorText
             };
         }
 
@@ -831,6 +952,7 @@ namespace LocalCam {
                 tile.OverlayToolbar.Background = AppThemeService.GetBrush("OverlayToolbarBrush");
                 tile.RecordingBadge.Background = AppThemeService.GetBrush("RecordingBrush");
                 tile.RecordingElapsedText.Foreground = stopBrush;
+                tile.PlaybackErrorText.Foreground = AppThemeService.GetBrush("ErrorBrush");
 
                 if (tile.PlayButton.Content is Path playPath) {
                     playPath.Fill = AppThemeService.GetBrush("PlayBrush");
@@ -1054,10 +1176,16 @@ namespace LocalCam {
                     return;
                 }
 
+                if (GetStreamLifecyclePhase(tileIndex) is StreamLifecyclePhase.Stopped or StreamLifecyclePhase.Stopping) {
+                    CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
+                    return;
+                }
+
                 _intentionalStoppedMediaPlayers.Remove(mediaPlayer);
-                _streamFailureReasons.Remove(tileIndex);
+                ClearPlaybackFailure(tileIndex);
                 _terminalStreamRecoveryAttempts.Remove(tileIndex);
-                MarkStreamStarted(tileIndex);
+                MarkStreamStarted(tileIndex, mediaPlayer);
+                CompletePlaybackConfirmation(mediaPlayer, confirmed: true);
                 _streamsRunning = IsAnyStreamRunning();
                 if (tileIndex < _detections.Count &&
                     string.Equals(GetCameraIdentity(_detections[tileIndex]), cameraIdentity, StringComparison.Ordinal)) {
@@ -1065,11 +1193,23 @@ namespace LocalCam {
                     RecentCameraConnectionCache.ConfirmPlayback(_settings, cachedDetection ?? detection, DateTimeOffset.UtcNow);
                     TrySaveSettings("recent_camera_connection_save_failed", "Failed to save a recent camera connection.");
                 }
+                JsonLogStore.Information(
+                    eventName: "camera_playback_confirmed",
+                    message: "LibVLC confirmed RTSP playback for a camera.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["cameraIndex"] = tileIndex + 1,
+                        ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null,
+                        ["voutCount"] = mediaPlayer.VoutCount,
+                        ["mediaTime"] = mediaPlayer.Time,
+                        ["position"] = mediaPlayer.Position
+                    });
                 UpdateActionButtons();
                 RequestCameraMonitoring();
             }));
             mediaPlayer.Stopped += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
+                CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
                 if (tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
@@ -1085,7 +1225,10 @@ namespace LocalCam {
             mediaPlayer.EndReached += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
                 var wasIntentionalStop = _intentionalStoppedMediaPlayers.Contains(mediaPlayer);
+                CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
                 if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
+                    var failure = StreamFailureClassifier.Classify("stream ended", null, null);
+                    SetPlaybackFailure(tileIndex, failure);
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
@@ -1104,17 +1247,21 @@ namespace LocalCam {
                 var tileIndex = _cameraTiles.IndexOf(tile);
                 var wasIntentionalStop = _intentionalStoppedMediaPlayers.Contains(mediaPlayer);
                 var wasCachedReconnect = false;
+                CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
                 if (!wasIntentionalStop && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
+                    var hasExistingFailure = _streamFailureReasons.TryGetValue(tileIndex, out var existingFailure);
+                    var failure = hasExistingFailure && existingFailure!.Kind != StreamFailureKind.Unknown
+                        ? existingFailure
+                        : StreamFailureClassifier.Classify(
+                            hasExistingFailure ? existingFailure!.DiagnosticReason : null,
+                            null,
+                            _lastLibVlcErrorMessage);
+                    SetPlaybackFailure(tileIndex, failure);
                     SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
                     _streamStartOrder.Remove(tileIndex);
                     _streamHealthStates.Remove(tileIndex);
                     SetVideoSurfaceActive(tileIndex, isActive: false);
-                    var userReason = _streamFailureReasons.TryGetValue(tileIndex, out var lastReason)
-                        ? lastReason
-                        : null;
-                    StreamingStatusText.Text = string.IsNullOrWhiteSpace(userReason)
-                        ? $"Camera {tileIndex + 1} stream failed. Check the log for details."
-                        : $"Camera {tileIndex + 1} stream failed: {userReason}";
+                    StreamingStatusText.Text = $"Camera {tileIndex + 1} stream failed: {failure.UserMessage}";
                     JsonLogStore.Warning(
                         eventName: "camera_connect_playback_error",
                         message: "LibVLC reported a playback error for an RTSP stream.",
@@ -1122,8 +1269,10 @@ namespace LocalCam {
                         data: new Dictionary<string, object?> {
                             ["cameraIndex"] = tileIndex + 1,
                             ["ipAddress"] = tileIndex < _detections.Count ? _detections[tileIndex].IpAddress.ToString() : null,
-                            ["reason"] = userReason ?? _lastLibVlcErrorMessage ?? "LibVLC reported a playback error."
+                            ["reason"] = failure.DiagnosticReason,
+                            ["failureKind"] = failure.Kind.ToString()
                         });
+                    HandleCredentialRelatedPlaybackFailure(failure);
                     wasCachedReconnect = !wasIntentionalStop && HandleCachedReconnectFailure(tileIndex);
                 }
                 if (!wasIntentionalStop && _activeRecordingTileIndex == tileIndex && tileIndex >= 0 && ReferenceEquals(tile.MediaPlayer, mediaPlayer)) {
@@ -1184,6 +1333,39 @@ namespace LocalCam {
             tile.Placeholder.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             tile.Badge.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
             UpdateTileButtonStates();
+        }
+
+        private void SetPlaybackFailure(int tileIndex, StreamFailureDetails failure) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            _streamFailureReasons[tileIndex] = failure;
+            var tile = _cameraTiles[tileIndex];
+            tile.PlaybackErrorText.Text = string.IsNullOrWhiteSpace(failure.Suggestion)
+                ? failure.UserMessage
+                : $"{failure.UserMessage}{Environment.NewLine}{failure.Suggestion}";
+            tile.PlaybackErrorText.Visibility = Visibility.Visible;
+        }
+
+        private void ClearPlaybackFailure(int tileIndex) {
+            _streamFailureReasons.Remove(tileIndex);
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            var errorText = _cameraTiles[tileIndex].PlaybackErrorText;
+            errorText.Text = string.Empty;
+            errorText.Visibility = Visibility.Collapsed;
+        }
+
+        private void HandleCredentialRelatedPlaybackFailure(StreamFailureDetails failure) {
+            if (!failure.RequiresSettings || _isClosing) {
+                return;
+            }
+
+            StreamingStatusText.Text = failure.UserMessage;
+            OpenSettingsDialog(RtspSettingsInvalidMessage, highlightMissingCredentials: true);
         }
 
         private void ToggleCameraTileExpandCollapse(int tileIndex) {
@@ -2191,11 +2373,19 @@ namespace LocalCam {
             OpenSettingsDialog();
         }
 
-        private void OpenSettingsDialog(string? inlineErrorMessage = null) {
+        private void OpenSettingsDialog(
+            string? inlineErrorMessage = null,
+            bool highlightMissingCredentials = false,
+            bool focusUsername = false) {
             var text = (inlineErrorMessage ?? string.Empty).Trim();
             var openSettingsWindow = FindOpenSettingsWindow();
             if (openSettingsWindow is not null) {
-                openSettingsWindow.ShowInlineError(text);
+                if (highlightMissingCredentials) {
+                    openSettingsWindow.ShowCredentialValidation(focusUsername);
+                }
+                else {
+                    openSettingsWindow.ShowInlineError(text);
+                }
                 openSettingsWindow.Activate();
                 return;
             }
@@ -2204,7 +2394,10 @@ namespace LocalCam {
                 Owner = this
             };
 
-            if (!string.IsNullOrWhiteSpace(text)) {
+            if (highlightMissingCredentials) {
+                dialog.ShowCredentialValidation(focusUsername);
+            }
+            else if (!string.IsNullOrWhiteSpace(text)) {
                 dialog.ShowInlineError(text);
             }
 
@@ -2291,7 +2484,7 @@ namespace LocalCam {
                         ["streamPath"] = streamPath
                     });
                 StreamingStatusText.Text = RtspSettingsInvalidMessage;
-                OpenSettingsDialog(RtspSettingsInvalidMessage);
+                OpenSettingsDialog(RtspSettingsInvalidMessage, highlightMissingCredentials: true);
                 return;
             }
 
@@ -2317,6 +2510,7 @@ namespace LocalCam {
             var startedCount = 0;
             var failedEndpoints = new List<string>();
             var blockedByBasicLimit = false;
+            var credentialFailureDetected = false;
             EnsureCameraTileCount(_detections.Count);
             for (var i = 0; i < _cameraTiles.Count && i < _detections.Count; i++) {
                 if (!CanStartStream(i)) {
@@ -2328,7 +2522,7 @@ namespace LocalCam {
                 }
                 var ipAddress = _detections[i].IpAddress.ToString();
                 var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
-                VlcMediaPlayer? mediaPlayer;
+                VlcMediaPlayer? mediaPlayer = null;
 
                 try {
                     JsonLogStore.Information(
@@ -2341,21 +2535,31 @@ namespace LocalCam {
                         ["streamPath"] = streamPath
                     });
 
+                    _streamRecoveryStates.Remove(i);
                     SetStreamLifecyclePhase(i, StreamLifecyclePhase.Starting);
                     EnsureVideoSurfaceAttached(i);
                     using var media = CreateRtspPlaybackMedia(streamUrl);
 
                     ReplaceMediaPlayer(i, _detections[i]);
                     mediaPlayer = _cameraTiles[i].MediaPlayer;
+                    _lastLibVlcErrorMessage = null;
+                    TaskCompletionSource<bool>? confirmationWaiter = null;
+                    if (mediaPlayer is not null) {
+                        confirmationWaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _playbackConfirmationWaiters[mediaPlayer] = confirmationWaiter;
+                    }
                     if (mediaPlayer is not null && mediaPlayer.Play(media)) {
                         startedCount++;
                         if (isBasicMode) {
                             remainingBasicSlots--;
                         }
                         SetVideoSurfaceActive(i, isActive: true);
+                        if (confirmationWaiter is not null) {
+                            _ = MonitorPlaybackConfirmationAsync(i, mediaPlayer, confirmationWaiter, ipAddress, streamPath);
+                        }
                         JsonLogStore.Information(
-                            eventName: "camera_connect_succeeded",
-                            message: "RTSP stream started successfully.",
+                            eventName: "camera_play_request_accepted",
+                            message: "LibVLC accepted an RTSP playback request; confirmation is pending.",
                             category: "camera_connect",
                             data: new Dictionary<string, object?> {
                                 ["cameraIndex"] = i + 1,
@@ -2364,7 +2568,15 @@ namespace LocalCam {
                             });
                     }
                     else {
-                        _streamFailureReasons[i] = "The media player rejected the RTSP stream.";
+                        if (mediaPlayer is not null) {
+                            CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
+                        }
+                        var failure = StreamFailureClassifier.Classify(
+                            "media player returned false",
+                            null,
+                            _lastLibVlcErrorMessage);
+                        SetPlaybackFailure(i, failure);
+                        credentialFailureDetected |= failure.RequiresSettings;
                         failedEndpoints.Add(ipAddress);
                         SetVideoSurfaceActive(i, isActive: false);
                         SetStreamLifecyclePhase(i, StreamLifecyclePhase.Stopped);
@@ -2377,14 +2589,20 @@ namespace LocalCam {
                                 ["cameraIndex"] = i + 1,
                                 ["ipAddress"] = ipAddress,
                                 ["streamPath"] = streamPath,
-                                ["reason"] = "media player returned false"
+                                ["reason"] = failure.DiagnosticReason,
+                                ["failureKind"] = failure.Kind.ToString()
                             });
                         HandleCachedReconnectFailure(i);
                     }
                 }
                 catch (Exception ex) {
+                    if (mediaPlayer is not null) {
+                        CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
+                    }
                     SetStreamLifecyclePhase(i, StreamLifecyclePhase.Stopped);
-                    _streamFailureReasons[i] = ex.Message;
+                    var failure = StreamFailureClassifier.Classify(null, ex.Message, _lastLibVlcErrorMessage);
+                    SetPlaybackFailure(i, failure);
+                    credentialFailureDetected |= failure.RequiresSettings;
                     failedEndpoints.Add(ipAddress);
                     SetVideoSurfaceActive(i, isActive: false);
                     _streamStartOrder.Remove(i);
@@ -2408,23 +2626,23 @@ namespace LocalCam {
             }
             if (failedEndpoints.Count == 0) {
                 JsonLogStore.Information(
-                    eventName: "camera_connect_completed",
-                    message: "RTSP connections started for all detected cameras.",
+                        eventName: "camera_connect_completed",
+                        message: "RTSP playback requests were submitted for all detected cameras.",
                     category: "camera_connect",
                     data: new Dictionary<string, object?> {
-                        ["startedCount"] = startedCount,
+                            ["acceptedCount"] = startedCount,
                         ["failedCount"] = 0,
                         ["cameraCount"] = _detections.Count,
                         ["streamPath"] = streamPath
                     });
-                StreamingStatusText.Text = $"Streaming started for {startedCount} {Pluralize(startedCount, "camera")}.";
+                StreamingStatusText.Text = $"Starting playback for {startedCount} {Pluralize(startedCount, "camera")}.";
                 UpdateActionButtons();
                 return;
             }
 
             JsonLogStore.Warning(
                 eventName: "camera_connect_completed_with_failures",
-                message: "RTSP connections started with one or more failures.",
+                message: "RTSP playback requests were submitted with one or more failures.",
                 category: "camera_connect",
                 data: new Dictionary<string, object?> {
                     ["startedCount"] = startedCount,
@@ -2434,8 +2652,16 @@ namespace LocalCam {
                     ["streamPath"] = streamPath
                 });
             StreamingStatusText.Text =
-                $"Started {startedCount} {Pluralize(startedCount, "stream")}. Failed to start: {string.Join(", ", failedEndpoints)}.";
+                $"Starting {startedCount} {Pluralize(startedCount, "stream")}. Failed to submit: {string.Join(", ", failedEndpoints)}.";
             UpdateActionButtons();
+            if (credentialFailureDetected) {
+                HandleCredentialRelatedPlaybackFailure(
+                    new StreamFailureDetails(
+                        StreamFailureKind.Credential,
+                        "RTSP credentials were rejected by one or more cameras.",
+                        "Check the RTSP username and password in Settings.",
+                        "one or more camera playback failures were classified as credential-related"));
+            }
         }
 
         private void TryAutoStartStreams() {
@@ -2449,7 +2675,7 @@ namespace LocalCam {
 
             if (!HasValidStreamStartSettings(_settings.RtspUsername.Trim(), _settings.RtspPassword, _settings.StreamPath)) {
                 StreamingStatusText.Text = RtspSettingsInvalidMessage;
-                OpenSettingsDialog(RtspSettingsInvalidMessage);
+                OpenSettingsDialog(RtspSettingsInvalidMessage, highlightMissingCredentials: true);
                 return;
             }
 
@@ -2462,6 +2688,7 @@ namespace LocalCam {
             StopRecordingSession("all_streams_stopped", updateStatus: false);
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 SetStreamLifecyclePhase(i, StreamLifecyclePhase.Stopping);
+                ClearPlaybackFailure(i);
                 var mediaPlayer = _cameraTiles[i].MediaPlayer;
                 if (mediaPlayer is null) {
                     continue;
@@ -2476,19 +2703,29 @@ namespace LocalCam {
             _streamStartOrder.Clear();
             _streamFailureReasons.Clear();
             _streamHealthStates.Clear();
+            _streamRecoveryStates.Clear();
             _terminalStreamRecoveryAttempts.Clear();
             _streamsRunning = false;
             ApplyResponsiveCameraLayout();
             UpdateActionButtons();
         }
 
-        private async Task<bool> StartSingleStreamAsync(int tileIndex, bool updateStatus = true, bool requestMonitorWake = true, bool isMonitorRecovery = false) {
+        private async Task<bool> StartSingleStreamAsync(
+            int tileIndex,
+            bool updateStatus = true,
+            bool requestMonitorWake = true,
+            bool isMonitorRecovery = false,
+            CancellationToken cancellationToken = default) {
             if (!_isStreamingEngineReady || _libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
                 return false;
             }
 
             if (!CanStartStream(tileIndex)) {
                 return false;
+            }
+
+            if (!isMonitorRecovery) {
+                _streamRecoveryStates.Remove(tileIndex);
             }
 
             if (IsBasicPremiumGatingEnabled() && CountActiveStreams() >= BasicConcurrentStreamLimit) {
@@ -2501,13 +2738,14 @@ namespace LocalCam {
             var password = _settings.RtspPassword;
             if (!HasValidStreamStartSettings(username, password, _settings.StreamPath)) {
                 StreamingStatusText.Text = RtspSettingsInvalidMessage;
-                OpenSettingsDialog(RtspSettingsInvalidMessage);
+                OpenSettingsDialog(RtspSettingsInvalidMessage, highlightMissingCredentials: true);
                 return false;
             }
 
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
-            VlcMediaPlayer? mediaPlayer;
+            VlcMediaPlayer? mediaPlayer = null;
+            StreamFailureDetails? failure = null;
 
             try {
                 SetStreamLifecyclePhase(tileIndex, isMonitorRecovery ? StreamLifecyclePhase.Restarting : StreamLifecyclePhase.Starting);
@@ -2521,20 +2759,64 @@ namespace LocalCam {
 
                 ReplaceMediaPlayer(tileIndex, _detections[tileIndex]);
                 mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
+                _lastLibVlcErrorMessage = null;
+                TaskCompletionSource<bool>? confirmationWaiter = null;
+                if (mediaPlayer is not null) {
+                    confirmationWaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _playbackConfirmationWaiters[mediaPlayer] = confirmationWaiter;
+                }
+
                 if (mediaPlayer is not null && mediaPlayer.Play(media)) {
+
                     SetVideoSurfaceActive(tileIndex, isActive: true);
                     if (updateStatus) {
-                        StreamingStatusText.Text = $"Started camera {tileIndex + 1}.";
+                        StreamingStatusText.Text = isMonitorRecovery
+                            ? $"Restarting camera {tileIndex + 1}."
+                            : $"Starting camera {tileIndex + 1}.";
                     }
                     if (requestMonitorWake) {
                         RequestCameraMonitoring();
                     }
+
+                    if (confirmationWaiter is not null) {
+                        if (isMonitorRecovery) {
+                            var confirmed = await WaitForPlaybackConfirmationAsync(mediaPlayer, confirmationWaiter, cancellationToken);
+                            if (!confirmed) {
+                                failure = StreamFailureClassifier.Classify(
+                                    "playback confirmation timed out",
+                                    null,
+                                    null);
+                                StopSingleStream(tileIndex, updateStatus: false, invalidateAutomaticRecovery: false);
+                                SetPlaybackFailure(tileIndex, failure);
+                                LogPlaybackConfirmationTimeout(tileIndex, ipAddress, streamPath);
+                                HandleCredentialRelatedPlaybackFailure(failure);
+                                return false;
+                            }
+                            else {
+                                return true;
+                            }
+                        }
+                        else {
+                            _ = MonitorPlaybackConfirmationAsync(tileIndex, mediaPlayer, confirmationWaiter, ipAddress, streamPath);
+                        }
+                    }
+
+                    JsonLogStore.Information(
+                        eventName: "camera_play_request_accepted",
+                        message: "LibVLC accepted an RTSP playback request; confirmation is pending.",
+                        category: "camera_connect",
+                        data: new Dictionary<string, object?> {
+                            ["cameraIndex"] = tileIndex + 1,
+                            ["ipAddress"] = ipAddress,
+                            ["streamPath"] = streamPath,
+                            ["isMonitorRecovery"] = isMonitorRecovery
+                        });
                     return true;
                 }
             }
             catch (Exception ex) {
                 SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
-                _streamFailureReasons[tileIndex] = ex.Message;
+                failure = StreamFailureClassifier.Classify(null, ex.Message, _lastLibVlcErrorMessage);
                 JsonLogStore.Error(
                     eventName: "camera_connect_exception",
                     message: "Single-camera RTSP stream start threw an exception.",
@@ -2547,14 +2829,84 @@ namespace LocalCam {
                     });
             }
 
+            if (mediaPlayer is not null) {
+                CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
+            }
             SetVideoSurfaceActive(tileIndex, isActive: false);
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopped);
             _streamStartOrder.Remove(tileIndex);
-            _streamFailureReasons.TryAdd(tileIndex, "The media player rejected the RTSP stream.");
+            failure ??= StreamFailureClassifier.Classify(
+                "media player returned false",
+                null,
+                _lastLibVlcErrorMessage);
+            SetPlaybackFailure(tileIndex, failure);
             if (updateStatus) {
-                StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}.";
+                StreamingStatusText.Text = $"Failed to start camera {tileIndex + 1}: {failure.UserMessage}";
             }
+            HandleCredentialRelatedPlaybackFailure(failure);
             return false;
+        }
+
+        private async Task<bool> WaitForPlaybackConfirmationAsync(
+            VlcMediaPlayer mediaPlayer,
+            TaskCompletionSource<bool> waiter,
+            CancellationToken cancellationToken) {
+            try {
+                var completed = await Task.WhenAny(
+                    waiter.Task,
+                    Task.Delay(PlaybackConfirmationTimeout, cancellationToken));
+                if (completed == waiter.Task) {
+                    return await waiter.Task;
+                }
+
+                return false;
+            }
+            catch (OperationCanceledException) {
+                return false;
+            }
+            finally {
+                if (_playbackConfirmationWaiters.TryGetValue(mediaPlayer, out var currentWaiter) && ReferenceEquals(currentWaiter, waiter)) {
+                    _playbackConfirmationWaiters.Remove(mediaPlayer);
+                }
+            }
+        }
+
+        private async Task MonitorPlaybackConfirmationAsync(
+            int tileIndex,
+            VlcMediaPlayer mediaPlayer,
+            TaskCompletionSource<bool> waiter,
+            string ipAddress,
+            string streamPath) {
+            var confirmed = await WaitForPlaybackConfirmationAsync(mediaPlayer, waiter, CancellationToken.None);
+            if (confirmed || _isClosing || tileIndex < 0 || tileIndex >= _cameraTiles.Count ||
+                !ReferenceEquals(_cameraTiles[tileIndex].MediaPlayer, mediaPlayer) ||
+                GetStreamLifecyclePhase(tileIndex) is not (StreamLifecyclePhase.Starting or StreamLifecyclePhase.Restarting)) {
+                return;
+            }
+
+            var failure = StreamFailureClassifier.Classify(
+                "playback confirmation timed out",
+                null,
+                null);
+            StopSingleStream(tileIndex, updateStatus: false, invalidateAutomaticRecovery: false);
+            SetPlaybackFailure(tileIndex, failure);
+            LogPlaybackConfirmationTimeout(tileIndex, ipAddress, streamPath);
+            HandleCredentialRelatedPlaybackFailure(failure);
+            _streamsRunning = IsAnyStreamRunning();
+            UpdateActionButtons();
+        }
+
+        private void LogPlaybackConfirmationTimeout(int tileIndex, string ipAddress, string streamPath) {
+            JsonLogStore.Warning(
+                eventName: "camera_playback_confirmation_timeout",
+                message: "A camera playback request did not reach confirmed playback within the timeout.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = ipAddress,
+                    ["streamPath"] = streamPath,
+                    ["timeoutSeconds"] = PlaybackConfirmationTimeout.TotalSeconds
+                });
         }
 
         private void StopSingleStream(int tileIndex, bool updateStatus = true, bool invalidateAutomaticRecovery = true) {
@@ -2570,6 +2922,7 @@ namespace LocalCam {
                 InvalidateAutomaticStreamRecovery();
             }
 
+            ClearPlaybackFailure(tileIndex);
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
             StopMediaPlayerIntentionally(mediaPlayer);
@@ -2579,6 +2932,9 @@ namespace LocalCam {
             _streamHealthStates.Remove(tileIndex);
             _streamStartOrder.Remove(tileIndex);
             _terminalStreamRecoveryAttempts.Remove(tileIndex);
+            if (invalidateAutomaticRecovery) {
+                _streamRecoveryStates.Remove(tileIndex);
+            }
             if (updateStatus) {
                 StreamingStatusText.Text = $"Stopped camera {tileIndex + 1}.";
             }
@@ -2616,7 +2972,14 @@ namespace LocalCam {
             }
 
             _intentionalStoppedMediaPlayers.Remove(mediaPlayer);
+            CompletePlaybackConfirmation(mediaPlayer, confirmed: false);
             mediaPlayer.Dispose();
+        }
+
+        private void CompletePlaybackConfirmation(VlcMediaPlayer mediaPlayer, bool confirmed) {
+            if (_playbackConfirmationWaiters.Remove(mediaPlayer, out var waiter)) {
+                waiter.TrySetResult(confirmed);
+            }
         }
 
         private bool IsStreamRunning(int tileIndex) {
@@ -2639,9 +3002,13 @@ namespace LocalCam {
             return false;
         }
 
-        private void MarkStreamStarted(int tileIndex) {
+        private void MarkStreamStarted(int tileIndex, VlcMediaPlayer mediaPlayer) {
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Running);
             _streamStartOrder[tileIndex] = _nextStreamStartOrder++;
+            var state = GetOrCreateStreamHealthState(tileIndex);
+            if (state is not null) {
+                StreamHealthEvaluator.StartPlayback(state, CaptureStreamSample(mediaPlayer));
+            }
         }
 
         private StreamHealthState? GetOrCreateStreamHealthState(int tileIndex) {
@@ -2690,11 +3057,6 @@ namespace LocalCam {
                     _cameraMonitorCancellation?.Dispose();
                     _cameraMonitorCancellation = new CancellationTokenSource();
                     _cameraMonitorTask = RunCameraMonitoringLoopAsync(_cameraMonitorCancellation.Token);
-                    return;
-                }
-
-                if (_cameraMonitorWakeSignal.CurrentCount == 0) {
-                    _cameraMonitorWakeSignal.Release();
                 }
             }
         }
@@ -2705,7 +3067,7 @@ namespace LocalCam {
                 while (!cancellationToken.IsCancellationRequested) {
                     var activeTileIndexes = await InvokeCameraMonitorOnUiThreadAsync(GetMonitoredTileIndexes, cancellationToken);
                     if (activeTileIndexes.Length == 0) {
-                        await WaitForCameraMonitorDelayAsync(delay: null, cancellationToken);
+                        await Task.Delay(CameraMonitorIdleInterval, cancellationToken);
                         continue;
                     }
 
@@ -2715,9 +3077,12 @@ namespace LocalCam {
                         }
 
                         try {
-                            if (!await InvokeCameraMonitorOnUiThreadAsync(() => IsStreamFresh(tileIndex), cancellationToken)) {
+                            var health = await InvokeCameraMonitorOnUiThreadAsync(
+                                () => EvaluateStreamHealth(tileIndex),
+                                cancellationToken);
+                            if (health.RequiresRecovery) {
                                 await InvokeCameraMonitorOnUiThreadAsync(
-                                    () => RestartCameraStreamAsync(tileIndex, cancellationToken),
+                                    () => RestartCameraStreamAsync(tileIndex, health.Reason, cancellationToken),
                                     cancellationToken);
                             }
                         }
@@ -2741,9 +3106,7 @@ namespace LocalCam {
                         break;
                     }
 
-                    if (await InvokeCameraMonitorOnUiThreadAsync(IsAnyStreamRunning, cancellationToken)) {
-                        await WaitForCameraMonitorDelayAsync(CameraMonitorCycleInterval, cancellationToken);
-                    }
+                    await Task.Delay(CameraMonitorCycleInterval, cancellationToken);
                 }
             }
             catch (OperationCanceledException) {
@@ -2791,80 +3154,80 @@ namespace LocalCam {
                 .ToArray();
         }
 
-        private bool IsStreamFresh(int tileIndex) {
+        private StreamHealthEvaluation EvaluateStreamHealth(int tileIndex) {
             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
-                return false;
+                return new StreamHealthEvaluation(
+                    StreamHealthEvaluationKind.Stale,
+                    HasProgressed: false,
+                    "camera tile is no longer available");
             }
 
             var mediaPlayer = _cameraTiles[tileIndex].MediaPlayer;
-            if (mediaPlayer is null || !mediaPlayer.IsPlaying || mediaPlayer.State != VLCState.Playing || mediaPlayer.VoutCount == 0) {
-                return false;
+            if (mediaPlayer is null) {
+                return new StreamHealthEvaluation(
+                    StreamHealthEvaluationKind.Unhealthy,
+                    HasProgressed: false,
+                    "media player is unavailable");
             }
 
-            var now = DateTimeOffset.Now;
-            if (!_streamHealthStates.TryGetValue(tileIndex, out var state)) {
-                state = new StreamHealthState();
-                _streamHealthStates[tileIndex] = state;
-                CaptureStreamSnapshot(mediaPlayer, state, now);
-                return true;
+            var state = GetOrCreateStreamHealthState(tileIndex);
+            if (state is null) {
+                return new StreamHealthEvaluation(
+                    StreamHealthEvaluationKind.Unhealthy,
+                    HasProgressed: false,
+                    "stream health state is unavailable");
             }
 
-            var currentTime = mediaPlayer.Time;
-            var currentPosition = mediaPlayer.Position;
-            var currentDisplayedPictures = state.LastDisplayedPictures;
-            var currentDecodedVideo = state.LastDecodedVideo;
-            var currentReadBytes = state.LastReadBytes;
+            var evaluation = StreamHealthEvaluator.Observe(
+                state,
+                CaptureStreamSample(mediaPlayer),
+                CameraMonitorStartupGracePeriod,
+                CameraMonitorStaleAfter,
+                CameraMonitorUnhealthySampleLimit);
+            if (evaluation.Kind == StreamHealthEvaluationKind.Unhealthy && state.ConsecutiveUnhealthySamples == 1) {
+                JsonLogStore.Information(
+                    eventName: "camera_stream_health_degraded",
+                    message: "A camera stream health sample did not show usable playback progress.",
+                    category: "camera_connect",
+                    data: new Dictionary<string, object?> {
+                        ["cameraIndex"] = tileIndex + 1,
+                        ["ipAddress"] = _detections[tileIndex].IpAddress.ToString(),
+                        ["reason"] = evaluation.Reason,
+                        ["consecutiveUnhealthySamples"] = state.ConsecutiveUnhealthySamples,
+                        ["voutCount"] = mediaPlayer.VoutCount,
+                        ["mediaTime"] = mediaPlayer.Time,
+                        ["position"] = mediaPlayer.Position
+                    });
+            }
 
+            return evaluation;
+        }
+
+        private static StreamHealthSample CaptureStreamSample(VlcMediaPlayer mediaPlayer) {
+            var displayedPictures = 0;
+            var decodedVideo = 0;
+            var readBytes = 0;
             using (var media = mediaPlayer.Media) {
                 if (media is not null) {
                     var stats = media.Statistics;
-                    currentDisplayedPictures = stats.DisplayedPictures;
-                    currentDecodedVideo = stats.DecodedVideo;
-                    currentReadBytes = stats.ReadBytes;
+                    displayedPictures = stats.DisplayedPictures;
+                    decodedVideo = stats.DecodedVideo;
+                    readBytes = stats.ReadBytes;
                 }
             }
 
-            var hasProgressed = !state.LastTime.HasValue ||
-                                currentTime != state.LastTime.Value ||
-                                Math.Abs(currentPosition - state.LastPosition) > 0.0001 ||
-                                currentDisplayedPictures > state.LastDisplayedPictures ||
-                                currentDecodedVideo > state.LastDecodedVideo ||
-                                currentReadBytes > state.LastReadBytes;
-
-            if (hasProgressed) {
-                state.LastTime = currentTime;
-                state.LastPosition = currentPosition;
-                state.LastDisplayedPictures = currentDisplayedPictures;
-                state.LastDecodedVideo = currentDecodedVideo;
-                state.LastReadBytes = currentReadBytes;
-                state.LastSampleAt = now;
-                return true;
-            }
-
-            if (state.LastSampleAt == default) {
-                CaptureStreamSnapshot(mediaPlayer, state, now);
-                return true;
-            }
-
-            return false;
+            return new StreamHealthSample(
+                DateTimeOffset.UtcNow,
+                mediaPlayer.IsPlaying && mediaPlayer.State == VLCState.Playing,
+                mediaPlayer.VoutCount > 0,
+                mediaPlayer.Time,
+                mediaPlayer.Position,
+                displayedPictures,
+                decodedVideo,
+                readBytes);
         }
 
-        private static void CaptureStreamSnapshot(VlcMediaPlayer mediaPlayer, StreamHealthState state, DateTimeOffset now) {
-            state.LastTime = mediaPlayer.Time;
-            state.LastPosition = mediaPlayer.Position;
-
-            using var media = mediaPlayer.Media;
-            if (media is not null) {
-                var stats = media.Statistics;
-                state.LastDisplayedPictures = stats.DisplayedPictures;
-                state.LastDecodedVideo = stats.DecodedVideo;
-                state.LastReadBytes = stats.ReadBytes;
-            }
-
-            state.LastSampleAt = now;
-        }
-
-        private async Task RestartCameraStreamAsync(int tileIndex, CancellationToken cancellationToken) {
+        private async Task RestartCameraStreamAsync(int tileIndex, string reason, CancellationToken cancellationToken) {
             if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
                 return;
             }
@@ -2873,17 +3236,26 @@ namespace LocalCam {
                 return;
             }
 
+            if (!TryBeginCameraMonitorRecovery(tileIndex, out var attempt, out var recoveryBlockedReason)) {
+                if (recoveryBlockedReason == "attempt_limit_reached") {
+                    MarkCameraMonitorRecoveryExhausted(tileIndex);
+                }
+                return;
+            }
+
             var recoveryGeneration = _streamRecoveryGeneration;
             var ipAddress = _detections[tileIndex].IpAddress.ToString();
             var streamPath = NormalizeStreamPath(_settings.StreamPath);
             JsonLogStore.Warning(
-                eventName: "camera_stream_monitor_stale_detected",
-                message: "A live stream stopped advancing and will be restarted.",
+                eventName: "camera_stream_recovery_requested",
+                message: "A camera stream remained unhealthy and will be restarted.",
                 category: "camera_connect",
                 data: new Dictionary<string, object?> {
                     ["cameraIndex"] = tileIndex + 1,
                     ["ipAddress"] = ipAddress,
-                    ["streamPath"] = streamPath
+                    ["streamPath"] = streamPath,
+                    ["reason"] = reason,
+                    ["attempt"] = attempt
                 });
 
             SetStreamLifecyclePhase(tileIndex, StreamLifecyclePhase.Stopping);
@@ -2904,28 +3276,94 @@ namespace LocalCam {
                 return;
             }
 
-            if (await StartSingleStreamAsync(tileIndex, updateStatus: false, requestMonitorWake: false, isMonitorRecovery: true)) {
+            if (await StartSingleStreamAsync(
+                    tileIndex,
+                    updateStatus: false,
+                    requestMonitorWake: false,
+                    isMonitorRecovery: true,
+                    cancellationToken: cancellationToken)) {
                 JsonLogStore.Information(
-                    eventName: "camera_stream_monitor_restart_succeeded",
-                    message: "A stale live stream was restarted successfully.",
+                    eventName: "camera_stream_recovery_confirmed",
+                    message: "A camera stream recovery reached confirmed playback.",
                     category: "camera_connect",
                     data: new Dictionary<string, object?> {
                         ["cameraIndex"] = tileIndex + 1,
                         ["ipAddress"] = ipAddress,
-                        ["streamPath"] = streamPath
+                        ["streamPath"] = streamPath,
+                        ["attempt"] = attempt
                     });
                 return;
             }
 
             JsonLogStore.Warning(
-                eventName: "camera_stream_monitor_restart_failed",
-                message: "A stale live stream failed to restart.",
+                eventName: "camera_stream_recovery_failed",
+                message: "A camera stream recovery did not reach confirmed playback.",
                 category: "camera_connect",
                 data: new Dictionary<string, object?> {
                     ["cameraIndex"] = tileIndex + 1,
                     ["ipAddress"] = ipAddress,
-                    ["streamPath"] = streamPath
+                    ["streamPath"] = streamPath,
+                    ["attempt"] = attempt
                 });
+        }
+
+        private bool TryBeginCameraMonitorRecovery(int tileIndex, out int attempt, out string reason) {
+            var now = DateTimeOffset.UtcNow;
+            if (!_streamRecoveryStates.TryGetValue(tileIndex, out var state)) {
+                state = new StreamRecoveryState();
+                _streamRecoveryStates[tileIndex] = state;
+            }
+
+            if (now < state.CooldownUntil) {
+                attempt = state.AttemptsInWindow;
+                reason = "cooldown_active";
+                return false;
+            }
+
+            if (state.WindowStartedAt == default || now - state.WindowStartedAt >= CameraMonitorRecoveryWindow) {
+                state.WindowStartedAt = now;
+                state.AttemptsInWindow = 0;
+                state.Exhausted = false;
+            }
+
+            if (state.AttemptsInWindow >= CameraMonitorRecoveryAttemptLimit) {
+                attempt = state.AttemptsInWindow;
+                reason = "attempt_limit_reached";
+                return false;
+            }
+
+            state.AttemptsInWindow++;
+            state.CooldownUntil = now + CameraMonitorRecoveryCooldown;
+            attempt = state.AttemptsInWindow;
+            reason = string.Empty;
+            return true;
+        }
+
+        private void MarkCameraMonitorRecoveryExhausted(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count ||
+                !_streamRecoveryStates.TryGetValue(tileIndex, out var recoveryState) || recoveryState.Exhausted) {
+                return;
+            }
+
+            recoveryState.Exhausted = true;
+            var failure = new StreamFailureDetails(
+                StreamFailureKind.PlaybackStalled,
+                "Camera playback is not advancing.",
+                "Try Play again or check the camera connection.",
+                "automatic stream recovery attempt limit reached");
+            StopSingleStream(tileIndex, updateStatus: false, invalidateAutomaticRecovery: false);
+            SetPlaybackFailure(tileIndex, failure);
+            JsonLogStore.Warning(
+                eventName: "camera_stream_recovery_exhausted",
+                message: "Automatic recovery stopped for a camera after repeated stale playback.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["cameraIndex"] = tileIndex + 1,
+                    ["ipAddress"] = _detections[tileIndex].IpAddress.ToString(),
+                    ["attemptLimit"] = CameraMonitorRecoveryAttemptLimit
+                });
+            _streamsRunning = IsAnyStreamRunning();
+            UpdateActionButtons();
         }
 
         private async Task RecoverTerminalStreamAsync(int tileIndex, string reason) {
@@ -2981,22 +3419,6 @@ namespace LocalCam {
                     ["reason"] = reason,
                     ["attempt"] = attemptCount
                 });
-        }
-
-        private async Task WaitForCameraMonitorDelayAsync(TimeSpan? delay, CancellationToken cancellationToken) {
-            using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var wakeTask = _cameraMonitorWakeSignal.WaitAsync(waitCancellation.Token);
-            var delayTask = delay.HasValue
-                ? Task.Delay(delay.Value, waitCancellation.Token)
-                : Task.Delay(-1, waitCancellation.Token);
-
-            try {
-                var completedTask = await Task.WhenAny(wakeTask, delayTask);
-                waitCancellation.Cancel();
-                await completedTask;
-            }
-            catch (OperationCanceledException) {
-            }
         }
 
         private int CountRunningStreams() {
@@ -4028,15 +4450,40 @@ namespace LocalCam {
                 _lastLibVlcErrorMessage = message;
             }
 
+            var logKey = $"{e.Level}|{e.Module}|{message}";
+            var now = DateTimeOffset.UtcNow;
+            var suppressedCount = 0;
+            lock (_libVlcLogSync) {
+                if (_libVlcLogThrottleStates.TryGetValue(logKey, out var throttleState) &&
+                    now - throttleState.LastLoggedAt < LibVlcRepeatedLogInterval) {
+                    throttleState.SuppressedCount++;
+                    return;
+                }
+
+                if (throttleState is null) {
+                    throttleState = new LibVlcLogThrottleState();
+                    _libVlcLogThrottleStates[logKey] = throttleState;
+                }
+
+                suppressedCount = throttleState.SuppressedCount;
+                throttleState.SuppressedCount = 0;
+                throttleState.LastLoggedAt = now;
+            }
+
+            var data = new Dictionary<string, object?> {
+                ["level"] = e.Level.ToString(),
+                ["module"] = e.Module,
+                ["message"] = message
+            };
+            if (suppressedCount > 0) {
+                data["suppressedCount"] = suppressedCount;
+            }
+
             JsonLogStore.Warning(
                 eventName: "libvlc_runtime_log",
                 message: "LibVLC emitted a runtime warning or error.",
                 category: "camera_connect",
-                data: new Dictionary<string, object?> {
-                    ["level"] = e.Level.ToString(),
-                    ["module"] = e.Module,
-                    ["message"] = message
-                });
+                data: data);
         }
 
         private static string SanitizeLibVlcLogMessage(string? message) {

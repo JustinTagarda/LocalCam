@@ -163,10 +163,17 @@
                                 Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
-                    <TextBox x:Name="RtspUsernameTextBox"
-                             Grid.Column="1"
-                             TextChanged="InputChanged"
-                             Style="{StaticResource DialogTextBoxStyle}" />
+                     <Grid Grid.Column="1">
+                         <TextBox x:Name="RtspUsernameTextBox"
+                                  TextChanged="InputChanged"
+                                  Style="{StaticResource DialogTextBoxStyle}" />
+                         <TextBlock x:Name="RtspUsernamePlaceholderTextBlock"
+                                    Text="Enter RTSP username"
+                                    Foreground="{DynamicResource MutedTextBrush}"
+                                    Margin="8,0"
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="False" />
+                     </Grid>
                 </Grid>
 
                 <Grid Grid.Row="6" Margin="0,0,0,10">
@@ -179,10 +186,17 @@
                                 Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
-                    <PasswordBox x:Name="RtspPasswordBox"
-                                 Grid.Column="1"
-                                 PasswordChanged="InputChanged"
-                                 Style="{StaticResource DialogPasswordBoxStyle}" />
+                     <Grid Grid.Column="1">
+                         <PasswordBox x:Name="RtspPasswordBox"
+                                      PasswordChanged="InputChanged"
+                                      Style="{StaticResource DialogPasswordBoxStyle}" />
+                         <TextBlock x:Name="RtspPasswordPlaceholderTextBlock"
+                                    Text="Enter RTSP password"
+                                    Foreground="{DynamicResource MutedTextBrush}"
+                                    Margin="8,0"
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="False" />
+                     </Grid>
                 </Grid>
 
                 <Grid Grid.Row="7" Margin="0,0,0,12">

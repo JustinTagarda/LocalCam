@@ -60,7 +60,9 @@ flowchart TD
 
 ### Stream start
 
-User or auto-start requests playback -> configuration is validated -> invalid configuration opens Settings -> valid configuration builds escaped RTSP URL -> a player bound to an immutable detection identity starts -> LibVLC `Playing` confirms the live state, refreshes the recent-camera cache, and enables health monitoring -> terminal playback events receive one bounded restart attempt -> failures are logged and surfaced. Detection reconciliation disposes a superseded tile player before assigning a new camera identity, so late LibVLC events cannot affect a reordered tile.
+User or auto-start requests playback -> configuration is validated -> invalid configuration opens Settings -> valid configuration builds escaped RTSP URL -> a player bound to an immutable detection identity accepts a playback request -> LibVLC `Playing` confirms the live state, refreshes the recent-camera cache, initializes a per-camera startup grace period, and enables periodic health monitoring -> health evaluation samples output state and playback counters -> consecutive stale samples may trigger bounded recovery for that camera only -> terminal playback events receive one bounded restart attempt -> failures are classified, logged, and surfaced on the affected card. Detection reconciliation disposes a superseded tile player before assigning a new camera identity, so late LibVLC events cannot affect a reordered tile.
+
+The health monitor is deliberately periodic rather than event-wake-driven. A confirmed `Playing` event starts or ensures the single monitor loop but does not interrupt its sampling delay. Each camera has independent health samples, recovery cooldown, and recovery-attempt limits; exhausting recovery stops automatic retries for that camera and leaves healthy camera streams untouched.
 
 ### Power transition
 
@@ -81,7 +83,8 @@ Active tile requests recording -> output folder is validated -> existing recordi
 
 - `MainWindow.xaml.cs` owns many responsibilities, increasing change coupling and making automated testing difficult.
 - Discovery is heuristic and network-environment dependent.
-- There are no current test source files despite a test project.
+- Automated coverage exists for stream-failure classification and health evaluation, while broader WPF/media integration coverage remains a risk.
 - Store and development paths coexist in the same UI orchestration surface.
 - Credential handling is local and URL construction must remain carefully escaped and never be logged in clear text.
+- Video playback startup and recovery are sensitive to LibVLC output initialization and host graphics-driver behavior; Direct3D/driver diagnostics must be correlated with per-camera playback state before changing video-output options.
 - WPF Fluent resources may expose frozen brushes; direct mutation during a theme change can terminate the process with `InvalidOperationException`. This is guarded by clone-and-replace synchronization in `AppThemeService`.

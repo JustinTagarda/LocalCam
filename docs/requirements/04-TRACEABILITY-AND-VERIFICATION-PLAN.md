@@ -7,14 +7,26 @@
 | Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | FAST-BUILD and manual startup check | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, accent-foreground UI, dashboard-before-engine-render, initialization retry, readiness gating, and repeated-launch activation checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
 | Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `MainWindow.xaml.cs` | Cache-policy tests | Add controlled-network reconnect/fallback check, including a delayed `Playing` event after timeout or tile reassignment |
-| Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, stale-frame, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, and manual live-stream checks |
-| Settings UI | `SettingsWindow.xaml(.cs)` | No test source found | Add validation, dirty-state, and folder tests |
+| Dashboard/playback and window state | `MainWindow.xaml(.cs)`, `Services/StreamHealthEvaluator.cs`, `LocalCam.Tests/StreamFailureClassificationTests.cs`, `LocalCam.Tests/StreamHealthEvaluatorTests.cs` | Stream-failure classification and stream-health evaluator tests | Add confirmed-playback state transition, startup grace, consecutive stale-sample, bounded recovery/cooldown, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, per-card failure isolation, credential-escalation, and manual live-stream checks |
+| Settings UI | `SettingsWindow.xaml(.cs)` | No UI test source found | Add validation, dirty-state, folder, placeholder, credential-border, focus, and Update-with-missing-credentials checks |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
 | Diagnostics | `Services/JsonLogStore.cs` | No test source found | Add schema and redaction tests |
 | Store packaging | `LocalCam.Package/`, Store services | Existing policy/checklist docs | Add package validation in release workflow |
 
 ## Shared button-style verification
+
+## RTSP credential and per-camera playback verification
+
+For FR-008 and FR-009, perform the following manual checks:
+
+1. Open Settings with empty credentials and confirm the username and password placeholders are visible without changing persisted values.
+2. Modify a non-credential setting and click Update with empty credentials. Confirm Settings remains open, the exact required message is shown, both empty credential fields use the theme-aware critical border, and focus moves to the username field.
+3. Repeat with only the username missing and then only the password missing. Confirm only the missing field is red. Enter a valid value and confirm that field returns to the normal input border while the other invalid field remains red.
+4. With detected cameras, trigger Start All, per-card Play, and auto-start with missing credentials. Confirm Settings opens and only missing fields are highlighted; the stream-start flow does not close Settings or attempt RTSP playback.
+5. With multiple detected cameras, cause one camera to fail because of credential rejection, network failure, or playback/decode failure. Confirm the failed card alone shows centered red error text, the suggestion is shown only for a classified reason, and other cameras continue streaming.
+6. Confirm a credential-related playback failure opens Settings, while network, device/decode, and unknown failures do not open Settings.
+7. Restore playback on the failed card and confirm its error text clears after LibVLC reports `Playing`.
 
 The app-wide button invariant is owned by `App.xaml` and must be checked for every button change:
 
@@ -63,6 +75,19 @@ For FR-001 and FR-024, verify the following on a Debug executable:
 5. Use the retry control and confirm successful initialization restores normal stream controls and startup flow.
 6. Launch the executable again while the first instance is starting or visible and confirm the existing window is activated without creating a second window.
 7. Close during video-engine initialization and confirm the process exits without leaving a live LibVLC engine or activation listener.
+
+## Playback health and recovery verification
+
+For FR-009, FR-018, NFR-006, and NFR-008, perform the following checks:
+
+1. Start one and then four compatible cameras. Confirm playback-request logs precede distinct LibVLC playback-confirmed logs and that no recovery occurs during the startup grace period.
+2. Confirm repeated `Playing` events do not interrupt the monitor sampling interval or create a restart storm.
+3. Hold one camera without advancing video output. Confirm recovery requires consecutive unhealthy samples, respects cooldown, and stops after the per-camera attempt limit.
+4. Confirm recovery exhaustion shows a centered red error only on the failed card and leaves other cameras streaming.
+5. Restore the failed camera and use Play. Confirm manual playback clears the exhausted recovery state and the card error after confirmed playback.
+6. Trigger credential rejection, network failure, decode/output failure, and an unknown failure. Confirm only credential-related failures open Settings.
+7. Verify repeated LibVLC warnings/errors are rate-limited while the latest error remains available for classification.
+8. Repeat with one camera and four cameras while checking Windows Application, .NET Runtime, Windows Error Reporting, and relevant graphics-driver events. Record whether Direct3D11 errors or LiveKernel events recur.
 
 ## Minimum acceptance suite for future changes
 

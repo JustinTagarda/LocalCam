@@ -129,3 +129,15 @@ The dashboard shell is shown before nonessential LibVLC initialization completes
 The existing single-instance mutex remains authoritative. Secondary launches signal the primary instance, which restores and activates its existing window instead of silently exiting.
 
 Guardrails: do not change RTSP construction, discovery behavior, recent-camera cache policy, theme startup ordering, recording rules, or the single-window constraint while implementing this decision.
+
+## DEC-016: Per-camera playback health and bounded recovery
+
+Status: Accepted
+
+LibVLC accepting a playback request is not evidence that video output is usable. LocalCam therefore treats LibVLC `Playing` as the confirmation boundary, allows a short per-camera output-initialization grace period, and evaluates health from consecutive samples of playback state and media/output counters. A single early sample or temporary missing video output must not restart a stream.
+
+Health recovery is periodic and isolated to the affected camera. Each camera has an independent cooldown and bounded recovery-attempt window. Recovery exhaustion stops automatic retries for that camera, surfaces a card-local classified error, and does not stop healthy camera streams. Explicit user Play or a new Start All request resets that camera's automatic recovery state.
+
+Repeated LibVLC runtime messages are rate-limited in structured diagnostics. Diagnostics distinguish accepted playback requests from confirmed playback, include per-camera recovery state, and never include credentials or complete RTSP URLs. Direct3D11 and Windows driver failures remain an investigation concern; video-output options must not be changed solely to suppress their log messages.
+
+Guardrails: preserve identity-bound player handling, recent-camera cache confirmation and eviction rules, terminal-event recovery policy, suspend/hibernate Stop All behavior, RTSP construction, and per-card failure isolation.

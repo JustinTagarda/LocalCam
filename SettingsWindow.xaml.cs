@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using LocalCam.Models;
 using LocalCam.Services;
 using Microsoft.Win32;
@@ -9,8 +10,10 @@ namespace LocalCam {
         private LocalCamSettings _baselineSettings;
         private bool _isDirty;
         private bool _allowClose;
+        private bool _credentialValidationShown;
         private string? _snapshotFolderPathValue;
         private string? _recordingFolderPathValue;
+        private const string RtspCredentialsInvalidMessage = "RTSP credentials are missing or invalid.";
         public bool DidSave { get; private set; }
 
         public SettingsWindow(LocalCamSettings settings) {
@@ -27,6 +30,7 @@ namespace LocalCam {
             _recordingFolderPathValue = NormalizeRecordingSaveFolder(settings.RecordingSaveFolder);
             RefreshSnapshotFolderDisplay();
             RefreshRecordingFolderDisplay();
+            UpdateCredentialPlaceholderVisibility();
             UpdateCommitState();
         }
 
@@ -42,6 +46,21 @@ namespace LocalCam {
 
             InlineErrorTextBlock.Text = text;
             InlineErrorTextBlock.Visibility = Visibility.Visible;
+        }
+
+        public void ShowCredentialValidation(bool focusUsername = false) {
+            var usernameMissing = string.IsNullOrWhiteSpace(RtspUsernameTextBox.Text);
+            var passwordMissing = string.IsNullOrWhiteSpace(RtspPasswordBox.Password);
+            _credentialValidationShown = true;
+            SetCredentialValidationState(usernameMissing, passwordMissing);
+            ShowInlineError(RtspCredentialsInvalidMessage);
+
+            if (focusUsername) {
+                Dispatcher.BeginInvoke(new Action(() => {
+                    RtspUsernameTextBox.Focus();
+                    RtspUsernameTextBox.SelectAll();
+                }));
+            }
         }
 
         private void UpdateButton_Click(object sender, RoutedEventArgs e) {
@@ -108,6 +127,10 @@ namespace LocalCam {
 
         private void InputChanged(object sender, RoutedEventArgs e) {
             ShowInlineError(string.Empty);
+            if (_credentialValidationShown) {
+                UpdateCredentialValidationState();
+            }
+            UpdateCredentialPlaceholderVisibility();
             UpdateCommitState();
         }
 
@@ -140,7 +163,7 @@ namespace LocalCam {
             }
 
             if (dialog.Choice == UnsavedChangesChoice.SaveAndClose) {
-                if (TrySaveOnly()) {
+                    if (TrySaveOnly()) {
                     _allowClose = true;
                     DialogResult = true;
                     e.Cancel = false;
@@ -163,11 +186,12 @@ namespace LocalCam {
         private void UpdateCommitState() {
             var current = BuildSettingsFromInputs();
             _isDirty = !SettingsEqual(current, _baselineSettings);
-            UpdateButton.IsEnabled = _isDirty && IsValid(current);
+            UpdateButton.IsEnabled = IsValid(current) &&
+                (_isDirty || !HasCompleteRtspCredentials(current));
         }
 
         private bool TrySaveAndClose() {
-            if (!TrySaveOnly()) {
+            if (!TrySaveOnly(focusUsernameOnCredentialFailure: true)) {
                 return false;
             }
 
@@ -177,9 +201,18 @@ namespace LocalCam {
             return true;
         }
 
-        private bool TrySaveOnly() {
+        private bool TrySaveOnly(bool focusUsernameOnCredentialFailure = false) {
             var current = BuildSettingsFromInputs();
-            if (!_isDirty || !IsValid(current)) {
+            if (!IsValid(current)) {
+                return false;
+            }
+
+            if (!HasCompleteRtspCredentials(current)) {
+                ShowCredentialValidation(focusUsernameOnCredentialFailure);
+                return false;
+            }
+
+            if (!_isDirty) {
                 return false;
             }
 
@@ -225,6 +258,35 @@ namespace LocalCam {
 
         private static bool IsValid(LocalCamSettings settings) {
             return !string.IsNullOrWhiteSpace(NormalizeStreamPath(settings.StreamPath));
+        }
+
+        private static bool HasCompleteRtspCredentials(LocalCamSettings settings) {
+            return !string.IsNullOrWhiteSpace(settings.RtspUsername) &&
+                   !string.IsNullOrWhiteSpace(settings.RtspPassword);
+        }
+
+        private void UpdateCredentialValidationState() {
+            SetCredentialValidationState(
+                string.IsNullOrWhiteSpace(RtspUsernameTextBox.Text),
+                string.IsNullOrWhiteSpace(RtspPasswordBox.Password));
+        }
+
+        private void SetCredentialValidationState(bool usernameMissing, bool passwordMissing) {
+            SetBorderBrushResource(RtspUsernameTextBox, usernameMissing ? "ErrorBrush" : "InputBorderBrush");
+            SetBorderBrushResource(RtspPasswordBox, passwordMissing ? "ErrorBrush" : "InputBorderBrush");
+        }
+
+        private static void SetBorderBrushResource(Control control, string resourceKey) {
+            control.SetResourceReference(Control.BorderBrushProperty, resourceKey);
+        }
+
+        private void UpdateCredentialPlaceholderVisibility() {
+            RtspUsernamePlaceholderTextBlock.Visibility = string.IsNullOrWhiteSpace(RtspUsernameTextBox.Text)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            RtspPasswordPlaceholderTextBlock.Visibility = string.IsNullOrWhiteSpace(RtspPasswordBox.Password)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         private static string NormalizeStreamPath(string? input) {
