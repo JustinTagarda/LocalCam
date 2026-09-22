@@ -239,21 +239,15 @@ namespace LocalCam {
         }
 
         private LocalCamSettings BuildSettingsFromInputs() {
-            return new LocalCamSettings {
-                RtspUsername = RtspUsernameTextBox.Text.Trim(),
-                RtspPassword = RtspPasswordBox.Password,
-                StreamPath = NormalizeStreamPath(StreamPathTextBox.Text),
-                ReconnectRecentCamerasOnStartup = ReconnectRecentCamerasOnStartupCheckBox.IsChecked == true,
-                RecentCameraConnections = _initialSettings.RecentCameraConnections.Select(CloneRecentConnection).ToList(),
-                ThemePreference = ParseThemePreference(ThemePreferenceComboBox.SelectedValue as string),
-                SnapshotSaveFolder = _snapshotFolderPathValue,
-                RecordingSaveFolder = _recordingFolderPathValue,
-                LastSuccessfulDetectionMethod = _initialSettings.LastSuccessfulDetectionMethod,
-                MainWindowLeft = _initialSettings.MainWindowLeft,
-                MainWindowTop = _initialSettings.MainWindowTop,
-                MainWindowWidth = _initialSettings.MainWindowWidth,
-                MainWindowHeight = _initialSettings.MainWindowHeight
-            };
+            var current = CloneSettings(_initialSettings);
+            current.RtspUsername = RtspUsernameTextBox.Text.Trim();
+            current.RtspPassword = RtspPasswordBox.Password;
+            current.StreamPath = NormalizeStreamPath(StreamPathTextBox.Text);
+            current.ReconnectRecentCamerasOnStartup = ReconnectRecentCamerasOnStartupCheckBox.IsChecked == true;
+            current.ThemePreference = ParseThemePreference(ThemePreferenceComboBox.SelectedValue as string);
+            current.SnapshotSaveFolder = _snapshotFolderPathValue;
+            current.RecordingSaveFolder = _recordingFolderPathValue;
+            return current;
         }
 
         internal static void ApplyEditableSettings(LocalCamSettings target, LocalCamSettings source) {
@@ -419,21 +413,37 @@ namespace LocalCam {
                    a.MainWindowHeight == b.MainWindowHeight;
         }
 
-        private static LocalCamSettings CloneSettings(LocalCamSettings settings) {
+        internal static LocalCamSettings CloneSettings(LocalCamSettings settings) {
             return new LocalCamSettings {
                 RtspUsername = settings.RtspUsername,
                 RtspPassword = settings.RtspPassword,
                 StreamPath = settings.StreamPath,
+                AutoStreamVideo = settings.AutoStreamVideo,
+                AutoDetectOnStartup = settings.AutoDetectOnStartup,
                 ReconnectRecentCamerasOnStartup = settings.ReconnectRecentCamerasOnStartup,
-                RecentCameraConnections = settings.RecentCameraConnections.Select(CloneRecentConnection).ToList(),
+                RecentCameraConnections = settings.RecentCameraConnections?.Select(CloneRecentConnection).ToList() ?? new(),
                 ThemePreference = settings.ThemePreference,
                 SnapshotSaveFolder = settings.SnapshotSaveFolder,
                 RecordingSaveFolder = settings.RecordingSaveFolder,
                 LastSuccessfulDetectionMethod = settings.LastSuccessfulDetectionMethod,
+                HasVerifiedPremiumEntitlementCache = settings.HasVerifiedPremiumEntitlementCache,
+                VerifiedPremiumEntitlementOwned = settings.VerifiedPremiumEntitlementOwned,
+                VerifiedPremiumEntitlementCheckedUtc = settings.VerifiedPremiumEntitlementCheckedUtc,
+                BasicRecordingUsageDateLocal = settings.BasicRecordingUsageDateLocal,
+                BasicRecordingUsageSeconds = settings.BasicRecordingUsageSeconds,
                 MainWindowLeft = settings.MainWindowLeft,
                 MainWindowTop = settings.MainWindowTop,
                 MainWindowWidth = settings.MainWindowWidth,
-                MainWindowHeight = settings.MainWindowHeight
+                MainWindowHeight = settings.MainWindowHeight,
+                StoreUpdateCheckHistoryUtc = settings.StoreUpdateCheckHistoryUtc?.ToList() ?? new(),
+                StoreUpdateLastKnownAvailable = settings.StoreUpdateLastKnownAvailable,
+                StoreUpdateLastKnownPhase = settings.StoreUpdateLastKnownPhase,
+                StoreUpdateLastKnownProgressPercent = settings.StoreUpdateLastKnownProgressPercent,
+                StoreUpdateLastKnownDetailText = settings.StoreUpdateLastKnownDetailText,
+                StoreUpdateLastKnownResultText = settings.StoreUpdateLastKnownResultText,
+                StoreUpdateExpectedSubmissionState = settings.StoreUpdateExpectedSubmissionState,
+                StoreUpdateExpectedRolloutMode = settings.StoreUpdateExpectedRolloutMode,
+                StoreUpdateExpectedFlightAudience = settings.StoreUpdateExpectedFlightAudience
             };
         }
 
