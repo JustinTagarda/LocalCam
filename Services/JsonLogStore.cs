@@ -19,8 +19,14 @@ namespace LocalCam.Services {
         private static readonly Regex UrlPattern = new(
             @"(?i)\b(?:rtsp|rtsps|https?|ftp)://[^\s""'<>]+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex CredentialAuthorityPattern = new(
+            @"(?i)(?<![A-Za-z0-9])[A-Za-z0-9._%+\-]+:[^\s""'<>/@]+@(?<host>[^\s""'<>]+)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex SensitiveAssignmentPattern = new(
-            @"(?i)\b(password|passwd|username|user|token|secret|authorization|credential(?:s)?)\s*([:=])\s*([^\s,;\]}]+)",
+            @"(?i)(?<![A-Za-z0-9])(password|passwd|username|user|token|access[_-]?token|refresh[_-]?token|secret|authorization|credential(?:s)?)\s*([:=])\s*(?:""[^""\r\n]*""|'[^'\r\n]*'|[^\s,;\]}]+)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex AuthorizationSchemePattern = new(
+            @"(?i)\b(?:bearer|basic)\s+(?!(?:authentication|auth|credential(?:s)?)\b)[A-Za-z0-9+/=_\-.]+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static string? _logDirectory;
         private static DateTime _lastRetentionSweepUtc = DateTime.MinValue;
@@ -86,18 +92,7 @@ namespace LocalCam.Services {
             try {
                 Initialize();
 
-                var entry = new JsonLogEntry(
-                    TimestampUtc: DateTimeOffset.UtcNow,
-                    Level: level,
-                    Category: category,
-                    EventName: eventName,
-                    Message: RedactSensitiveText(message),
-                    Data: SanitizeData(data),
-                    ExceptionType: exception?.GetType().FullName,
-                    ExceptionMessage: exception is null ? null : RedactSensitiveText(exception.Message),
-                    StackTrace: exception is null ? null : RedactSensitiveText(exception.StackTrace));
-
-                var json = JsonSerializer.Serialize(entry, JsonOptions);
+                var json = SerializeEntry(level, eventName, message, category, data, exception);
 
                 lock (SyncRoot) {
                     EnsureLogDirectoryAndRetention(DateTime.UtcNow);
@@ -127,9 +122,34 @@ namespace LocalCam.Services {
             }
 
             var redacted = UrlPattern.Replace(value, RedactedValue);
-            return SensitiveAssignmentPattern.Replace(
+            redacted = CredentialAuthorityPattern.Replace(
+                redacted,
+                match => $"{RedactedValue}@{match.Groups["host"].Value}");
+            redacted = SensitiveAssignmentPattern.Replace(
                 redacted,
                 match => $"{match.Groups[1].Value}{match.Groups[2].Value}{RedactedValue}");
+            return AuthorizationSchemePattern.Replace(redacted, RedactedValue);
+        }
+
+        internal static string SerializeEntry(
+            string level,
+            string eventName,
+            string message,
+            string category,
+            IReadOnlyDictionary<string, object?>? data,
+            Exception? exception) {
+            var entry = new JsonLogEntry(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                Level: level,
+                Category: category,
+                EventName: eventName,
+                Message: RedactSensitiveText(message),
+                Data: SanitizeData(data),
+                ExceptionType: exception?.GetType().FullName,
+                ExceptionMessage: exception is null ? null : RedactSensitiveText(exception.Message),
+                StackTrace: exception is null ? null : RedactSensitiveText(exception.StackTrace));
+
+            return JsonSerializer.Serialize(entry, JsonOptions);
         }
 
         internal static IReadOnlyDictionary<string, object?> SanitizeData(

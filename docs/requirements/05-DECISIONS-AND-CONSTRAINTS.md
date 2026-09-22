@@ -52,6 +52,8 @@ Debug, Release, and installed builds use the same `JsonLogStore` route and JSONL
 
 Diagnostic messages, exception text, stack traces, and structured data are sanitized before serialization. Credentials, complete RTSP URLs, URL values, and secret-bearing fields are replaced with `[REDACTED]`. Logs rotate by UTC day, and files older than seven days are deleted during startup and periodic retention sweeps.
 
+Local IP addresses, hostnames, and stream paths may remain in diagnostics to preserve local troubleshooting context. Diagnostics are local-only and are not an exported support artifact; any future diagnostics export requires a separate privacy review.
+
 ## DEC-008: Existing code is the baseline
 
 Status: Accepted

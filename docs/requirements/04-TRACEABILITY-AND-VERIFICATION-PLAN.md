@@ -11,7 +11,7 @@
 | Settings UI | `SettingsWindow.xaml(.cs)` | No UI test source found | Add validation, dirty-state, folder, placeholder, credential-border, focus, and Update-with-missing-credentials checks |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
-| Diagnostics | `Services/JsonLogStore.cs` | `LocalCam.Tests/JsonLogStoreTests.cs` | Verify packaged application-data cleanup, unpackaged fallback location, release logging, and live seven-day rotation |
+| Diagnostics | `Services/JsonLogStore.cs` | `LocalCam.Tests/JsonLogStoreTests.cs` | Redaction helper, exception-message/stack-trace serialization, nested structured-data, and seven-day retention tests; verify packaged application-data cleanup, unpackaged fallback location, release logging, and live seven-day rotation |
 | Store packaging | `LocalCam.Package/`, Store services | Existing policy/checklist docs | Add package validation in release workflow |
 
 ## Shared button-style verification

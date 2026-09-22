@@ -8,7 +8,7 @@ Create test source files in `LocalCam.Tests` and extract or isolate pure logic f
 
 ## P0: Protect credentials and diagnostics
 
-The logging portion is implemented: redaction tests cover credentials and URLs, and `JsonLogStore` sanitizes every message, exception, stack trace, and structured field before JSONL serialization. Windows-protected storage for persisted credentials remains a separate future decision after defining migration and recovery behavior.
+The logging portion is implemented: redaction tests cover credentials, URL variants, exception serialization, stack traces, and structured fields, and `JsonLogStore` sanitizes every message, exception, stack trace, and structured field before JSONL serialization. Local IP addresses, hostnames, and stream paths remain available for local troubleshooting. Windows-protected storage for persisted credentials remains a separate future decision after defining migration and recovery behavior.
 
 ## P1: Reduce MainWindow coupling
 

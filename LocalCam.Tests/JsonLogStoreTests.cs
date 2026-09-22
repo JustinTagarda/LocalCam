@@ -20,6 +20,57 @@ public sealed class JsonLogStoreTests {
     }
 
     [Fact]
+    public void RedactSensitiveText_RemovesCommonCredentialFormats() {
+        var value = "Connection failed for user:camera-password@camera.local with password=\"secret value\", access_token:abc123, and Authorization Bearer bearer-token.";
+
+        var redacted = JsonLogStore.RedactSensitiveText(value);
+
+        Assert.DoesNotContain("camera-password", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret value", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc123", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("bearer-token", redacted, StringComparison.Ordinal);
+        Assert.Contains("camera.local", redacted, StringComparison.Ordinal);
+        Assert.Contains("Basic authentication failed", JsonLogStore.RedactSensitiveText("Basic authentication failed"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SerializeEntry_RedactsExceptionMessageAndStackTraceFields() {
+        Exception exception;
+        try {
+            throw new InvalidOperationException("Unable to open rtsp://camera-user:camera-password@192.168.1.10:554/stream1; password=secret");
+        }
+        catch (Exception caught) {
+            exception = caught;
+        }
+
+        var serialized = JsonLogStore.SerializeEntry(
+            level: "Error",
+            eventName: "test_exception",
+            message: "Playback failed for rtsp://camera-user:camera-password@192.168.1.10:554/stream1",
+            category: "camera_connect",
+            data: new Dictionary<string, object?> {
+                ["ipAddress"] = "192.168.1.10",
+                ["rtspUrl"] = "rtsp://camera-user:camera-password@192.168.1.10:554/stream1"
+            },
+            exception: exception);
+
+        Assert.DoesNotContain("camera-user", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("camera-password", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("rtsp://", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password=secret", serialized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("192.168.1.10", serialized, StringComparison.Ordinal);
+
+        using var document = JsonDocument.Parse(serialized);
+        Assert.Equal("[REDACTED]", document.RootElement.GetProperty("Data").GetProperty("rtspUrl").GetString());
+        var exceptionMessage = document.RootElement.GetProperty("ExceptionMessage").GetString();
+        Assert.Contains("[REDACTED]", exceptionMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("camera-user", exceptionMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("camera-password", exceptionMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("password=secret", exceptionMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("StackTrace").GetString()));
+    }
+
+    [Fact]
     public void SanitizeData_RedactsSensitiveKeysAndNestedValues() {
         var data = new Dictionary<string, object?> {
             ["username"] = "camera-user",
