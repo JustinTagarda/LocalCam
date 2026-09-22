@@ -2408,7 +2408,7 @@ namespace LocalCam {
                     var rtspConfigurationChanged = !string.Equals(_settings.RtspUsername, dialog.Settings.RtspUsername, StringComparison.Ordinal) ||
                         !string.Equals(_settings.RtspPassword, dialog.Settings.RtspPassword, StringComparison.Ordinal) ||
                         !string.Equals(NormalizeStreamPath(_settings.StreamPath), NormalizeStreamPath(dialog.Settings.StreamPath), StringComparison.Ordinal);
-                    _settings = dialog.Settings;
+                    SettingsWindow.ApplyEditableSettings(_settings, dialog.Settings);
                     if (rtspConfigurationChanged) {
                         RecentCameraConnectionCache.InvalidateAll(_settings);
                         TrySaveSettings("recent_camera_connection_invalidation_save_failed", "Failed to clear recent camera connections after RTSP configuration changed.");

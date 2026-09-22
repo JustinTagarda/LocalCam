@@ -256,6 +256,16 @@ namespace LocalCam {
             };
         }
 
+        internal static void ApplyEditableSettings(LocalCamSettings target, LocalCamSettings source) {
+            target.RtspUsername = source.RtspUsername;
+            target.RtspPassword = source.RtspPassword;
+            target.StreamPath = NormalizeStreamPath(source.StreamPath);
+            target.ReconnectRecentCamerasOnStartup = source.ReconnectRecentCamerasOnStartup;
+            target.ThemePreference = source.ThemePreference;
+            target.SnapshotSaveFolder = source.SnapshotSaveFolder;
+            target.RecordingSaveFolder = source.RecordingSaveFolder;
+        }
+
         private static bool IsValid(LocalCamSettings settings) {
             return !string.IsNullOrWhiteSpace(NormalizeStreamPath(settings.StreamPath));
         }
