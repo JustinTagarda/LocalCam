@@ -52,7 +52,7 @@ flowchart TD
 
 ### Startup and discovery
 
-`App` initializes diagnostics -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> LibVLC is initialized -> valid recent connections reconnect first -> failed or absent cache entries fall back to local discovery -> confirmed playback refreshes the seven-day cache.
+`App` acquires the single-instance mutex and starts the activation listener -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> the dashboard shell is shown -> LibVLC initializes asynchronously with visible status -> valid recent connections reconnect first -> failed or absent cache entries fall back to local discovery -> confirmed playback refreshes the seven-day cache. Secondary launches signal and activate the existing instance.
 
 ### Theme change flow
 

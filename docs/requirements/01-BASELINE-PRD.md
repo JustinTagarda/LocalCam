@@ -22,9 +22,9 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 ## Current user journey
 
-1. Launch the single-window application.
-2. Load settings and restore window bounds.
-3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras.
+1. Launch the single-window application and immediately see the dashboard shell.
+2. Load settings and restore window bounds while the video engine prepares in the background.
+3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
 4. Review detected camera tiles and discovery status.
 5. Configure RTSP credentials and stream path in Settings.
 6. Play one camera, all cameras, or auto-start eligible streams.
@@ -46,6 +46,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Manual `.ts` recording, one active recording across the app, and 60-minute segmentation.
 - Expand/collapse and double-click layout toggling while playing.
 - JSON settings persistence and structured JSONL diagnostics.
+- Responsive startup with visible video-engine preparation status, readiness-gated stream actions, retryable initialization failure, and existing-instance activation for repeated launches.
 - Persisted System, Light, and Dark preferences using the Windows WPF Fluent theme and host-provided theme resources.
 - Theme changes apply before the initial visual tree is created and refresh existing LocalCam brush aliases and dynamically created camera-card visuals.
 - MainWindow, SettingsWindow, and the update-progress window use native Windows/WPF frames with flattened client-area roots; Settings uses a themed custom ComboBox for the System/Light/Dark preference.

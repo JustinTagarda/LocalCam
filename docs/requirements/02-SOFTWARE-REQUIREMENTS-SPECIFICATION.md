@@ -6,7 +6,7 @@ Status: Current implementation baseline
 
 | ID | Requirement | Priority | Status | Verification |
 |---|---|---|---|---|
-| FR-001 | The application shall start as a single-window WPF desktop app. | Must | Implemented | Build and launch |
+| FR-001 | The application shall start as a single-window WPF desktop app and show its dashboard shell before nonessential video-engine initialization completes. | Must | Implemented | FAST-BUILD and cold-start launch check |
 | FR-002 | The application shall load persisted settings from `%LocalAppData%\\LocalCam\\settings.json`. | Must | Implemented | Settings integration test |
 | FR-003 | The application shall restore persisted window bounds when valid and persist the latest normal bounds during window movement, resizing, state changes, and close; restore shall apply the saved size without additional application-level clamping. | Should | Implemented | Manual UI check: move/resize, maximize/restore, close/reopen, below-minimum saved-size behavior, and multi-monitor visibility |
 | FR-004 | The application shall discover compatible cameras using bounded, best-effort local-network probing. | Must | Implemented | Scanner tests and controlled-network test |
@@ -29,6 +29,7 @@ Status: Current implementation baseline
 | FR-021 | MainWindow, SettingsWindow, and the update-progress window shall use native Windows/WPF window frames without decorative outer client-border wrappers; Settings shall use the default WPF behavior for its theme selector and dropdown. | Should | Implemented | XAML inspection, FAST-BUILD, and manual native-frame/System-Light-Dark Theme ComboBox check |
 | FR-022 | The application shall retain recent confirmed camera connections locally for seven days, reconnect them before discovery on startup or Detect Camera, fall back to discovery after reconnect failures, and evict an entry after two consecutive reconnect failures. Cache confirmation shall be bound to the originating camera/playback attempt and never to a reordered tile. | Must | Implemented | Cache-policy tests and controlled-network check |
 | FR-023 | The application shall replace auto-detect and auto-stream preferences with a Reconnect recent cameras on startup preference, and invalidate the recent-connection cache when shared RTSP credentials or stream path change. | Must | Implemented | Settings persistence and invalidation tests |
+| FR-024 | The application shall initialize the video engine after the first dashboard render, show preparation or failure status, provide retry for initialization failure, and prevent stream actions until the engine is ready. A repeated launch shall activate the existing single instance. | Must | Implemented | Cold-start UI check, failure/retry check, readiness-gating check, and repeated-launch activation check |
 
 ## Non-functional requirements
 

@@ -4,7 +4,7 @@
 
 | Requirement area | Primary implementation evidence | Current test evidence | Gap |
 |---|---|---|---|
-| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | No test source found; FAST-BUILD verified | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, and accent-foreground UI checks |
+| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | FAST-BUILD and manual startup check | Add settings recovery, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, accent-foreground UI, dashboard-before-engine-render, initialization retry, readiness gating, and repeated-launch activation checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
 | Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `MainWindow.xaml.cs` | Cache-policy tests | Add controlled-network reconnect/fallback check, including a delayed `Playing` event after timeout or tile reassignment |
 | Dashboard/playback and window state | `MainWindow.xaml(.cs)` | No test source found | Add state-transition, stale-frame, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, and manual live-stream checks |
@@ -51,6 +51,18 @@ The known regression guard is the frozen-brush failure: `AppThemeService` must c
    - Standard WPF window checks: native minimize/maximize/restore/close, system menu, snap behavior, minimum size, multi-monitor movement, DPI behavior, persisted bounds, direct saved-size restore, and close-time persistence after the final move or resize.
 4. Controlled-network integration checks for discovery and RTSP startup.
 5. Package/release checks for x64 packaging, Store-only behavior, and update flows.
+
+## Startup responsiveness verification
+
+For FR-001 and FR-024, verify the following on a Debug executable:
+
+1. Start after a cold native-library cache and confirm the main dashboard is visible while `Preparing video engine...` and the indeterminate progress indicator are shown.
+2. Confirm Start All and per-card Play are unavailable until LibVLC initialization completes, while Settings remains available.
+3. Confirm recent-camera reconnect and local discovery begin only after the video engine is ready.
+4. Simulate missing or invalid LibVLC native assets and confirm the dashboard remains open with a concise failure status and a retry control that is focusable only while visible.
+5. Use the retry control and confirm successful initialization restores normal stream controls and startup flow.
+6. Launch the executable again while the first instance is starting or visible and confirm the existing window is activated without creating a second window.
+7. Close during video-engine initialization and confirm the process exits without leaving a live LibVLC engine or activation listener.
 
 ## Minimum acceptance suite for future changes
 

@@ -259,6 +259,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
                         <TextBlock x:Name="StreamingStatusText"
@@ -276,6 +277,15 @@
                                      VerticalAlignment="Center"
                                      IsIndeterminate="True"
                                      Visibility="Collapsed" />
+                        <Button x:Name="RetryVideoEngineButton"
+                                Grid.Column="2"
+                                Style="{StaticResource PanelButtonStyle}"
+                                Height="30"
+                                Margin="12,0,0,0"
+                                Content="Retry Video Engine"
+                                Visibility="Collapsed"
+                                Focusable="False"
+                                Click="RetryVideoEngineButton_Click" />
                     </Grid>
                 </Border>
 

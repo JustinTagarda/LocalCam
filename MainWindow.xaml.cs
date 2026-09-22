@@ -103,6 +103,10 @@ namespace LocalCam {
         private bool _isRecoveryDiscoveryQueued;
         private readonly List<CameraTileControls> _cameraTiles = new();
         private LibVLC? _libVlc;
+        private bool _isStreamingEngineReady;
+        private bool _isStreamingEngineInitializing;
+        private bool _hasStartedStreamingEngineInitialization;
+        private bool _hasStartedStartupCameraFlow;
         private CancellationTokenSource? _scanCancellation;
         private bool _isClosing;
         private bool _isScanning;
@@ -202,22 +206,41 @@ namespace LocalCam {
             ApplyStoreUpdateUiState(StoreUpdateUiState.Hidden());
             ApplyPersistedWindowBounds();
             PopulateCameraTiles(_detections);
-            var engineReady = InitializeStreamingEngine();
-
-            if (engineReady) {
-                if (_detections.Count > 0) {
-                    ShowDetections(_detections);
-                }
-                else {
-                    ShowEmptyCameraSlots();
-                }
-            }
+            CameraTilesPanel.Visibility = _detections.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            ApplyResponsiveCameraLayout();
+            SetStreamingEngineStartingState();
         }
 
-        private bool InitializeStreamingEngine() {
+        private void QueueStreamingEngineInitialization(bool isRetry) {
+            if (_isClosing || _isStreamingEngineReady || _isStreamingEngineInitializing) {
+                return;
+            }
+
+            _isStreamingEngineInitializing = true;
+            SetStreamingEngineStartingState();
+            _ = InitializeStreamingEngineAfterFirstRenderAsync(isRetry);
+        }
+
+        private async Task InitializeStreamingEngineAfterFirstRenderAsync(bool isRetry) {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            JsonLogStore.Information(
+                eventName: "video_engine_initialization_started",
+                message: "Video engine initialization started after the main window became eligible to render.",
+                category: "camera_connect",
+                data: new Dictionary<string, object?> {
+                    ["isRetry"] = isRetry
+                });
+
             try {
-                var libVlcDirectory = ResolveLibVlcDirectory();
-                if (libVlcDirectory is null) {
+                var result = await Task.Run(CreateStreamingEngine);
+                if (_isClosing) {
+                    result.Engine?.Dispose();
+                    return;
+                }
+
+                if (result.Engine is null || result.LibVlcDirectory is null) {
                     JsonLogStore.Warning(
                         eventName: "video_engine_native_assets_missing",
                         message: "LibVLC native assets were not found for the current process architecture.",
@@ -226,23 +249,36 @@ namespace LocalCam {
                             ["processArchitecture"] = RuntimeInformation.ProcessArchitecture.ToString(),
                             ["baseDirectory"] = AppContext.BaseDirectory
                         });
-                    StreamingStatusText.Text = $"Video engine is unavailable for {RuntimeInformation.ProcessArchitecture}.";
-                    return false;
+                    SetStreamingEngineFailedState($"Video engine is unavailable for {RuntimeInformation.ProcessArchitecture}.");
+                    return;
                 }
 
-                Core.Initialize(libVlcDirectory);
-                _libVlc = new LibVLC("--network-caching=300", "--live-caching=300", "--rtsp-tcp", "--no-video-title-show");
+                _libVlc = result.Engine;
                 _libVlc.Log += LibVlc_Log;
                 JsonLogStore.Information(
                     eventName: "video_engine_initialized",
                     message: "LibVLC video engine initialized.",
                     category: "camera_connect",
                     data: new Dictionary<string, object?> {
-                        ["libVlcDirectory"] = libVlcDirectory,
-                        ["processArchitecture"] = RuntimeInformation.ProcessArchitecture.ToString()
+                        ["libVlcDirectory"] = result.LibVlcDirectory,
+                        ["processArchitecture"] = RuntimeInformation.ProcessArchitecture.ToString(),
+                        ["elapsedMs"] = stopwatch.ElapsedMilliseconds,
+                        ["isRetry"] = isRetry
                     });
+                _isStreamingEngineReady = true;
                 EnsureCameraTileCount(_detections.Count);
-                return true;
+                SetStreamingEngineReadyState();
+                _isStreamingEngineInitializing = false;
+                UpdateActionButtons();
+
+                if (_detections.Count > 0) {
+                    ShowDetections(_detections);
+                }
+                else {
+                    ShowEmptyCameraSlots();
+                }
+
+                await StartStartupCameraFlowAsync();
             }
             catch (Exception ex) {
                 JsonLogStore.Error(
@@ -252,11 +288,54 @@ namespace LocalCam {
                     exception: ex,
                     data: new Dictionary<string, object?> {
                         ["processArchitecture"] = RuntimeInformation.ProcessArchitecture.ToString(),
-                        ["baseDirectory"] = AppContext.BaseDirectory
+                        ["baseDirectory"] = AppContext.BaseDirectory,
+                        ["elapsedMs"] = stopwatch.ElapsedMilliseconds,
+                        ["isRetry"] = isRetry
                     });
-                StreamingStatusText.Text = $"Video engine initialization failed: {ex.Message}";
-                return false;
+                if (!_isClosing) {
+                    SetStreamingEngineFailedState($"Video engine initialization failed: {ex.Message}");
+                }
             }
+            finally {
+                _isStreamingEngineInitializing = false;
+                if (!_isClosing) {
+                    UpdateActionButtons();
+                }
+            }
+        }
+
+        private static (LibVLC? Engine, string? LibVlcDirectory) CreateStreamingEngine() {
+            var libVlcDirectory = ResolveLibVlcDirectory();
+            if (libVlcDirectory is null) {
+                return (null, null);
+            }
+
+            Core.Initialize(libVlcDirectory);
+            var engine = new LibVLC("--network-caching=300", "--live-caching=300", "--rtsp-tcp", "--no-video-title-show");
+            return (engine, libVlcDirectory);
+        }
+
+        private void SetStreamingEngineStartingState() {
+            StreamingStatusText.Text = "Preparing video engine...";
+            SearchProgressBar.Visibility = Visibility.Visible;
+            RetryVideoEngineButton.Visibility = Visibility.Collapsed;
+            RetryVideoEngineButton.Focusable = false;
+            UpdateActionButtons();
+        }
+
+        private void SetStreamingEngineReadyState() {
+            SearchProgressBar.Visibility = Visibility.Collapsed;
+            RetryVideoEngineButton.Visibility = Visibility.Collapsed;
+            RetryVideoEngineButton.Focusable = false;
+        }
+
+        private void SetStreamingEngineFailedState(string message) {
+            _isStreamingEngineReady = false;
+            SearchProgressBar.Visibility = Visibility.Collapsed;
+            RetryVideoEngineButton.Visibility = Visibility.Visible;
+            RetryVideoEngineButton.Focusable = true;
+            StreamingStatusText.Text = $"{message} Retry initialization.";
+            UpdateActionButtons();
         }
 
         private static LocalCamSettings LoadSettings() {
@@ -920,11 +999,13 @@ namespace LocalCam {
                 var isTransitioning = IsStreamTransitioning(i);
                 var isDetectedCard = i < _detections.Count;
 
-                tile.PlayButton.Visibility = isCardVisible && isDetectedCard && !isRunning ? Visibility.Visible : Visibility.Collapsed;
+                tile.PlayButton.Visibility = isCardVisible && isDetectedCard && !isRunning && _isStreamingEngineReady
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
                 tile.StopButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
                 tile.SnapshotButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
                 tile.RecordButton.Visibility = isCardVisible && isDetectedCard && isRunning ? Visibility.Visible : Visibility.Collapsed;
-                tile.PlayButton.IsEnabled = !isTransitioning;
+                tile.PlayButton.IsEnabled = _isStreamingEngineReady && !isTransitioning;
                 tile.StopButton.IsEnabled = true;
                 tile.SnapshotButton.IsEnabled = !tile.IsSnapshotSaving;
                 var isRecordingThisTile = _activeRecordingTileIndex == i;
@@ -1448,17 +1529,23 @@ namespace LocalCam {
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e) {
-            if (_settings.ReconnectRecentCamerasOnStartup == true) {
-                _ = StartRecentCameraReconnectAsync();
-                return;
+            _ = sender;
+            _ = e;
+            if (_isStreamingEngineReady) {
+                _ = StartStartupCameraFlowAsync();
             }
-
-            ShowEmptyCameraSlots();
         }
 
         private void Window_ContentRendered(object? sender, EventArgs e) {
             _ = sender;
             _ = e;
+            if (!_hasStartedStreamingEngineInitialization) {
+                _hasStartedStreamingEngineInitialization = true;
+                _ = Dispatcher.BeginInvoke(
+                    new Action(() => QueueStreamingEngineInitialization(isRetry: false)),
+                    DispatcherPriority.Background);
+            }
+
             if (!_hasResolvedPremiumUiState) {
                 _hasResolvedPremiumUiState = true;
                 _ = Dispatcher.BeginInvoke(new Action(async () => {
@@ -1475,6 +1562,26 @@ namespace LocalCam {
             _ = Dispatcher.BeginInvoke(new Action(async () => {
                 await StartStoreUpdaterAfterFirstRenderAsync(_storeUpdaterCts.Token);
             }), DispatcherPriority.Background);
+        }
+
+        private async Task StartStartupCameraFlowAsync() {
+            if (_hasStartedStartupCameraFlow || _isClosing || !_isStreamingEngineReady) {
+                return;
+            }
+
+            _hasStartedStartupCameraFlow = true;
+            if (_settings.ReconnectRecentCamerasOnStartup == true) {
+                await StartRecentCameraReconnectAsync();
+                return;
+            }
+
+            ShowEmptyCameraSlots();
+        }
+
+        private void RetryVideoEngineButton_Click(object sender, RoutedEventArgs e) {
+            _ = sender;
+            _ = e;
+            QueueStreamingEngineInitialization(isRetry: true);
         }
 
         private async Task StartStoreUpdaterAfterFirstRenderAsync(CancellationToken cancellationToken) {
@@ -1772,7 +1879,7 @@ namespace LocalCam {
             DetectCameraIcon.Visibility = _isScanning ? Visibility.Collapsed : Visibility.Visible;
             DetectCameraSpinner.Visibility = _isScanning ? Visibility.Visible : Visibility.Collapsed;
             DetectCameraButton.IsEnabled = !_isDetectButtonToggleDelayActive;
-            ToolbarStartStreamsButton.IsEnabled = anyNotPlaying;
+            ToolbarStartStreamsButton.IsEnabled = _isStreamingEngineReady && anyNotPlaying;
             ToolbarStopButton.IsEnabled = anyPlaying;
             SettingsButton.IsEnabled = true;
             UpdateTileButtonStates();
@@ -1780,6 +1887,13 @@ namespace LocalCam {
 
         private async Task StartRecentCameraReconnectAsync() {
             if (_isClosing || _isScanning) return;
+            if (!_isStreamingEngineReady) {
+                StreamingStatusText.Text = _isStreamingEngineInitializing
+                    ? "Video engine is still starting..."
+                    : "Video engine is unavailable. Retry initialization.";
+                return;
+            }
+
             var cachedDetections = RecentCameraConnectionCache.GetValidDetections(_settings, DateTimeOffset.UtcNow);
             if (cachedDetections.Count == 0) {
                 StreamingStatusText.Text = "Searching local network for cameras...";
@@ -2143,7 +2257,7 @@ namespace LocalCam {
         }
 
         private async Task StartAllStreamsAsync() {
-            if (_libVlc is null) {
+            if (!_isStreamingEngineReady || _libVlc is null) {
                 JsonLogStore.Warning(
                     eventName: "camera_connect_blocked",
                     message: "RTSP stream start was blocked because the video engine is unavailable.",
@@ -2329,7 +2443,7 @@ namespace LocalCam {
                 return;
             }
 
-            if (_libVlc is null || _detections.Count == 0) {
+            if (!_isStreamingEngineReady || _libVlc is null || _detections.Count == 0) {
                 return;
             }
 
@@ -2369,7 +2483,7 @@ namespace LocalCam {
         }
 
         private async Task<bool> StartSingleStreamAsync(int tileIndex, bool updateStatus = true, bool requestMonitorWake = true, bool isMonitorRecovery = false) {
-            if (_libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
+            if (!_isStreamingEngineReady || _libVlc is null || tileIndex < 0 || tileIndex >= _cameraTiles.Count || tileIndex >= _detections.Count) {
                 return false;
             }
 

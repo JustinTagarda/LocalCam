@@ -119,3 +119,13 @@ Guardrails:
 Status: Accepted
 
 Each tile binds a media-player instance to an immutable camera identity for that playback attempt. Reassigning a tile to a different detection stops and disposes the old player before it can affect the new camera. LibVLC `Playing` is the live-state and recent-cache confirmation boundary; a playback request being accepted is not confirmation. A terminal `EndReached` or `EncounteredError` event receives one bounded restart attempt, while failed recent-cache reconnects continue to use discovery fallback and the two-failure eviction policy. A system suspend or hibernation transition takes precedence over automatic recovery: it uses Stop All, cancels pending automatic recovery, preserves tiles and connection state, and leaves playback stopped after resume.
+
+## DEC-015: Render-first video-engine initialization
+
+Status: Accepted
+
+The dashboard shell is shown before nonessential LibVLC initialization completes. LibVLC initialization runs asynchronously after the first render, while stream-start actions remain gated until the engine is ready. Initialization progress and failures are visible in the main window, and failures provide an in-place retry action. Startup reconnect and discovery begin only after successful engine initialization.
+
+The existing single-instance mutex remains authoritative. Secondary launches signal the primary instance, which restores and activates its existing window instead of silently exiting.
+
+Guardrails: do not change RTSP construction, discovery behavior, recent-camera cache policy, theme startup ordering, recording rules, or the single-window constraint while implementing this decision.
