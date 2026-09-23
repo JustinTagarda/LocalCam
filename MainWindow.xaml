@@ -193,19 +193,19 @@
                                                Text="Detect and Play" />
                                 </StackPanel>
                             </Button>
-                            <Button x:Name="ToolbarStartStreamsButton"
+                            <Button x:Name="ToolbarPlayAllButton"
                                     Style="{StaticResource PanelButtonStyle}"
                                     Height="30"
                                     Margin="0,0,8,0"
                                     IsEnabled="False"
-                                    Click="ToolbarStartStreamsButton_Click">
+                                    Click="ToolbarPlayAllButton_Click">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="&#xE768;"
                                                FontFamily="Segoe MDL2 Assets"
                                                FontSize="14"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
                                                Margin="0,0,6,0" />
-                                    <TextBlock Text="Start All" />
+                                    <TextBlock Text="Play all" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="ToolbarStopButton"
@@ -250,7 +250,7 @@
                     BorderThickness="0,1,0,0"
                     Visibility="Visible"
                     Padding="10,6"
-                    Margin="6,0,6,0">
+                    Margin="0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />

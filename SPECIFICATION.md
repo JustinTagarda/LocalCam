@@ -57,7 +57,7 @@ Internal results are represented by Tapo-specific records such as `TapoCameraDet
 
 The custom-chrome main window provides:
 
-- Detect and Play, Start All, Stop All, and Settings toolbar actions.
+- Detect and Play, Play all, Stop All, and Settings toolbar actions.
 - A camera tile for each current detection.
 - Per-tile Play/Stop, Snapshot, Record/Stop Recording, and Expand/Collapse actions.
 - Double-click collapse/expand behavior while a tile is playing.

@@ -2078,7 +2078,7 @@ namespace LocalCam {
             DetectCameraIcon.Visibility = _isScanning ? Visibility.Collapsed : Visibility.Visible;
             DetectCameraSpinner.Visibility = _isScanning ? Visibility.Visible : Visibility.Collapsed;
             DetectCameraButton.IsEnabled = !_isDetectButtonToggleDelayActive;
-            ToolbarStartStreamsButton.IsEnabled = _isStreamingEngineReady && anyNotPlaying;
+            ToolbarPlayAllButton.IsEnabled = _isStreamingEngineReady && anyNotPlaying;
             ToolbarStopButton.IsEnabled = anyPlaying;
             SettingsButton.IsEnabled = true;
             UpdateTileButtonStates();
@@ -2380,10 +2380,10 @@ namespace LocalCam {
             }
         }
 
-        private async void ToolbarStartStreamsButton_Click(object sender, RoutedEventArgs e) {
+        private async void ToolbarPlayAllButton_Click(object sender, RoutedEventArgs e) {
             _ = sender;
             _ = e;
-            await StartAllStreamsAsync();
+            await PlayAllStreamsAsync();
         }
 
         private void ToolbarStopButton_Click(object sender, RoutedEventArgs e) {
@@ -2481,7 +2481,7 @@ namespace LocalCam {
             return false;
         }
 
-        private async Task StartAllStreamsAsync() {
+        private async Task PlayAllStreamsAsync() {
             if (!_isStreamingEngineReady || _libVlc is null) {
                 JsonLogStore.Warning(
                     eventName: "camera_connect_blocked",
@@ -2711,7 +2711,7 @@ namespace LocalCam {
                 return;
             }
 
-            _ = StartAllStreamsAsync();
+            _ = PlayAllStreamsAsync();
         }
 
         private void StopAllStreams() {

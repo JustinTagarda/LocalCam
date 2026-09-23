@@ -23,7 +23,7 @@ For FR-008 and FR-009, perform the following manual checks:
 1. Open Settings with empty credentials and confirm the username and password placeholders are visible without changing persisted values.
 2. Modify a non-credential setting and click Update with empty credentials. Confirm Settings remains open, the exact required message is shown, both empty credential fields use the theme-aware critical border, and focus moves to the username field.
 3. Repeat with only the username missing and then only the password missing. Confirm only the missing field is red. Enter a valid value and confirm that field returns to the normal input border while the other invalid field remains red.
-4. With detected cameras, trigger Detect and Play, Start All, and per-card Play with missing credentials. Confirm Settings opens and only missing fields are highlighted; the stream-start flow does not close Settings or attempt RTSP playback.
+4. With detected cameras, trigger Detect and Play, Play all, and per-card Play with missing credentials. Confirm Settings opens and only missing fields are highlighted; the stream-start flow does not close Settings or attempt RTSP playback.
 5. Open Settings and confirm the camera setup guide link is visible below Stream Path and opens the configured guide in the default browser.
 6. With cached cameras and with a fresh discovery result, trigger Detect and Play. Confirm cache-first reconnect/discovery occurs and each detected camera receives one playback request, with no duplicate start request from rendering and route orchestration.
 7. With multiple detected cameras, cause one camera to fail because of credential rejection, network failure, or playback/decode failure. Confirm the failed card alone shows centered red error text, the suggestion is shown only for a classified reason, and other cameras continue streaming.
@@ -80,7 +80,7 @@ The known regression guard is the frozen-brush failure: `AppThemeService` must c
 For FR-001 and FR-024, verify the following on a Debug executable:
 
 1. Start after a cold native-library cache and confirm the main dashboard is visible while `Preparing video engine...` and the indeterminate progress indicator are shown.
-2. Confirm Start All and per-card Play are unavailable until LibVLC initialization completes, while Settings remains available.
+2. Confirm Play all and per-card Play are unavailable until LibVLC initialization completes, while Settings remains available.
 3. Confirm recent-camera reconnect and local discovery begin only after the video engine is ready.
 4. Simulate missing or invalid LibVLC native assets and confirm the dashboard remains open with a concise failure status and a retry control that is focusable only while visible.
 5. Use the retry control and confirm successful initialization restores normal stream controls and startup flow.

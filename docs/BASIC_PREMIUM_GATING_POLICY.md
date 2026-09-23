@@ -49,7 +49,7 @@ When a Basic limit blocks an action:
 
 ## Stream Limit Enforcement
 Basic 2-stream cap must be enforced for:
-- toolbar Start All
+- toolbar Play all
 - per-card Play
 - auto-start flow (if it attempts additional starts)
 

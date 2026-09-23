@@ -295,7 +295,7 @@ Current RTSP URL construction may remain:
 
 - Scope:
 - Applies when starting video stream from:
-  - top toolbar `Start All`
+  - top toolbar `Play all`
   - per-card `Play`
   - Detect and Play
 
@@ -423,7 +423,7 @@ Do not include any of the following in a brand-neutral UI wording task:
 - always visible
 - disable while detection is running
 - enable when detection is not running
-- Start All:
+- Play all:
 - always visible
 - enable if one or more cards are not playing video
 - disable if all cards are playing video

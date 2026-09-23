@@ -6,7 +6,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 
 - Best-effort local-network camera discovery with multiple detection methods.
 - Camera tiles showing detected addresses and discovery status.
-- RTSP playback through LibVLCSharp, with per-camera, Detect and Play, and Start All/Stop All controls.
+- RTSP playback through LibVLCSharp, with per-camera, Detect and Play, and Play all/Stop All controls.
 - Detect and Play discovers cameras and starts playback for the detected cameras; startup reconnect is optional.
 - Snapshot capture for active streams.
 - Manual video recording to `.ts` files, with one active recording across the app and 60-minute segment rollover.
@@ -30,7 +30,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 1. Start the app. When enabled, the main window reconnects recent cameras; otherwise use Detect and Play.
 2. Detect and Play discovers compatible cameras and starts playback for the detected cameras.
 3. Open Settings to provide RTSP username/password and configure the stream path. The default path is `stream1`.
-4. Start an individual stream or use Start All when needed. Use Snapshot or Record on active tiles.
+4. Start an individual stream or use Play all when needed. Use Snapshot or Record on active tiles.
 5. Stop playback before closing; the app also stops streams and disposes video resources during shutdown.
 
 ## Settings and Persistence

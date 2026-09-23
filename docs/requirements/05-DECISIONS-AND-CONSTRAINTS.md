@@ -146,7 +146,7 @@ Status: Accepted
 
 LibVLC accepting a playback request is not evidence that video output is usable. LocalCam therefore treats LibVLC `Playing` as the confirmation boundary, allows a short per-camera output-initialization grace period, and evaluates health from consecutive samples of playback state and media/output counters. A single early sample or temporary missing video output must not restart a stream.
 
-Health recovery is periodic and isolated to the affected camera. Each camera has an independent cooldown and bounded recovery-attempt window. Recovery exhaustion stops automatic retries for that camera, surfaces a card-local classified error, and does not stop healthy camera streams. Explicit user Play or a new Start All request resets that camera's automatic recovery state.
+Health recovery is periodic and isolated to the affected camera. Each camera has an independent cooldown and bounded recovery-attempt window. Recovery exhaustion stops automatic retries for that camera, surfaces a card-local classified error, and does not stop healthy camera streams. Explicit user Play or a new Play all request resets that camera's automatic recovery state.
 
 Repeated LibVLC runtime messages are rate-limited in structured diagnostics. Diagnostics distinguish accepted playback requests from confirmed playback, include per-camera recovery state, and never include credentials or complete RTSP URLs. Direct3D11 and Windows driver failures remain an investigation concern; video-output options must not be changed solely to suppress their log messages.
 
