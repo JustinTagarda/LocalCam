@@ -120,7 +120,7 @@ Packaged Store builds support:
 
 - Durable Premium add-on entitlement through Store ID `9P9KCJ3NFZFT`.
 - In-app Premium purchase confirmation and purchase routing through `RequestPurchaseAsync`.
-- Basic/Premium footer state and gated-action upgrade dialog.
+- Basic/Premium status and gated-action upgrade entry point in the Settings footer.
 - Store package update availability checks after first render.
 - Throttled update checks, progress modal, cancellation/failure guidance, and queue-state recovery across restarts.
 
@@ -139,7 +139,7 @@ The current implementation does not provide:
 
 HTTPS certificate validation is bypassed for discovery fingerprint probing. RTSP credentials are held locally and used to construct stream URLs; the application does not provide a remote credential service.
 
-The `LocalCam.Tests` project references xUnit and the .NET test SDK, but no test source files are currently present.
+The `LocalCam.Tests` project references xUnit and the .NET test SDK and contains automated unit and persistence tests. Live WPF, LibVLC, multi-camera, and package verification remain separate manual or integration checks.
 
 ## 12. Key Files
 

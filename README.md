@@ -23,7 +23,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - The scanner is optimized for Tapo/TP-Link signals but can find compatible cameras exposing similar RTSP or ONVIF-related services.
 - There is no manual IP/camera entry workflow, camera profile management, or device authentication handshake.
 - RTSP uses port `554`; arbitrary RTSP ports and custom RTSP URLs are not exposed as settings.
-- The repository contains a test project, but no test source files are currently present.
+- Automated tests cover settings merging, persistence recovery, concurrent saves, cache policy, scanner evaluation, stream health, failure classification, and entitlement rules.
 
 ## User Workflow
 
@@ -65,7 +65,7 @@ Packaged Store builds apply the Basic/Premium policy: Basic allows up to two act
 - Windows Store APIs for packaged entitlement, in-app purchase, and package updates.
 - `System.Net`, `System.Net.NetworkInformation`, and `System.Net.Sockets` for discovery.
 - JSON serialization and JSONL diagnostics using built-in .NET APIs and Windows application-data storage.
-- xUnit/Microsoft.NET.Test.Sdk are referenced by `LocalCam.Tests`, but test cases are not currently present.
+- xUnit/Microsoft.NET.Test.Sdk are referenced by `LocalCam.Tests`; the project contains automated unit and persistence tests.
 
 ## Architecture and Key Files
 

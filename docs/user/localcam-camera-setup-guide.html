@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A beginner-friendly guide to preparing a compatible network camera for LocalCam.">
+  <title>Camera Setup Guide | LocalCam</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f4f7fb;
+      --surface: #ffffff;
+      --surface-soft: #eef4fb;
+      --text: #17202b;
+      --muted: #536273;
+      --border: #d7e0ea;
+      --accent: #1769aa;
+      --accent-dark: #0e4775;
+      --success: #176b4d;
+      --warning: #805b00;
+      --code: #152231;
+      --code-text: #edf6ff;
+      --shadow: 0 12px 32px rgba(31, 54, 78, 0.10);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #101820;
+        --surface: #18242e;
+        --surface-soft: #203341;
+        --text: #edf4fa;
+        --muted: #b4c2cf;
+        --border: #344958;
+        --accent: #78bdf0;
+        --accent-dark: #a9d8fa;
+        --success: #8ee0bd;
+        --warning: #f3cf72;
+        --code: #0c131a;
+        --code-text: #e9f5ff;
+        --shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a {
+      color: var(--accent);
+      font-weight: 650;
+    }
+
+    a:hover { color: var(--accent-dark); }
+
+    .hero {
+      background: linear-gradient(135deg, #123b5d, #1769aa);
+      color: #ffffff;
+      padding: 64px 20px 58px;
+    }
+
+    .hero-inner,
+    main,
+    footer {
+      width: min(940px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #cceaff;
+      font-size: 0.82rem;
+      font-weight: 750;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.2;
+      margin-top: 0;
+    }
+
+    h1 { max-width: 720px; margin-bottom: 18px; font-size: clamp(2.2rem, 6vw, 4.4rem); }
+    h2 { margin-bottom: 14px; font-size: clamp(1.55rem, 3vw, 2.2rem); }
+    h3 { margin-bottom: 8px; font-size: 1.2rem; }
+
+    .hero p {
+      max-width: 720px;
+      margin: 0;
+      color: #e8f5ff;
+      font-size: 1.12rem;
+    }
+
+    main { padding: 42px 0 70px; }
+
+    .intro,
+    .card,
+    .callout,
+    .step,
+    .faq {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .intro { margin-bottom: 28px; padding: 24px 26px; }
+    .intro p:last-child { margin-bottom: 0; }
+
+    .contents {
+      margin: 0 0 28px;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-soft);
+    }
+
+    .contents h2 { margin-bottom: 8px; font-size: 1.2rem; }
+    .contents ul { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding-left: 1.1rem; }
+    .contents li { margin-top: 0; }
+
+    section { margin-top: 42px; }
+
+    .steps {
+      display: grid;
+      gap: 18px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 16px;
+      padding: 22px;
+    }
+
+    .step-number {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #ffffff;
+      font-size: 1.1rem;
+      font-weight: 800;
+    }
+
+    .step p:last-child,
+    .step ul:last-child { margin-bottom: 0; }
+
+    ul, ol { padding-left: 1.35rem; }
+    li + li { margin-top: 7px; }
+
+    .field-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      margin: 18px 0 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .field-table th,
+    .field-table td {
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .field-table th {
+      background: var(--surface-soft);
+      font-size: 0.92rem;
+    }
+
+    .field-table tr:last-child td { border-bottom: 0; }
+
+    code {
+      padding: 0.12em 0.38em;
+      border-radius: 5px;
+      background: var(--surface-soft);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 18px 0;
+      padding: 18px;
+      border-radius: 12px;
+      background: var(--code);
+      color: var(--code-text);
+      font: 0.92rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .callout {
+      margin: 20px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--accent);
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+    }
+
+    .callout.success { border-left-color: var(--success); }
+    .callout.warning { border-left-color: var(--warning); }
+    .callout p:last-child { margin-bottom: 0; }
+
+    .troubleshooting {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .faq { padding: 20px; }
+    .faq p:last-child { margin-bottom: 0; }
+
+    .links {
+      display: grid;
+      gap: 12px;
+    }
+
+    .links a {
+      display: block;
+      padding: 15px 17px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      text-decoration: none;
+    }
+
+    .links a:hover { background: var(--surface-soft); }
+    .links small { display: block; margin-top: 3px; color: var(--muted); font-weight: 400; }
+
+    footer {
+      padding: 0 0 42px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 680px) {
+      .hero { padding: 46px 20px 42px; }
+      .hero-inner, main, footer { width: min(100% - 28px, 940px); }
+      .step { grid-template-columns: 1fr; }
+      .troubleshooting { grid-template-columns: 1fr; }
+      .field-table { display: block; overflow-x: auto; }
+    }
+
+    @media print {
+      body { background: #ffffff; }
+      .hero { padding: 24px 0; background: none; color: #000000; }
+      .hero p, .eyebrow { color: #000000; }
+      .intro, .card, .callout, .step, .faq { box-shadow: none; }
+      a { color: #000000; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">LocalCam help</p>
+      <h1>Camera Setup Guide</h1>
+      <p>Prepare your compatible network camera for LocalCam, even if you have never used RTSP before.</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="intro">
+      <p><strong>For video playback, your camera must provide a local RTSP video stream.</strong> RTSP means Real-Time Streaming Protocol. It is the connection used to send live video from a camera to software such as LocalCam.</p>
+      <p>ONVIF may help LocalCam discover a camera, but ONVIF by itself may not provide the video stream required for playback. LocalCam does not require you to build a complete RTSP address: you enter the camera's local streaming credentials and stream path, then LocalCam discovers the camera on your network.</p>
+    </div>
+
+    <nav class="contents" aria-label="Guide contents">
+      <h2>Start here</h2>
+      <ul>
+        <li><a href="#before-you-start">Check compatibility</a></li>
+        <li><a href="#setup">Set up the camera</a></li>
+        <li><a href="#troubleshooting">Fix common problems</a></li>
+        <li><a href="#official-guides">Find official instructions</a></li>
+      </ul>
+    </nav>
+
+    <section id="before-you-start">
+      <h2>Check this first: will my camera work?</h2>
+      <div class="card" style="padding: 22px 26px;">
+        <ul>
+          <li>Find the exact camera model and hardware version. A product family can contain models with different features.</li>
+          <li>Check the manufacturer's support site to confirm that this exact model provides a local RTSP video stream.</li>
+          <li>Your camera is powered on and, if required for local streaming, connected to continuous power.</li>
+          <li>Your camera and Windows computer are connected to the same home network.</li>
+          <li>Most cameras use port <code>554</code> automatically. If the official instructions for your camera require a different port, the current LocalCam version may not support it.</li>
+          <li>You can open the camera manufacturer's app or support website.</li>
+        </ul>
+        <p><strong>Same home network</strong> means that both devices connect through the same home router. They do not both need to use Wi-Fi: a computer connected by network cable and a camera connected by Wi-Fi can work together if they use the same router. Guest Wi-Fi often prevents devices from seeing each other.</p>
+        <p>Some battery-powered cameras do not provide local RTSP streaming, or only provide it when connected to a supported hub or continuous power source. Check the official documentation for your exact model and hardware version.</p>
+      </div>
+    </section>
+
+    <section id="setup">
+      <h2>Set up your camera</h2>
+      <div class="steps">
+        <article class="step">
+          <div class="step-number" aria-hidden="true">1</div>
+          <div>
+            <h3>Open the camera app</h3>
+            <p>Open the official phone app or web page for your camera. Look for a setting named <strong>RTSP</strong>, <strong>ONVIF</strong>, <strong>Local streaming</strong>, <strong>NVR</strong>, or <strong>Third-party access</strong>.</p>
+            <p><strong>Third-party access</strong> means allowing another app, such as LocalCam, to view the camera.</p>
+            <p>The exact menu name and location vary by manufacturer, model, and hardware version. Search the manufacturer's official support site for the exact model number and hardware version printed on the camera or its box.</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-number" aria-hidden="true">2</div>
+          <div>
+            <h3>Enable local streaming</h3>
+            <p>Enable local RTSP streaming if it is disabled. If the camera has a separate ONVIF switch, enable it too when the manufacturer's instructions recommend it; ONVIF can help discovery, but it does not replace the RTSP video stream required for playback. Some cameras require you to create a separate local streaming account instead of using your cloud account.</p>
+            <div class="callout warning">
+              <p><strong>Important:</strong> Being able to watch video in the manufacturer's phone app does not always mean that local RTSP streaming is enabled. Cloud viewing and local streaming can be separate features.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-number" aria-hidden="true">3</div>
+          <div>
+            <h3>Find the local streaming credentials</h3>
+            <p>Note the username and password required for local RTSP or ONVIF access. These may be different from the email address and password used to sign in to the manufacturer's cloud service.</p>
+            <p>Do not share these credentials in screenshots, public posts, or support requests.</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-number" aria-hidden="true">4</div>
+          <div>
+            <h3>Check the stream path</h3>
+            <p>LocalCam starts with <code>stream1</code> as its default path. Keep that value unless the official instructions for your exact model specify a different path.</p>
+            <p>Stream paths are model-specific. If the manufacturer shows a complete address such as <code>rtsp://user:password@camera-address:554/example-path</code>, copy everything after <code>:554/</code> into LocalCam's <strong>Stream Path</strong> field. In this example, enter only <code>example-path</code>.</p>
+            <p>Do not include the leading slash, username, password, camera address, or complete RTSP URL. Do not assume that every camera uses <code>stream1</code>.</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-number" aria-hidden="true">5</div>
+          <div>
+            <h3>Enter the settings in LocalCam</h3>
+            <p>Open <strong>Settings</strong> in LocalCam and enter the values below. Do not enter a complete RTSP URL.</p>
+            <table class="field-table">
+              <thead>
+                <tr>
+                  <th>LocalCam field</th>
+                  <th>What to enter</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>RTSP Username</strong></td>
+                  <td>The camera's local streaming username.</td>
+                </tr>
+                <tr>
+                  <td><strong>RTSP Password</strong></td>
+                  <td>The camera's local streaming password.</td>
+                </tr>
+                <tr>
+                  <td><strong>Stream Path</strong></td>
+                  <td>Usually <code>stream1</code>, unless your camera's official guide says otherwise.</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="callout warning">
+              <p><strong>One shared set of values:</strong> LocalCam uses the same values for every camera it discovers. A camera may be detected but fail to play if it uses a different username, password, or stream path.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-number" aria-hidden="true">6</div>
+          <div>
+            <h3>Detect and Play</h3>
+            <ol>
+              <li>Click <strong>Update</strong> in LocalCam Settings.</li>
+              <li>Close Settings.</li>
+              <li>Click <strong>Detect and Play</strong>.</li>
+              <li>The status area should report that a camera was detected, and a camera tile should begin showing live video.</li>
+              <li>If the camera is detected but does not play, return to Settings and check the username, password, and stream path.</li>
+            </ol>
+            <div class="callout success">
+              <p>If LocalCam opens Settings and shows <code>RTSP credentials are missing or invalid.</code>, check the username, password, and stream path. Click <strong>Update</strong>, close Settings, and try <strong>Detect and Play</strong> again.</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="how-it-fits-together">
+      <h2>Optional technical reference</h2>
+      <p><strong>Most users can skip this section.</strong> It shows how camera information is combined conceptually:</p>
+      <pre>rtsp://username:password@camera-ip:554/stream1</pre>
+      <p>This is only a generic example using placeholders. Never replace them with real credentials or camera data in a public document. You normally should not type this complete address into LocalCam. LocalCam discovers the camera address and uses the standard RTSP port <code>554</code>.</p>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <div class="troubleshooting">
+        <article class="faq">
+          <h3>No compatible camera detected</h3>
+          <ul>
+            <li>Confirm that the camera is powered on.</li>
+            <li>Confirm that the camera and computer are on the same network.</li>
+            <li>Avoid guest Wi-Fi networks, which may block devices from communicating with each other.</li>
+            <li>Restart the camera and router, then try <strong>Detect and Play</strong> again.</li>
+          </ul>
+        </article>
+
+        <article class="faq">
+          <h3>The camera is detected but video does not play</h3>
+          <ul>
+            <li>Verify that a local RTSP video stream is enabled. ONVIF alone may help discovery but may not provide video playback.</li>
+            <li>Check the local streaming username and password.</li>
+            <li>Check the stream path. Try the exact path from the manufacturer's guide.</li>
+            <li>Confirm that the camera is not restricted to cloud-only access.</li>
+          </ul>
+        </article>
+
+        <article class="faq">
+          <h3>The camera works in its phone app but not LocalCam</h3>
+          <p>The phone app may be receiving video through the manufacturer's cloud service rather than a local RTSP stream. Look specifically for local streaming, RTSP, ONVIF, or NVR support in the camera documentation.</p>
+        </article>
+
+        <article class="faq">
+          <h3>There is no RTSP or ONVIF option</h3>
+          <p>Your camera model may not support third-party local streaming. Check the exact model and hardware version on the manufacturer's support website. Battery-powered models commonly have additional limitations.</p>
+        </article>
+
+        <article class="faq">
+          <h3><code>stream1</code> does not work</h3>
+          <p>Stream paths are model-specific. Check the official instructions for your camera. A camera may use a different main-stream or sub-stream path.</p>
+        </article>
+
+        <article class="faq">
+          <h3>My camera uses a different RTSP port</h3>
+          <p>LocalCam currently expects the standard RTSP port <code>554</code>. If your camera requires another port, it may not be compatible with the current LocalCam configuration.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="official-guides">
+      <h2>Official manufacturer guides</h2>
+      <p>The links below are examples only and do not represent the full range of cameras that may or may not work with LocalCam. Use the official support site for your exact manufacturer, model, and hardware version when you need the correct menu location, account type, stream path, or compatibility information. Manufacturer menu names vary by model.</p>
+      <div class="links">
+        <a href="https://www.tp-link.com/lk/support/faq/2680/" target="_blank" rel="noopener noreferrer">
+          Official RTSP/ONVIF compatibility guide
+          <small>Example from an official manufacturer support site. Check your exact model separately.</small>
+        </a>
+        <a href="https://support.reolink.com/articles/900000617826-Which-Reolink-Products-Support-CGI-RTSP-ONVIF/" target="_blank" rel="noopener noreferrer">
+          Official RTSP, ONVIF, and product compatibility guide
+          <small>Example from an official manufacturer support site. Check your exact model separately.</small>
+        </a>
+        <a href="https://support.amcrest.com/hc/en-us/articles/21650821157133-Accessing-Amcrest-Products-Using-RTSP" target="_blank" rel="noopener noreferrer">
+          Official RTSP connection guide
+          <small>Example from an official manufacturer support site. Check your exact model separately.</small>
+        </a>
+      </div>
+      <div class="callout success">
+        <p><strong>Why use official links?</strong> Camera support, firmware behavior, menu locations, and stream paths can change. Manufacturer documentation is the best source for the exact model.</p>
+      </div>
+    </section>
+
+    <section id="security">
+      <h2>Security and privacy</h2>
+      <div class="card" style="padding: 22px 26px;">
+        <ul>
+          <li>Use a strong, unique local camera password.</li>
+          <li>Do not publish your camera username, password, local IP address, camera address, or complete RTSP URL.</li>
+          <li>Do not use port forwarding just to make RTSP work remotely or expose the camera directly to the public internet.</li>
+          <li>For remote access, follow the manufacturer's security guidance and prefer a trusted VPN where appropriate.</li>
+          <li>Only follow setup links from the camera manufacturer's official HTTPS support domain.</li>
+        </ul>
+        <p>LocalCam is intended for compatible cameras on your local home network. Camera compatibility and security features vary by manufacturer and model.</p>
+        <p>LocalCam is designed to work inside your home network. You do not need remote access, port forwarding, or internet exposure for normal use.</p>
+      </div>
+    </section>
+
+    <section id="support">
+      <h2>Still need help?</h2>
+      <p>When requesting support, include the camera manufacturer and model, the LocalCam status message, and which step failed. Never include your camera password or a complete RTSP URL containing credentials.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>LocalCam discovers compatible cameras on a local network and streams RTSP video in a multi-camera viewer.</p>
+    <p>This guide is general information. Always follow the official documentation for your camera's exact model and hardware version.</p>
+  </footer>
+</body>
+</html>

@@ -151,3 +151,19 @@ Health recovery is periodic and isolated to the affected camera. Each camera has
 Repeated LibVLC runtime messages are rate-limited in structured diagnostics. Diagnostics distinguish accepted playback requests from confirmed playback, include per-camera recovery state, and never include credentials or complete RTSP URLs. Direct3D11 and Windows driver failures remain an investigation concern; video-output options must not be changed solely to suppress their log messages.
 
 Guardrails: preserve identity-bound player handling, recent-camera cache confirmation and eviction rules, terminal-event recovery policy, suspend/hibernate Stop All behavior, RTSP construction, and per-card failure isolation.
+
+## DEC-018: Coordinated atomic settings persistence
+
+Status: Accepted
+
+Settings are local application state shared by the WPF UI and asynchronous Store/entitlement services. All service-managed mutations are marshaled through the MainWindow-owned settings path. SettingsStore serializes file access, normalizes nullable persisted collections, writes a flushed temporary file, atomically replaces the primary settings file, and retains the previous valid file as `settings.json.bak`.
+
+If the primary settings file cannot be deserialized, the application attempts the backup before falling back to defaults. The original invalid file is preserved for diagnosis. This decision does not change the settings schema or user-facing Settings controls.
+
+## DEC-019: Store plan controls belong in Settings
+
+Status: Accepted
+
+The MainWindow footer is the consolidated operational/status surface. It is presented as a flat footer row with a Fluent-backed top separator rather than an enclosing panel wrapper. It retains the existing status/activity text, progress indicator, Retry control, and conditional Store Update action; the Store Update action remains at the right edge and is collapsed when no update is available. Copyright, the resolved version text at the right edge, and packaged Store plan controls (`Basic`, `Premium`, and `Upgrade`) are presented in one compact, full-width row at the bottom of Settings. Unpackaged runs do not surface Store plan or Upgrade controls.
+
+The existing MainWindow-owned Store services, entitlement rules, purchase route, gating behavior, and update flow remain unchanged; Settings receives presentation state and invokes the purchase route through a callback.

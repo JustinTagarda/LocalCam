@@ -27,7 +27,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
 4. Use Detect and Play to reconnect or discover cameras and start playback for the detected cameras.
 5. Review detected camera tiles and discovery status.
-6. Configure RTSP credentials and stream path in Settings.
+6. Configure RTSP credentials and stream path in Settings, using the camera setup guide when needed.
 7. Play one camera or all cameras manually when needed.
 8. Capture snapshots or record one active stream, then stop streams and recording; resources are cleaned up during shutdown.
 
@@ -41,12 +41,12 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
 - Stream path persistence with default `stream1`; RTSP port remains `554`.
 - Detect and Play for cache-first reconnect, discovery, and playback of detected cameras.
-- Settings for credentials, reconnect recent cameras on startup, snapshot folder, and recording folder.
+- Settings for credentials, reconnect recent cameras on startup, snapshot folder, recording folder, and a camera setup guide link.
 - Validation escalation to Settings for invalid RTSP configuration.
 - Snapshot capture with unique filenames.
 - Manual `.ts` recording, one active recording across the app, and 60-minute segmentation.
 - Expand/collapse and double-click layout toggling while playing.
-- JSON settings persistence and structured JSONL diagnostics.
+- Atomic, backup-aware JSON settings persistence and structured JSONL diagnostics.
 - Responsive startup with visible video-engine preparation status, readiness-gated stream actions, retryable initialization failure, and existing-instance activation for repeated launches.
 - Persisted System, Light, and Dark preferences using the Windows WPF Fluent theme and host-provided theme resources.
 - Theme changes apply before the initial visual tree is created and refresh existing LocalCam brush aliases and dynamically created camera-card visuals.

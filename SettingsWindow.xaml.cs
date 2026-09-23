@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Navigation;
 using LocalCam.Models;
 using LocalCam.Services;
 using Microsoft.Win32;
@@ -13,11 +15,16 @@ namespace LocalCam {
         private bool _credentialValidationShown;
         private string? _snapshotFolderPathValue;
         private string? _recordingFolderPathValue;
+        private Func<Task>? _premiumUpgradeHandler;
+        private bool _premiumUiVisible;
+        private bool _isPremiumOwned;
+        private bool _isPremiumPurchaseBusy;
         private const string RtspCredentialsInvalidMessage = "RTSP credentials are missing or invalid.";
         public bool DidSave { get; private set; }
 
-        public SettingsWindow(LocalCamSettings settings) {
+        public SettingsWindow(LocalCamSettings settings, string versionText) {
             InitializeComponent();
+            SettingsVersionTextBlock.Text = $"v{versionText}";
             _initialSettings = settings;
             _baselineSettings = CloneSettings(settings);
 
@@ -35,6 +42,19 @@ namespace LocalCam {
         }
 
         public LocalCamSettings Settings { get; private set; } = new();
+
+        public void SetPremiumUpgradeHandler(Func<Task> handler) {
+            ArgumentNullException.ThrowIfNull(handler);
+            _premiumUpgradeHandler = handler;
+            UpdatePremiumUiState();
+        }
+
+        public void ApplyPremiumUiState(bool isVisible, bool isPremiumOwned, bool isPurchaseBusy) {
+            _premiumUiVisible = isVisible;
+            _isPremiumOwned = isPremiumOwned;
+            _isPremiumPurchaseBusy = isPurchaseBusy;
+            UpdatePremiumUiState();
+        }
 
         public void ShowInlineError(string message) {
             var text = (message ?? string.Empty).Trim();
@@ -69,6 +89,64 @@ namespace LocalCam {
 
         private void CancelButton_Click(object sender, RoutedEventArgs e) {
             Close();
+        }
+
+        private async void PremiumUpgradeButton_Click(object sender, RoutedEventArgs e) {
+            _ = sender;
+            _ = e;
+
+            if (_premiumUpgradeHandler is null || _isPremiumPurchaseBusy || _isPremiumOwned) {
+                return;
+            }
+
+            _isPremiumPurchaseBusy = true;
+            UpdatePremiumUiState();
+            try {
+                await _premiumUpgradeHandler();
+            }
+            finally {
+                _isPremiumPurchaseBusy = false;
+                UpdatePremiumUiState();
+            }
+        }
+
+        private void UpdatePremiumUiState() {
+            PremiumStatusTextBlock.Visibility = _premiumUiVisible
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            PremiumStatusTextBlock.Text = _isPremiumOwned ? "Premium" : "Basic";
+
+            var showUpgrade = _premiumUiVisible && !_isPremiumOwned && _premiumUpgradeHandler is not null;
+            PremiumUpgradeButton.Visibility = showUpgrade
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            PremiumUpgradeButton.IsEnabled = showUpgrade && !_isPremiumPurchaseBusy;
+            PremiumUpgradeButton.Focusable = showUpgrade && !_isPremiumPurchaseBusy;
+        }
+
+        private void CameraSetupGuideHyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e) {
+            try {
+                Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) {
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex) {
+                JsonLogStore.Warning(
+                    "camera_setup_guide_open_failed",
+                    "Failed to open the camera setup guide in the default browser.",
+                    "settings",
+                    new Dictionary<string, object?> {
+                        ["exceptionType"] = ex.GetType().Name
+                    });
+                MessageBox.Show(
+                    this,
+                    "Unable to open the camera setup guide. Please check your default browser settings.",
+                    "Camera Setup Guide",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
+            e.Handled = true;
         }
 
         private void BrowseSnapshotFolderButton_Click(object sender, RoutedEventArgs e) {
@@ -413,47 +491,6 @@ namespace LocalCam {
                    a.MainWindowHeight == b.MainWindowHeight;
         }
 
-        internal static LocalCamSettings CloneSettings(LocalCamSettings settings) {
-            return new LocalCamSettings {
-                RtspUsername = settings.RtspUsername,
-                RtspPassword = settings.RtspPassword,
-                StreamPath = settings.StreamPath,
-                AutoStreamVideo = settings.AutoStreamVideo,
-                AutoDetectOnStartup = settings.AutoDetectOnStartup,
-                ReconnectRecentCamerasOnStartup = settings.ReconnectRecentCamerasOnStartup,
-                RecentCameraConnections = settings.RecentCameraConnections?.Select(CloneRecentConnection).ToList() ?? new(),
-                ThemePreference = settings.ThemePreference,
-                SnapshotSaveFolder = settings.SnapshotSaveFolder,
-                RecordingSaveFolder = settings.RecordingSaveFolder,
-                LastSuccessfulDetectionMethod = settings.LastSuccessfulDetectionMethod,
-                HasVerifiedPremiumEntitlementCache = settings.HasVerifiedPremiumEntitlementCache,
-                VerifiedPremiumEntitlementOwned = settings.VerifiedPremiumEntitlementOwned,
-                VerifiedPremiumEntitlementCheckedUtc = settings.VerifiedPremiumEntitlementCheckedUtc,
-                BasicRecordingUsageDateLocal = settings.BasicRecordingUsageDateLocal,
-                BasicRecordingUsageSeconds = settings.BasicRecordingUsageSeconds,
-                MainWindowLeft = settings.MainWindowLeft,
-                MainWindowTop = settings.MainWindowTop,
-                MainWindowWidth = settings.MainWindowWidth,
-                MainWindowHeight = settings.MainWindowHeight,
-                StoreUpdateCheckHistoryUtc = settings.StoreUpdateCheckHistoryUtc?.ToList() ?? new(),
-                StoreUpdateLastKnownAvailable = settings.StoreUpdateLastKnownAvailable,
-                StoreUpdateLastKnownPhase = settings.StoreUpdateLastKnownPhase,
-                StoreUpdateLastKnownProgressPercent = settings.StoreUpdateLastKnownProgressPercent,
-                StoreUpdateLastKnownDetailText = settings.StoreUpdateLastKnownDetailText,
-                StoreUpdateLastKnownResultText = settings.StoreUpdateLastKnownResultText,
-                StoreUpdateExpectedSubmissionState = settings.StoreUpdateExpectedSubmissionState,
-                StoreUpdateExpectedRolloutMode = settings.StoreUpdateExpectedRolloutMode,
-                StoreUpdateExpectedFlightAudience = settings.StoreUpdateExpectedFlightAudience
-            };
-        }
-
-        private static RecentCameraConnection CloneRecentConnection(RecentCameraConnection entry) => new() {
-            IpAddress = entry.IpAddress,
-            MacAddress = entry.MacAddress,
-            HostName = entry.HostName,
-            DetectionMethod = entry.DetectionMethod,
-            LastConfirmedPlaybackUtc = entry.LastConfirmedPlaybackUtc,
-            ConsecutiveReconnectFailures = entry.ConsecutiveReconnectFailures
-        };
+        internal static LocalCamSettings CloneSettings(LocalCamSettings settings) => SettingsStore.Clone(settings);
     }
 }

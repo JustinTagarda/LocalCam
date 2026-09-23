@@ -4,19 +4,22 @@ using Windows.Services.Store;
 namespace LocalCam.Services {
     internal sealed class PremiumEntitlementService : IPremiumEntitlementService {
         private readonly IStoreContextProvider _storeContextProvider;
-        private readonly LocalCamSettings _settings;
+        private readonly Func<LocalCamSettings> _settingsProvider;
+        private readonly Action<Action<LocalCamSettings>> _updateSettings;
         private readonly Func<IntPtr> _ownerWindowHandleProvider;
         private readonly string _premiumAddOnStoreId;
         private readonly string? _premiumAddOnOfferToken;
 
         public PremiumEntitlementService(
             IStoreContextProvider storeContextProvider,
-            LocalCamSettings settings,
+            Func<LocalCamSettings> settingsProvider,
+            Action<Action<LocalCamSettings>> updateSettings,
             Func<IntPtr> ownerWindowHandleProvider,
             string premiumAddOnStoreId,
             string? premiumAddOnOfferToken = null) {
             _storeContextProvider = storeContextProvider;
-            _settings = settings;
+            _settingsProvider = settingsProvider;
+            _updateSettings = updateSettings;
             _ownerWindowHandleProvider = ownerWindowHandleProvider;
             _premiumAddOnStoreId = premiumAddOnStoreId.Trim();
             _premiumAddOnOfferToken = premiumAddOnOfferToken?.Trim();
@@ -24,9 +27,10 @@ namespace LocalCam.Services {
 
         public async Task<PremiumEntitlementResult> CheckPremiumEntitlementAsync(CancellationToken cancellationToken = default) {
             cancellationToken.ThrowIfCancellationRequested();
+            var settings = _settingsProvider();
 
             if (string.IsNullOrWhiteSpace(_premiumAddOnStoreId)) {
-                return ResolveFallback("Premium add-on Store ID not configured.");
+                return ResolveFallback(settings, "Premium add-on Store ID not configured.");
             }
 
             var storeContext = _storeContextProvider.TryGetStoreContext(_ownerWindowHandleProvider());
@@ -39,7 +43,7 @@ namespace LocalCam.Services {
                         ["premiumAddOnStoreId"] = _premiumAddOnStoreId,
                         ["hasPackageIdentity"] = _storeContextProvider.HasPackageIdentity
                     });
-                return ResolveFallback("Microsoft Store entitlement is unavailable in this environment.");
+                return ResolveFallback(settings, "Microsoft Store entitlement is unavailable in this environment.");
             }
 
             try {
@@ -60,17 +64,19 @@ namespace LocalCam.Services {
                 }
 
                 if (owned) {
-                    _settings.HasVerifiedPremiumEntitlementCache = true;
-                    _settings.VerifiedPremiumEntitlementOwned = true;
-                    _settings.VerifiedPremiumEntitlementCheckedUtc = DateTimeOffset.UtcNow;
-                    SettingsStore.Save(_settings);
+                    _updateSettings(current => {
+                        current.HasVerifiedPremiumEntitlementCache = true;
+                        current.VerifiedPremiumEntitlementOwned = true;
+                        current.VerifiedPremiumEntitlementCheckedUtc = DateTimeOffset.UtcNow;
+                    });
                     return new PremiumEntitlementResult(true, true, false, "Premium entitlement verified from Microsoft Store.");
                 }
 
-                _settings.HasVerifiedPremiumEntitlementCache = false;
-                _settings.VerifiedPremiumEntitlementOwned = false;
-                _settings.VerifiedPremiumEntitlementCheckedUtc = DateTimeOffset.UtcNow;
-                SettingsStore.Save(_settings);
+                _updateSettings(current => {
+                    current.HasVerifiedPremiumEntitlementCache = false;
+                    current.VerifiedPremiumEntitlementOwned = false;
+                    current.VerifiedPremiumEntitlementCheckedUtc = DateTimeOffset.UtcNow;
+                });
                 return new PremiumEntitlementResult(false, true, false, "Premium entitlement not owned.");
             }
             catch (Exception ex) {
@@ -81,10 +87,10 @@ namespace LocalCam.Services {
                     exception: ex,
                     data: new Dictionary<string, object?> {
                         ["premiumAddOnStoreId"] = _premiumAddOnStoreId,
-                        ["hasFallbackCache"] = _settings.HasVerifiedPremiumEntitlementCache,
-                        ["fallbackCacheOwned"] = _settings.VerifiedPremiumEntitlementOwned
+                        ["hasFallbackCache"] = settings.HasVerifiedPremiumEntitlementCache,
+                        ["fallbackCacheOwned"] = settings.VerifiedPremiumEntitlementOwned
                     });
-                return ResolveFallback("Store entitlement check failed.");
+                return ResolveFallback(settings, "Store entitlement check failed.");
             }
         }
 
@@ -106,8 +112,8 @@ namespace LocalCam.Services {
                     product.IsInUserCollection));
         }
 
-        private PremiumEntitlementResult ResolveFallback(string reason) {
-            if (_settings.HasVerifiedPremiumEntitlementCache && _settings.VerifiedPremiumEntitlementOwned) {
+        private static PremiumEntitlementResult ResolveFallback(LocalCamSettings settings, string reason) {
+            if (settings.HasVerifiedPremiumEntitlementCache && settings.VerifiedPremiumEntitlementOwned) {
                 return new PremiumEntitlementResult(true, false, true, $"{reason} Using previously verified Premium cache.");
             }
 

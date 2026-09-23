@@ -38,14 +38,15 @@ flowchart TD
 - Window framing: `MainWindow`, `SettingsWindow`, and `StoreUpdateProgressWindow` use native WPF window frames. Their client content begins at a root `Grid`; decorative outer border wrappers are not used. Internal borders remain for panels, cards, separators, controls, and popup surfaces.
 - Button styling: `App.xaml` owns `GlobalButtonStyle`, using the Settings regular-button configuration as the app-wide baseline. The implicit `Button` style is based on it, and every specialized button style (including code-created camera-card buttons) must derive from it. Specialized styles may override only presentation-specific properties required by their control surface.
 - `Networking/TapoCameraScanner.cs`: interface enumeration, network probing, detection scoring, method preference, and diagnostics data.
-- `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, and save/discard behavior.
+- `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, save/discard behavior, and packaged Store plan/Upgrade presentation.
 - `SettingsWindow` uses the default WPF `ComboBox` behavior for the theme preference; no LocalCam-specific control or item template overrides its closed control, focus visual, arrow, popup, or highlighted items.
 - `Models/LocalCamSettings.cs`: persisted settings and operational state model.
-- `Services/SettingsStore.cs`: JSON settings file load/save.
+- `Services/SettingsStore.cs`: synchronized JSON settings load/save, null normalization, atomic replacement, and backup recovery.
 - `Services/RecentCameraConnectionCache.cs`: expiry, failure-count, invalidation, and connection-cache reconciliation policy.
 - `Services/AppThemeService.cs`: maps the persisted theme preference to WPF `Application.ThemeMode` and synchronizes LocalCam brush aliases from the active Fluent brush resources. Brush synchronization replaces frozen-resource instances with cloned brushes rather than mutating them.
 - `Services/JsonLogStore.cs`: structured JSONL diagnostics.
 - `Services/*Store*`: packaged entitlement, purchase, and update integrations.
+- Store and entitlement services remain owned by `MainWindow`; `SettingsWindow` receives the resolved Store UI state and invokes the existing purchase flow through a MainWindow-owned callback. The MainWindow footer is a flat footer row with a Fluent-backed top separator, hosts the existing status/activity controls, and retains only the conditional Store Update action; the resolved version text is presented at the right edge of the Settings footer.
 - Toolchain: `global.json` pins .NET SDK `10.0.400` with roll-forward disabled. Visual Studio 2026 MSBuild is the required build host for FAST-BUILD and related repository build operations.
 
 ## Critical runtime flows
@@ -67,6 +68,8 @@ The health monitor is deliberately periodic rather than event-wake-driven. A con
 ### Power transition
 
 `PBT_APMSUSPEND` -> invalidate pending automatic recovery -> invoke the normal Stop All path -> stop any active recording and every player -> retain detections, tiles, shared RTSP settings, and recent-camera cache -> log the completed preparation. A resume notification is logged only; it does not restart playback, recording, discovery, or reconnect work.
+
+Settings writes are coordinated by the MainWindow-owned settings object. Store and entitlement services request settings mutations through the UI persistence path so asynchronous continuations do not mutate or serialize the shared settings object from arbitrary threads. SettingsStore serializes file access, writes a flushed temporary file, atomically replaces the primary file, and retains the previous valid file as `settings.json.bak` for recovery.
 
 ### Recording
 

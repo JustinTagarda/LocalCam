@@ -14,7 +14,7 @@ namespace LocalCam.Services {
         private readonly Func<IntPtr> _ownerWindowHandleProvider;
         private readonly Action<StoreUpdateUiState> _stateCallback;
         private readonly Func<LocalCamSettings> _settingsProvider;
-        private readonly Action _persistSettings;
+        private readonly Action<Action<LocalCamSettings>> _updateSettings;
         private readonly List<StorePackageUpdate> _cachedUpdates = new();
         private readonly List<DateTimeOffset> _checkHistoryUtc = new();
         private readonly List<StoreQueueItem> _trackedQueueItems = new();
@@ -31,13 +31,13 @@ namespace LocalCam.Services {
             IStoreContextProvider storeContextProvider,
             Func<IntPtr> ownerWindowHandleProvider,
             Func<LocalCamSettings> settingsProvider,
-            Action persistSettings,
+            Action<Action<LocalCamSettings>> updateSettings,
             Action<StoreUpdateUiState> stateCallback) {
             _storeContextProvider = storeContextProvider;
             _ownerWindowHandleProvider = ownerWindowHandleProvider;
             _stateCallback = stateCallback;
             _settingsProvider = settingsProvider;
-            _persistSettings = persistSettings;
+            _updateSettings = updateSettings;
         }
 
         public async Task InitializeAfterFirstRenderAsync(CancellationToken cancellationToken) {
@@ -346,9 +346,8 @@ namespace LocalCam.Services {
         private void RecordCheck(DateTimeOffset timestampUtc) {
             _checkHistoryUtc.Add(timestampUtc);
             PruneCheckHistory(timestampUtc);
-            var settings = _settingsProvider();
-            settings.StoreUpdateCheckHistoryUtc = _checkHistoryUtc.Select(v => v.UtcDateTime.ToString("O")).ToList();
-            _persistSettings();
+            var persistedHistory = _checkHistoryUtc.Select(v => v.UtcDateTime.ToString("O")).ToList();
+            _updateSettings(settings => settings.StoreUpdateCheckHistoryUtc = persistedHistory);
         }
 
         private void PruneCheckHistory(DateTimeOffset now) {
@@ -554,9 +553,7 @@ namespace LocalCam.Services {
         }
 
         private void PersistAvailability(bool isAvailable) {
-            var settings = _settingsProvider();
-            settings.StoreUpdateLastKnownAvailable = isAvailable;
-            _persistSettings();
+            _updateSettings(settings => settings.StoreUpdateLastKnownAvailable = isAvailable);
         }
 
         private void ClearPersistedAvailability() => PersistAvailability(false);

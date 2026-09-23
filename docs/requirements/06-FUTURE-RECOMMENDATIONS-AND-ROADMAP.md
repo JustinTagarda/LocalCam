@@ -4,7 +4,7 @@ The following are recommendations, not current requirements. Priorities should b
 
 ## P0: Establish a testable core
 
-Create test source files in `LocalCam.Tests` and extract or isolate pure logic for settings, RTSP URL construction, discovery display mapping, folder resolution, and recording state. This is the highest-leverage improvement because current critical behavior has little automated evidence.
+Expand `LocalCam.Tests` with isolated pure-logic coverage for RTSP URL construction, discovery display mapping, folder resolution, and recording state. Settings persistence, recovery, and concurrent-save coverage now exist; live WPF, LibVLC, and controlled-network coverage remain.
 
 ## P0: Protect credentials and diagnostics
 
@@ -32,7 +32,7 @@ Automate FAST-BUILD, tests, x64 package validation, static text audits for brand
 
 ## P2: Improve operational resilience
 
-Add settings schema versioning and migration tests, safe recovery for malformed JSON, output-folder preflight checks, and clear handling for camera disappearance during playback.
+Add settings schema versioning and migration tests, output-folder preflight checks, and clear handling for camera disappearance during playback.
 
 ## Suggested sequencing
 

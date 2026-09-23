@@ -286,7 +286,6 @@ namespace LocalCam {
 
             InitializeComponent();
             ApplyWindowIcon();
-            UpdateFooterVersionText();
             SourceInitialized += MainWindow_SourceInitialized;
             Activated += MainWindow_Activated;
             LocationChanged += Window_LocationChanged;
@@ -297,15 +296,16 @@ namespace LocalCam {
                 PremiumAddOnStoreId);
             _premiumEntitlementService = new PremiumEntitlementService(
                 _storeContextProvider,
-                _settings,
+                GetSettingsSnapshotForService,
+                UpdateSettingsForService,
                 ResolvePurchaseOwnerWindowHandle,
                 PremiumAddOnStoreId,
                 PremiumAddOnOfferToken);
             _storeAppUpdaterService = new StoreAppUpdaterService(
                 _storeContextProvider,
                 ResolvePurchaseOwnerWindowHandle,
-                () => _settings,
-                PersistSettingsForUpdater,
+                GetSettingsSnapshotForService,
+                UpdateSettingsForService,
                 ApplyStoreUpdateUiState);
             UpdatePremiumUiVisibility();
             ApplyStoreUpdateUiState(StoreUpdateUiState.Hidden());
@@ -457,10 +457,6 @@ namespace LocalCam {
                 StreamPath = "stream1",
                 ReconnectRecentCamerasOnStartup = true
             };
-        }
-
-        private void UpdateFooterVersionText() {
-            FooterVersionText.Text = $"v{GetStoreVersionDisplayText()}";
         }
 
         private static string GetStoreVersionDisplayText() {
@@ -1837,10 +1833,37 @@ namespace LocalCam {
             _storeUpdateProgressWindow.Activate();
         }
 
-        private void PersistSettingsForUpdater() {
-            TrySaveSettings(
-                eventName: "store_update_settings_save_failed",
-                logMessage: "Failed to persist store updater settings.");
+        private LocalCamSettings GetSettingsSnapshotForService() {
+            if (Dispatcher.CheckAccess()) {
+                return SettingsStore.Clone(_settings);
+            }
+
+            return Dispatcher.Invoke(() => SettingsStore.Clone(_settings));
+        }
+
+        private void UpdateSettingsForService(Action<LocalCamSettings> update) {
+            void ApplyUpdateAndPersist() {
+                update(_settings);
+                TrySaveSettings(
+                    eventName: "service_settings_save_failed",
+                    logMessage: "Failed to persist service-managed settings.");
+            }
+
+            if (Dispatcher.CheckAccess()) {
+                ApplyUpdateAndPersist();
+                return;
+            }
+
+            try {
+                Dispatcher.Invoke(ApplyUpdateAndPersist);
+            }
+            catch (Exception ex) {
+                JsonLogStore.Error(
+                    eventName: "service_settings_dispatch_failed",
+                    message: "Failed to marshal service-managed settings persistence to the UI thread.",
+                    category: "settings",
+                    exception: ex);
+            }
         }
 
         private async Task RefreshPremiumEntitlementAsync(string source) {
@@ -1897,37 +1920,19 @@ namespace LocalCam {
         }
 
         private void UpdatePremiumUiVisibility() {
-            if (AppModeStatusText is null || UpgradeButton is null) {
-                return;
-            }
-
-            if (!_storeContextProvider.IsPackaged || !_hasResolvedPremiumUiState) {
-                AppModeStatusText.Visibility = Visibility.Collapsed;
-                UpgradeButton.Visibility = Visibility.Collapsed;
-                UpgradeButton.IsEnabled = false;
-                UpgradeButton.Focusable = false;
-                return;
-            }
-
-            AppModeStatusText.Visibility = Visibility.Visible;
-            AppModeStatusText.Text = _isPremiumOwned ? "Premium" : "Basic";
-
-            var showUpgrade = !_isPremiumOwned;
-            UpgradeButton.Visibility = showUpgrade ? Visibility.Visible : Visibility.Collapsed;
-            UpgradeButton.IsEnabled = showUpgrade && !_isPremiumPurchaseBusy;
-            UpgradeButton.Focusable = showUpgrade && !_isPremiumPurchaseBusy;
+            var settingsWindow = FindOpenSettingsWindow();
+            settingsWindow?.ApplyPremiumUiState(
+                isVisible: _storeContextProvider.IsPackaged && _hasResolvedPremiumUiState,
+                isPremiumOwned: _isPremiumOwned,
+                isPurchaseBusy: _isPremiumPurchaseBusy);
         }
 
-        private async void UpgradeButton_Click(object sender, RoutedEventArgs e) {
-            _ = sender;
-            _ = e;
-            await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog: true);
-        }
-
-        private async Task TryStartPremiumPurchaseFlowAsync(bool requireConfirmationDialog = false) {
+        private async Task TryStartPremiumPurchaseFlowAsync(
+            bool requireConfirmationDialog = false,
+            Window? interactionOwner = null) {
             if (!Dispatcher.CheckAccess()) {
                 await Dispatcher.InvokeAsync(async () => {
-                    await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog);
+                    await TryStartPremiumPurchaseFlowAsync(requireConfirmationDialog, interactionOwner);
                 });
                 return;
             }
@@ -1936,9 +1941,13 @@ namespace LocalCam {
                 return;
             }
 
+            var ownerWindow = interactionOwner is not null && interactionOwner.IsVisible && interactionOwner.IsLoaded
+                ? interactionOwner
+                : this;
+
             if (requireConfirmationDialog) {
                 var confirmationDialog = new BasicFeatureGateDialog("Upgrade to Premium for full access.") {
-                    Owner = this
+                    Owner = ownerWindow
                 };
                 var confirmationResult = confirmationDialog.ShowDialog();
                 if (confirmationResult != true || !confirmationDialog.UpgradeRequested) {
@@ -1974,7 +1983,7 @@ namespace LocalCam {
                     exception: ex);
             }
             finally {
-                RestoreWindowAccessibilityAfterStoreFlow();
+                RestoreWindowAccessibilityAfterStoreFlow(ownerWindow);
                 _isPremiumPurchaseBusy = false;
                 UpdatePremiumUiVisibility();
             }
@@ -2003,18 +2012,26 @@ namespace LocalCam {
             }
         }
 
-        private void RestoreWindowAccessibilityAfterStoreFlow() {
+        private void RestoreWindowAccessibilityAfterStoreFlow(Window? preferredWindow = null) {
+            var focusWindow = preferredWindow is not null && preferredWindow.IsVisible && preferredWindow.IsLoaded
+                ? preferredWindow
+                : this;
+
             try {
-                if (!IsEnabled) {
-                    IsEnabled = true;
+                if (!focusWindow.IsEnabled) {
+                    focusWindow.IsEnabled = true;
                 }
 
-                Activate();
-                Focus();
-                Keyboard.Focus(this);
+                focusWindow.Activate();
+                focusWindow.Focus();
+                Keyboard.Focus(focusWindow);
             }
             catch {
                 // Best-effort accessibility recovery; keep flow non-fatal.
+            }
+
+            if (focusWindow != this) {
+                return;
             }
 
             try {
@@ -2396,9 +2413,16 @@ namespace LocalCam {
                 return;
             }
 
-            var dialog = new SettingsWindow(_settings) {
+            var dialog = new SettingsWindow(_settings, GetStoreVersionDisplayText()) {
                 Owner = this
             };
+            dialog.SetPremiumUpgradeHandler(() => TryStartPremiumPurchaseFlowAsync(
+                requireConfirmationDialog: true,
+                interactionOwner: dialog));
+            dialog.ApplyPremiumUiState(
+                isVisible: _storeContextProvider.IsPackaged && _hasResolvedPremiumUiState,
+                isPremiumOwned: _isPremiumOwned,
+                isPurchaseBusy: _isPremiumPurchaseBusy);
 
             if (highlightMissingCredentials) {
                 dialog.ShowCredentialValidation(focusUsername);

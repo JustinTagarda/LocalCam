@@ -8,9 +8,10 @@ namespace LocalCam.Services {
         public const int ReconnectFailureEvictionThreshold = 2;
 
         public static bool PruneExpired(LocalCamSettings settings, DateTimeOffset now) {
+            settings.RecentCameraConnections ??= new();
             var originalCount = settings.RecentCameraConnections.Count;
             settings.RecentCameraConnections = settings.RecentCameraConnections
-                .Where(entry => IsValid(entry, now))
+                .Where(entry => entry is not null && IsValid(entry, now))
                 .ToList();
             return settings.RecentCameraConnections.Count != originalCount;
         }

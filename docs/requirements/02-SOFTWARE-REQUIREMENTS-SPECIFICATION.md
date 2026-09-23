@@ -7,7 +7,7 @@ Status: Current implementation baseline
 | ID | Requirement | Priority | Status | Verification |
 |---|---|---|---|---|
 | FR-001 | The application shall start as a single-window WPF desktop app and show its dashboard shell before nonessential video-engine initialization completes. | Must | Implemented | FAST-BUILD and cold-start launch check |
-| FR-002 | The application shall load persisted settings from `%LocalAppData%\\LocalCam\\settings.json`. | Must | Implemented | Settings integration test |
+| FR-002 | The application shall load persisted settings from `%LocalAppData%\\LocalCam\\settings.json`, recover from the previous valid backup when the primary file is malformed, and serialize saves atomically. | Must | Implemented | `SettingsStoreTests` normalization, backup recovery, concurrent-save, and invalid-file tests |
 | FR-003 | The application shall restore persisted window bounds when valid and persist the latest normal bounds during window movement, resizing, state changes, and close; restore shall apply the saved size without additional application-level clamping. | Should | Implemented | Manual UI check: move/resize, maximize/restore, close/reopen, below-minimum saved-size behavior, and multi-monitor visibility |
 | FR-004 | The application shall discover compatible cameras using bounded, best-effort local-network probing. | Must | Implemented | Scanner tests and controlled-network test |
 | FR-005 | The application shall expose retryable discovery and status feedback. | Must | Implemented | UI acceptance check |
@@ -21,7 +21,7 @@ Status: Current implementation baseline
 | FR-013 | Starting recording on another card shall stop the current recording before switching. | Must | Implemented | Recording integration test |
 | FR-014 | Recordings shall use `.ts` output and roll over at 60 minutes while playback remains active. | Must | Implemented | Timer/recorder test |
 | FR-015 | Recorder stop, end, or error shall clear recording UI state and report activity. | Must | Implemented | Failure-path test |
-| FR-016 | Settings shall support RTSP credentials, stream path, reconnect recent cameras on startup, snapshot folder, and recording folder. Detect and Play shall perform cache-first reconnect or local discovery and start playback for detected cameras. | Must | Implemented | Settings UI and Detect and Play acceptance checks |
+| FR-016 | Settings shall support RTSP credentials, stream path, reconnect recent cameras on startup, snapshot folder, recording folder, and a link to the camera setup guide. Detect and Play shall perform cache-first reconnect or local discovery and start playback for detected cameras. | Must | Implemented | Settings UI, camera setup guide link, and Detect and Play acceptance checks |
 | FR-017 | The application shall persist selected non-default save folders and use default Pictures/Videos LocalCam folders when unset. | Must | Implemented | Persistence test |
 | FR-018 | The application shall write structured diagnostics for startup, discovery, settings, streaming, snapshots, recording, entitlement, and updates through one logging route shared by Debug, Release, and installed builds. Logs shall remain in application data, never beside the launched executable; packaged application data shall be removable with the package. Diagnostics shall redact credentials, complete RTSP URLs, and other secret-bearing values, rate-limit repeated LibVLC runtime messages, and delete log files older than seven days. | Should | Partial | Redaction, retention, and schema tests; packaged/unpackaged path and uninstall verification pending |
 | FR-019 | Packaged builds shall support Store entitlement, Premium purchase, and update flows according to the existing policy documents. | Should | Implemented/packaged-only | Package validation |
@@ -42,7 +42,7 @@ Status: Current implementation baseline
 | NFR-005 | Video overlays shall be hosted inside the VideoView content and remain attached during resize and active playback. | Must | Implemented/needs regression evidence | Live UI check |
 | NFR-006 | Failures in critical workflows shall be visible to users and not silently swallowed. | Must | Partial | Per-card playback errors and recovery-exhaustion path implemented; live failure-path verification pending |
 | NFR-007 | Settings and diagnostics shall remain local to the device unless future scope explicitly adds remote services. | Must | Implemented | Code/dependency review |
-| NFR-008 | Critical behaviors shall have automated tests or a documented manual verification path. | Must | Partial | Stream-health unit tests added; live multi-camera and graphics-path checks pending |
+| NFR-008 | Critical behaviors shall have automated tests or a documented manual verification path. | Must | Partial | Settings persistence tests and stream-health unit tests added; live multi-camera and graphics-path checks pending |
 | NFR-009 | Repository builds, tests, packaging, and generated artifacts shall use the exact .NET SDK version pinned in `global.json`; the current pinned version is `10.0.400` with roll-forward disabled. | Must | Implemented | `global.json` inspection, `dotnet --version`, and Visual Studio 2026 FAST-BUILD |
 
 ## Constraints and non-goals
