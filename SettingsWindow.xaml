@@ -102,13 +102,13 @@
 
     </Window.Resources>
 
-    <Grid Background="{DynamicResource PanelBackgroundBrush}">
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid Grid.Row="0" Margin="18,16,18,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <Grid Grid.Row="0" Margin="18,16,18,18">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -382,51 +382,57 @@
                         </StackPanel>
                     </Grid>
 
-                <Grid Grid.Row="13" Margin="0,12,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Column="0"
-                               Foreground="{DynamicResource MutedTextBrush}"
-                               FontSize="11"
-                               TextWrapping="NoWrap"
-                               TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center"
-                               Text="© 2026 JustinTagarda" />
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Center">
-                        <TextBlock x:Name="PremiumStatusTextBlock"
-                                   Foreground="{DynamicResource MutedTextBrush}"
-                                   FontSize="11"
-                                   FontWeight="Bold"
-                                   TextWrapping="NoWrap"
-                                   VerticalAlignment="Center"
-                                   Visibility="Collapsed"
-                                   IsHitTestVisible="False"
-                                   Focusable="False"
-                                   Text="" />
-                        <Button x:Name="PremiumUpgradeButton"
-                                Style="{StaticResource SettingsStatusUpgradeButtonStyle}"
-                                Content="Upgrade"
-                                VerticalAlignment="Center"
-                                Visibility="Collapsed"
-                                IsEnabled="False"
-                                Focusable="False"
-                                Click="PremiumUpgradeButton_Click" />
-                        <TextBlock x:Name="SettingsVersionTextBlock"
-                                   Foreground="{DynamicResource MutedTextBrush}"
-                                   FontSize="11"
-                                   TextWrapping="NoWrap"
-                                   VerticalAlignment="Center"
-                                   Margin="12,0,0,0"
-                                   Text="v1.0.0.0" />
-                    </StackPanel>
-                </Grid>
             </Grid>
+
+        <Border Grid.Row="1"
+                Background="{x:Null}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,1,0,0"
+                Visibility="Visible"
+                Padding="10,6"
+                Margin="0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Foreground="{DynamicResource MutedTextBrush}"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"
+                           Text="© 2026 JustinTagarda" />
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <TextBlock x:Name="PremiumStatusTextBlock"
+                               Foreground="{DynamicResource MutedTextBrush}"
+                               FontWeight="Bold"
+                               TextWrapping="NoWrap"
+                               VerticalAlignment="Center"
+                               Visibility="Collapsed"
+                               IsHitTestVisible="False"
+                               Focusable="False"
+                               Text="" />
+                    <Button x:Name="PremiumUpgradeButton"
+                            Style="{StaticResource SettingsStatusUpgradeButtonStyle}"
+                            Content="Upgrade"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed"
+                            IsEnabled="False"
+                            Focusable="False"
+                            Click="PremiumUpgradeButton_Click" />
+                    <TextBlock x:Name="SettingsVersionTextBlock"
+                               Foreground="{DynamicResource MutedTextBrush}"
+                               TextWrapping="NoWrap"
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0"
+                               Text="v1.0.0.0" />
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
 
