@@ -159,7 +159,7 @@
                                     <TextBlock x:Name="DetectCameraIcon"
                                                Text="&#xE721;"
                                                FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14"
+                                               FontSize="11"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
                                                Margin="0,0,6,0" />
                                     <Ellipse x:Name="DetectCameraSpinner"
@@ -202,7 +202,7 @@
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="&#xE768;"
                                                FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14"
+                                               FontSize="11"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
                                                Margin="0,0,6,0" />
                                     <TextBlock Text="Play all" />
@@ -217,7 +217,7 @@
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="&#xE71A;"
                                                FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14"
+                                               FontSize="11"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
                                                Margin="0,0,6,0" />
                                     <TextBlock Text="Stop All" />
@@ -230,7 +230,7 @@
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="&#xE713;"
                                                FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14"
+                                               FontSize="11"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
                                                Margin="0,0,6,0" />
                                     <TextBlock Text="Settings" />
