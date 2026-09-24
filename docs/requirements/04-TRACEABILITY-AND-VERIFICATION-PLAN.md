@@ -4,7 +4,7 @@
 
 | Requirement area | Primary implementation evidence | Current test evidence | Gap |
 |---|---|---|---|
-| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)`, `StoreUpdateProgressWindow.xaml` | `SettingsMergeTests.CloneSettingsPreservesAllPersistedState`; `SettingsStoreTests` normalization, backup recovery, concurrent-save, and invalid-file tests; FAST-BUILD and manual startup check | Add persisted-settings integration, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, accent-foreground UI, dashboard-before-engine-render, initialization retry, readiness gating, and repeated-launch activation checks |
+| Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)` | `SettingsMergeTests.CloneSettingsPreservesAllPersistedState`; `SettingsStoreTests` obsolete-updater compatibility, backup recovery, concurrent-save, and invalid-file tests; FAST-BUILD and manual startup check | Add persisted-settings integration, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, accent-foreground UI, dashboard-before-engine-render, initialization retry, readiness gating, and repeated-launch activation checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
 | Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `MainWindow.xaml.cs` | Cache-policy tests | Add controlled-network reconnect/fallback check, including a delayed `Playing` event after timeout or tile reassignment |
 | Dashboard/playback and window state | `MainWindow.xaml(.cs)`, `Services/StreamHealthEvaluator.cs`, `LocalCam.Tests/StreamFailureClassificationTests.cs`, `LocalCam.Tests/StreamHealthEvaluatorTests.cs` | Stream-failure classification and stream-health evaluator tests | Add Detect and Play single-start verification, confirmed-playback state transition, startup grace, consecutive stale-sample, bounded recovery/cooldown, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, per-card failure isolation, credential-escalation, and manual live-stream checks |
@@ -32,12 +32,12 @@ For FR-008 and FR-009, perform the following manual checks:
 
 For Store UI placement and footer behavior, perform the following manual checks:
 
-1. In an unpackaged run, confirm the MainWindow footer retains the status/activity text, progress indicator, and conditional Retry control, with the Store Update button collapsed; confirm the Settings footer shows copyright and the version at the right edge without Basic/Premium or Upgrade controls.
-2. In a packaged Basic run, confirm the MainWindow footer retains all status/activity controls and shows the conditional Store Update action at the right edge, while Settings shows `Basic`, an enabled `Upgrade` button, and the version as the rightmost footer item.
+1. In an unpackaged run, confirm the MainWindow footer retains the status/activity text, progress indicator, and conditional Retry control; confirm the Settings footer shows copyright and the version at the right edge without Basic/Premium or Upgrade controls.
+2. In a packaged Basic run, confirm the MainWindow footer retains all status/activity controls while Settings shows `Basic`, an enabled `Upgrade` button, and the version as the rightmost footer item.
 3. In a packaged Premium run, confirm Settings shows `Premium`, hides Upgrade, and retains the version at the right edge.
 4. Exercise video-engine preparation/failure, discovery progress, stream failure, snapshot/recording feedback, and retry states. Confirm every existing status message remains visible in the relocated MainWindow footer and no status/activity control is removed.
 5. Activate Upgrade from Settings and confirm the existing confirmation, purchase, entitlement refresh, and accessibility restoration flow remains functional without changing persisted Settings values.
-6. Repeat the MainWindow and Settings footer checks in System, Light, and Dark themes, at the supported DPI/scaling levels, and at the MainWindow minimum width. Confirm the MainWindow footer presents as a flat row with a top separator only, has no enclosing panel wrapper, and has no overlap when progress, Retry, and Store Update are simultaneously visible.
+6. Repeat the MainWindow and Settings footer checks in System, Light, and Dark themes, at the supported DPI/scaling levels, and at the MainWindow minimum width. Confirm the MainWindow footer presents as a flat row with a top separator only, has no enclosing panel wrapper, and has no overlap when progress and Retry are simultaneously visible.
 
 The app-wide button invariant is owned by `App.xaml` and must be checked for every button change:
 
@@ -46,7 +46,7 @@ The app-wide button invariant is owned by `App.xaml` and must be checked for eve
 3. Confirm every XAML button has either the implicit global style or an explicit style based on `GlobalButtonStyle`; no window-local button style may duplicate an independent button template.
 4. Confirm every code-created button resolves a style whose inheritance chain reaches `GlobalButtonStyle`.
 5. Confirm specialized icon, overlay, and status buttons preserve their required geometry, visibility, accessibility, and command behavior while inheriting the global baseline.
-6. Repeat the visual check in System, Light, and Dark modes, including Settings, MainWindow, StoreUpdateProgressWindow, UnsavedChangesDialog, BasicFeatureGateDialog, and active camera-card overlays.
+6. Repeat the visual check in System, Light, and Dark modes, including Settings, MainWindow, UnsavedChangesDialog, BasicFeatureGateDialog, and active camera-card overlays.
 
 ## Camera-area action-button verification
 
@@ -62,7 +62,7 @@ For FR-020, perform the following manual checks on a Windows host whose current 
 4. Reopen Settings and confirm the saved preference and visual theme remain aligned.
 5. Repeat the change in both directions and verify no process crash occurs.
 6. If a crash occurs, collect the latest JSONL diagnostics from the application-data log folder and Windows `Application`, `.NET Runtime`, and `Windows Error Reporting` events.
-7. Confirm no decorative outer client border is present on MainWindow, SettingsWindow, or StoreUpdateProgressWindow, and confirm the Settings Theme ComboBox uses the default WPF closed control, focus visual, arrow, popup, and highlighted-item behavior.
+7. Confirm no decorative outer client border is present on MainWindow or SettingsWindow, and confirm the Settings Theme ComboBox uses the default WPF closed control, focus visual, arrow, popup, and highlighted-item behavior.
 
 The known regression guard is the frozen-brush failure: `AppThemeService` must clone Fluent brushes and replace aliases; it must not assign `Color` or `Opacity` on a frozen brush.
 
@@ -73,7 +73,7 @@ The known regression guard is the frozen-brush failure: `AppThemeService` must c
 3. UI acceptance checks for control visibility, accessibility, overlays, settings escalation, and window state.
    - Standard WPF window checks: native minimize/maximize/restore/close, system menu, snap behavior, minimum size, multi-monitor movement, DPI behavior, persisted bounds, direct saved-size restore, and close-time persistence after the final move or resize.
 4. Controlled-network integration checks for discovery and RTSP startup.
-5. Package/release checks for x64 packaging, Store-only behavior, and update flows.
+5. Package/release checks for x64 packaging, Store-only behavior, and Store-flight update delivery.
 
 ## Startup responsiveness verification
 

@@ -12,7 +12,7 @@ The logging portion is implemented: redaction tests cover credentials, URL varia
 
 ## P1: Reduce MainWindow coupling
 
-Introduce small application services around discovery orchestration, playback lifecycle, snapshot/recording output, and Store integration while preserving current UI behavior. Do this incrementally behind existing seams; avoid a broad rewrite.
+Introduce small application services around discovery orchestration, playback lifecycle, snapshot/recording output, and Store entitlement/purchase integration while preserving current UI behavior. Do this incrementally behind existing seams; avoid a broad rewrite.
 
 ## P1: Improve discovery observability
 

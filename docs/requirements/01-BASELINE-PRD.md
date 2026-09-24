@@ -50,8 +50,8 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Responsive startup with visible video-engine preparation status, readiness-gated stream actions, retryable initialization failure, and existing-instance activation for repeated launches.
 - Persisted System, Light, and Dark preferences using the Windows WPF Fluent theme and host-provided theme resources.
 - Theme changes apply before the initial visual tree is created and refresh existing LocalCam brush aliases and dynamically created camera-card visuals.
-- MainWindow, SettingsWindow, and the update-progress window use native Windows/WPF frames with flattened client-area roots; Settings uses a themed custom ComboBox for the System/Light/Dark preference.
-- Separate packaged Store entitlement, purchase, and update services.
+- MainWindow and SettingsWindow use native Windows/WPF frames with flattened client-area roots; Settings uses a themed custom ComboBox for the System/Light/Dark preference.
+- Microsoft Store delivers package updates for packaged releases; LocalCam has no in-app updater.
 
 ## Scope boundaries
 

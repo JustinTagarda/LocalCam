@@ -12,7 +12,7 @@ public sealed class SettingsStoreCollection {
 [Collection("SettingsStore")]
 public sealed class SettingsStoreTests {
     [Fact]
-    public void TryLoadNormalizesNullCollectionsWithoutDiscardingSettings() {
+    public void TryLoadIgnoresObsoleteStoreUpdaterPropertiesWithoutDiscardingSettings() {
         var (directory, scope) = CreateSettingsDirectory();
         try {
             File.WriteAllText(
@@ -22,7 +22,9 @@ public sealed class SettingsStoreTests {
                   "RtspUsername": "camera-user",
                   "StreamPath": "stream2",
                   "RecentCameraConnections": null,
-                  "StoreUpdateCheckHistoryUtc": null
+                  "StoreUpdateCheckHistoryUtc": null,
+                  "StoreUpdateLastKnownAvailable": true,
+                  "StoreUpdateLastKnownPhase": "Downloading"
                 }
                 """);
 
@@ -32,7 +34,9 @@ public sealed class SettingsStoreTests {
             Assert.Equal("camera-user", settings.RtspUsername);
             Assert.Equal("stream2", settings.StreamPath);
             Assert.Empty(settings.RecentCameraConnections);
-            Assert.Empty(settings.StoreUpdateCheckHistoryUtc);
+            SettingsStore.Save(settings);
+            var persistedJson = File.ReadAllText(Path.Combine(directory, "settings.json"));
+            Assert.DoesNotContain("StoreUpdate", persistedJson);
         }
         finally {
             scope.Dispose();

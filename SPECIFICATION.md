@@ -13,7 +13,7 @@ The primary workflow is scan, configure RTSP settings, and stream one or more de
 - .NET 10 target: `net10.0-windows10.0.19041.0`.
 - `win-x64` runtime identifier.
 - LibVLCSharp.WPF `3.9.6` with VideoLAN.LibVLC.Windows `3.0.23`.
-- Windows.Services.Store APIs for packaged entitlement, purchase, and update operations.
+- Windows.Services.Store APIs for packaged entitlement and purchase operations.
 - Built-in .NET networking APIs for discovery and JSON serialization/logging.
 
 The application is built from `LocalCam.csproj`; Store packaging is defined separately in `LocalCam.Package/LocalCam.Package.wapproj` and is x64-only.
@@ -25,7 +25,7 @@ The application is organized around four responsibilities:
 - Bootstrap: `App.xaml.cs` initializes diagnostics and opens the main window.
 - Discovery: `Networking/TapoCameraScanner.cs` performs bounded, best-effort local-network detection.
 - Dashboard and media: `MainWindow.xaml` and `MainWindow.xaml.cs` manage camera tiles, LibVLC playback, snapshots, recording, status, and shutdown cleanup.
-- Persistence and platform services: `Models/LocalCamSettings.cs`, `Services/SettingsStore.cs`, `Services/JsonLogStore.cs`, and the Store service classes manage settings, diagnostics, entitlement, purchases, and updates.
+- Persistence and platform services: `Models/LocalCamSettings.cs`, `Services/SettingsStore.cs`, `Services/JsonLogStore.cs`, and the Store service classes manage settings, diagnostics, entitlement, and purchases.
 
 ## 4. Startup and Shutdown
 
@@ -33,7 +33,7 @@ The application is organized around four responsibilities:
 2. `MainWindow` loads persisted settings and restores window bounds when available.
 3. If Reconnect recent cameras on startup is enabled, the main window reconnects recent cameras after the video engine is ready.
 4. Detect and Play retries cache-first reconnect and local discovery, then starts playback for detected cameras; an empty result remains retryable from the dashboard.
-5. Packaged Store builds resolve Premium UI state and initialize Store update checks after first render.
+5. Packaged Store builds resolve Premium UI state after first render; Microsoft Store delivers package updates outside the app.
 6. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
 
 ## 5. Discovery
@@ -98,7 +98,7 @@ Packaged Store builds additionally apply Basic/Premium limits defined in `docs/B
 - Snapshot Save Folder.
 - Recording Save Folder.
 
-Settings are persisted to `%LocalAppData%\\LocalCam\\settings.json`. Persisted state also includes the last successful discovery method, window bounds, Basic recording usage, Premium entitlement cache, and Store update state.
+Settings are persisted to `%LocalAppData%\\LocalCam\\settings.json`. Persisted state also includes the last successful discovery method, window bounds, Basic recording usage, and Premium entitlement cache.
 
 Effective default folders are `%UserProfile%\\Pictures\\LocalCam` for snapshots and `%UserProfile%\\Videos\\LocalCam` for recordings. A user-selected non-default folder is used directly. Default folders are created when needed.
 
@@ -110,9 +110,9 @@ Debug, Release, and installed distributions use one structured JSONL diagnostics
 
 Log files rotate by UTC day and files older than seven days are deleted during startup and periodic retention sweeps. Messages, exception details, stack traces, URLs, and structured data are sanitized before serialization so credentials, complete RTSP URLs, and secret-bearing fields are replaced with `[REDACTED]`.
 
-Logged areas include startup, discovery attempts and results, settings load/save, stream lifecycle, snapshot saves, recording lifecycle, entitlement, purchase, and Store updates.
+Logged areas include startup, discovery attempts and results, settings load/save, stream lifecycle, snapshot saves, recording lifecycle, entitlement, and purchase.
 
-The UI reports retryable discovery failure, cancellation, stream initialization failure, missing credentials, individual stream failure, unavailable save folders, recording transitions, and Store update terminal states. Exceptions are not silently discarded in the primary workflows.
+The UI reports retryable discovery failure, cancellation, stream initialization failure, missing credentials, individual stream failure, unavailable save folders, and recording transitions. Exceptions are not silently discarded in the primary workflows.
 
 ## 10. Store Features
 
@@ -121,8 +121,7 @@ Packaged Store builds support:
 - Durable Premium add-on entitlement through Store ID `9P9KCJ3NFZFT`.
 - In-app Premium purchase confirmation and purchase routing through `RequestPurchaseAsync`.
 - Basic/Premium status and gated-action upgrade entry point in the Settings footer.
-- Store package update availability checks after first render.
-- Throttled update checks, progress modal, cancellation/failure guidance, and queue-state recovery across restarts.
+- Microsoft Store-managed MSIX package delivery. LocalCam does not check for updates in-app, show update UI, track package queues, or request package installation.
 
 These features are unavailable or hidden in unpackaged Debug runs.
 
@@ -152,4 +151,3 @@ The `LocalCam.Tests` project references xUnit and the .NET test SDK and contains
 - `Services/JsonLogStore.cs`: diagnostics.
 - `Services/PremiumEntitlementService.cs`: entitlement resolution.
 - `Services/PremiumPurchaseService.cs`: Store purchase handling.
-- `Services/StoreAppUpdaterService.cs`: Store update lifecycle.

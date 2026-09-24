@@ -23,7 +23,7 @@
     <ExpectedStorePublisherDisplayName>JustinTagarda</ExpectedStorePublisherDisplayName>
     <ExpectedStoreVersionPattern>^\d+\.\d+\.\d+\.0$</ExpectedStoreVersionPattern>
     <LastStoreUploadInfoPath>$(MSBuildThisFileDirectory)obj\x64\Release\_upkginfo.txt</LastStoreUploadInfoPath>
-    <StoreSdkPinPath>D:\Projects\global.json</StoreSdkPinPath>
+    <StoreSdkPinPath>$(MSBuildThisFileDirectory)..\global.json</StoreSdkPinPath>
   </PropertyGroup>
 
   <ItemGroup>

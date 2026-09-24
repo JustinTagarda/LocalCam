@@ -31,16 +31,7 @@ public sealed class SettingsMergeTests {
             MainWindowLeft = 10,
             MainWindowTop = 20,
             MainWindowWidth = 900,
-            MainWindowHeight = 700,
-            StoreUpdateCheckHistoryUtc = ["2026-09-21T00:00:00Z"],
-            StoreUpdateLastKnownAvailable = true,
-            StoreUpdateLastKnownPhase = "Downloading",
-            StoreUpdateLastKnownProgressPercent = 42,
-            StoreUpdateLastKnownDetailText = "Downloading update",
-            StoreUpdateLastKnownResultText = "Update available",
-            StoreUpdateExpectedSubmissionState = "InProgress",
-            StoreUpdateExpectedRolloutMode = "Staged",
-            StoreUpdateExpectedFlightAudience = "Internal"
+            MainWindowHeight = 700
         };
 
         var clone = SettingsWindow.CloneSettings(source);
@@ -65,15 +56,6 @@ public sealed class SettingsMergeTests {
         Assert.Equal(source.MainWindowTop, clone.MainWindowTop);
         Assert.Equal(source.MainWindowWidth, clone.MainWindowWidth);
         Assert.Equal(source.MainWindowHeight, clone.MainWindowHeight);
-        Assert.Equal(source.StoreUpdateCheckHistoryUtc, clone.StoreUpdateCheckHistoryUtc);
-        Assert.Equal(source.StoreUpdateLastKnownAvailable, clone.StoreUpdateLastKnownAvailable);
-        Assert.Equal(source.StoreUpdateLastKnownPhase, clone.StoreUpdateLastKnownPhase);
-        Assert.Equal(source.StoreUpdateLastKnownProgressPercent, clone.StoreUpdateLastKnownProgressPercent);
-        Assert.Equal(source.StoreUpdateLastKnownDetailText, clone.StoreUpdateLastKnownDetailText);
-        Assert.Equal(source.StoreUpdateLastKnownResultText, clone.StoreUpdateLastKnownResultText);
-        Assert.Equal(source.StoreUpdateExpectedSubmissionState, clone.StoreUpdateExpectedSubmissionState);
-        Assert.Equal(source.StoreUpdateExpectedRolloutMode, clone.StoreUpdateExpectedRolloutMode);
-        Assert.Equal(source.StoreUpdateExpectedFlightAudience, clone.StoreUpdateExpectedFlightAudience);
         Assert.NotSame(source.RecentCameraConnections, clone.RecentCameraConnections);
         Assert.Equal(source.RecentCameraConnections[0].IpAddress, clone.RecentCameraConnections[0].IpAddress);
         Assert.Equal(source.RecentCameraConnections[0].ConsecutiveReconnectFailures, clone.RecentCameraConnections[0].ConsecutiveReconnectFailures);
@@ -102,16 +84,7 @@ public sealed class SettingsMergeTests {
             VerifiedPremiumEntitlementOwned = true,
             VerifiedPremiumEntitlementCheckedUtc = DateTimeOffset.UtcNow,
             BasicRecordingUsageDateLocal = "2026-09-22",
-            BasicRecordingUsageSeconds = 123.5,
-            StoreUpdateCheckHistoryUtc = ["2026-09-21T00:00:00Z"],
-            StoreUpdateLastKnownAvailable = true,
-            StoreUpdateLastKnownPhase = "Downloading",
-            StoreUpdateLastKnownProgressPercent = 42,
-            StoreUpdateLastKnownDetailText = "Downloading update",
-            StoreUpdateLastKnownResultText = "Update available",
-            StoreUpdateExpectedSubmissionState = "InProgress",
-            StoreUpdateExpectedRolloutMode = "Staged",
-            StoreUpdateExpectedFlightAudience = "Internal"
+            BasicRecordingUsageSeconds = 123.5
         };
         var source = new LocalCamSettings {
             RtspUsername = "new-user",
@@ -146,15 +119,6 @@ public sealed class SettingsMergeTests {
         Assert.NotNull(target.VerifiedPremiumEntitlementCheckedUtc);
         Assert.Equal("2026-09-22", target.BasicRecordingUsageDateLocal);
         Assert.Equal(123.5, target.BasicRecordingUsageSeconds);
-        Assert.Equal(["2026-09-21T00:00:00Z"], target.StoreUpdateCheckHistoryUtc);
-        Assert.True(target.StoreUpdateLastKnownAvailable);
-        Assert.Equal("Downloading", target.StoreUpdateLastKnownPhase);
-        Assert.Equal(42, target.StoreUpdateLastKnownProgressPercent);
-        Assert.Equal("Downloading update", target.StoreUpdateLastKnownDetailText);
-        Assert.Equal("Update available", target.StoreUpdateLastKnownResultText);
-        Assert.Equal("InProgress", target.StoreUpdateExpectedSubmissionState);
-        Assert.Equal("Staged", target.StoreUpdateExpectedRolloutMode);
-        Assert.Equal("Internal", target.StoreUpdateExpectedFlightAudience);
     }
 
     [Fact]

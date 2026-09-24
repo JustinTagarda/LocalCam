@@ -81,7 +81,7 @@
   - Startup can reconnect recent cameras when enabled; Detect and Play retries the cache-first reconnect/discovery flow from the same window.
   - Camera tiles are shown based on current detections, with expand/collapse behavior and responsive layout.
   - Settings dialog is available for RTSP credentials and stream path.
-  - Settings and the update-progress window use native WPF window frames with flattened client-area root grids; Settings retains a themed custom control surface but no custom title bar.
+  - Settings uses a native WPF window frame with a flattened client-area root grid and retains a themed custom control surface but no custom title bar.
   - Detect and Play starts playback for detected cameras; Reconnect recent cameras on startup is the persisted startup preference.
 
 - Discovery:
@@ -114,16 +114,17 @@
 
 ## Window Framing And Theme Control Guardrails
 
-- MainWindow, SettingsWindow, and StoreUpdateProgressWindow use native WPF/Windows window frames. Do not reintroduce `WindowStyle="None"`, `AllowsTransparency="True"`, custom title bars, client-area close buttons, or manual `DragMove()` logic without explicit user instruction.
+- MainWindow and SettingsWindow use native WPF/Windows window frames. Do not reintroduce `WindowStyle="None"`, `AllowsTransparency="True"`, custom title bars, client-area close buttons, or manual `DragMove()` logic without explicit user instruction.
 - Keep the client-area root of those windows flattened to a `Grid`; do not add an outer decorative `Border` solely for window framing, border brush, border thickness, corner radius, or clipping.
 - Internal layout borders remain allowed when they represent a real panel, status surface, input, card, separator, or popup surface. Do not remove those as part of window-frame cleanup.
 - Settings theme selection must use a complete themed ComboBox template for the closed control and dropdown popup. It must use dynamic Fluent-backed aliases, preserve System/Light/Dark semantics, and remain visually consistent with Settings inputs and buttons.
 - Do not replace the native window frame with a custom surface, introduce fixed theme colors, or change theme persistence/selection behavior without explicit instruction.
-- Any future window-frame or Theme ComboBox modification requires a live check of MainWindow, SettingsWindow, StoreUpdateProgressWindow, and the Theme dropdown in System, Light, and Dark modes, plus a FAST-BUILD verification.
+- Any future window-frame or Theme ComboBox modification requires a live check of MainWindow, SettingsWindow, and the Theme dropdown in System, Light, and Dark modes, plus a FAST-BUILD verification.
 
 - Distribution:
-  - LocalCam runs as a non-Store desktop app from project build output.
-  - Store-specific packaging, entitlement, and update workflows are decommissioned.
+  - LocalCam runs as a non-Store desktop app from project build output during development.
+  - Microsoft Store distribution uses the x64 packaging project. Microsoft Store delivers MSIX updates; LocalCam does not implement in-app update checks, update UI, queue recovery, or self-installation.
+  - Store-specific entitlement and purchase behavior is outside this update-delivery change; do not add new Store monetization workflows unless explicitly authorized.
 
 ## Brand-Neutral UI With Tapo-First Implementation Policy
 

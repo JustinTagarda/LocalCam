@@ -263,15 +263,11 @@ namespace LocalCam {
         private readonly IStoreContextProvider _storeContextProvider;
         private readonly IPremiumPurchaseService _premiumPurchaseService;
         private readonly IPremiumEntitlementService _premiumEntitlementService;
-        private readonly StoreAppUpdaterService _storeAppUpdaterService;
         private bool _hasResolvedPremiumUiState;
-        private bool _hasInitializedStoreUpdater;
         private bool _isPremiumOwned;
         private bool _isPremiumPurchaseBusy;
         private bool _isPremiumEntitlementRefreshBusy;
         private DispatcherTimer? _basicRecordingDailyLimitTimer;
-        private CancellationTokenSource? _storeUpdaterCts;
-        private StoreUpdateProgressWindow? _storeUpdateProgressWindow;
         private System.Drawing.Icon? _windowIconHandle;
 
         public MainWindow()
@@ -301,14 +297,7 @@ namespace LocalCam {
                 ResolvePurchaseOwnerWindowHandle,
                 PremiumAddOnStoreId,
                 PremiumAddOnOfferToken);
-            _storeAppUpdaterService = new StoreAppUpdaterService(
-                _storeContextProvider,
-                ResolvePurchaseOwnerWindowHandle,
-                GetSettingsSnapshotForService,
-                UpdateSettingsForService,
-                ApplyStoreUpdateUiState);
             UpdatePremiumUiVisibility();
-            ApplyStoreUpdateUiState(StoreUpdateUiState.Hidden());
             ApplyPersistedWindowBounds();
             PopulateCameraTiles(_detections);
             CameraTilesPanel.Visibility = _detections.Count > 0
@@ -1060,7 +1049,7 @@ namespace LocalCam {
                         Height = 10,
                         RadiusX = 1.5,
                         RadiusY = 1.5,
-                        Fill = AppThemeService.GetBrush("StopBrush"),
+                        Fill = AppThemeService.GetBrush("RecordingBrush"),
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
                     }
@@ -1731,15 +1720,6 @@ namespace LocalCam {
                 }), DispatcherPriority.Background);
             }
 
-            if (_hasInitializedStoreUpdater) {
-                return;
-            }
-
-            _hasInitializedStoreUpdater = true;
-            _storeUpdaterCts = new CancellationTokenSource();
-            _ = Dispatcher.BeginInvoke(new Action(async () => {
-                await StartStoreUpdaterAfterFirstRenderAsync(_storeUpdaterCts.Token);
-            }), DispatcherPriority.Background);
         }
 
         private async Task StartStartupCameraFlowAsync() {
@@ -1760,77 +1740,6 @@ namespace LocalCam {
             _ = sender;
             _ = e;
             QueueStreamingEngineInitialization(isRetry: true);
-        }
-
-        private async Task StartStoreUpdaterAfterFirstRenderAsync(CancellationToken cancellationToken) {
-            try {
-                await _storeAppUpdaterService.InitializeAfterFirstRenderAsync(cancellationToken);
-            }
-            catch (OperationCanceledException) {
-                // App is shutting down.
-            }
-            catch (Exception ex) {
-                JsonLogStore.Error(
-                    eventName: "store_update_initialization_failed",
-                    message: "Store updater initialization failed.",
-                    category: "store_update",
-                    exception: ex);
-            }
-        }
-
-        private async void UpdateButton_Click(object sender, RoutedEventArgs e) {
-            _ = sender;
-            _ = e;
-            if (_isClosing) {
-                return;
-            }
-
-            try {
-                await _storeAppUpdaterService.StartUpdateAsync(_storeUpdaterCts?.Token ?? CancellationToken.None);
-            }
-            catch (OperationCanceledException) {
-                // App is shutting down.
-            }
-        }
-
-        private void ApplyStoreUpdateUiState(StoreUpdateUiState state) {
-            if (!Dispatcher.CheckAccess()) {
-                Dispatcher.Invoke(() => ApplyStoreUpdateUiState(state));
-                return;
-            }
-
-            if (UpdateButton is not null) {
-                UpdateButton.Visibility = state.IsUpdateButtonVisible ? Visibility.Visible : Visibility.Collapsed;
-                UpdateButton.IsEnabled = state.IsUpdateButtonEnabled;
-                UpdateButton.Focusable = state.IsUpdateButtonVisible && state.IsUpdateButtonEnabled;
-            }
-
-            if (state.IsProgressVisible) {
-                EnsureStoreUpdateProgressWindow();
-                _storeUpdateProgressWindow?.ApplyState(state);
-            }
-            else if (_storeUpdateProgressWindow is not null) {
-                _storeUpdateProgressWindow.CloseFromOwner();
-                _storeUpdateProgressWindow = null;
-            }
-        }
-
-        private void EnsureStoreUpdateProgressWindow() {
-            if (_storeUpdateProgressWindow is not null) {
-                if (!_storeUpdateProgressWindow.IsVisible) {
-                    _storeUpdateProgressWindow.Show();
-                }
-
-                _storeUpdateProgressWindow.Activate();
-                return;
-            }
-
-            _storeUpdateProgressWindow = new StoreUpdateProgressWindow {
-                Owner = this
-            };
-            _storeUpdateProgressWindow.Closed += (_, _) => { _storeUpdateProgressWindow = null; };
-            _storeUpdateProgressWindow.Show();
-            _storeUpdateProgressWindow.Activate();
         }
 
         private LocalCamSettings GetSettingsSnapshotForService() {
@@ -4881,12 +4790,6 @@ namespace LocalCam {
             _scanCancellation?.Cancel();
             CancelCachedReconnectAttempts();
             ShutdownStreamingEngine();
-            _storeUpdaterCts?.Cancel();
-            _storeUpdaterCts?.Dispose();
-            _storeUpdaterCts = null;
-            _storeAppUpdaterService.Shutdown();
-            _storeUpdateProgressWindow?.CloseFromOwner();
-            _storeUpdateProgressWindow = null;
             _windowIconHandle?.Dispose();
             _windowIconHandle = null;
 
@@ -4899,10 +4802,6 @@ namespace LocalCam {
             CancelCachedReconnectAttempts();
             PersistWindowBounds();
             _isClosing = true;
-            _storeUpdaterCts?.Cancel();
-            _storeAppUpdaterService.Shutdown();
-            _storeUpdateProgressWindow?.CloseFromOwner();
-            _storeUpdateProgressWindow = null;
             base.OnClosing(e);
         }
 

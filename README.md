@@ -14,8 +14,8 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - Settings for RTSP credentials, stream path, reconnect recent cameras on startup, snapshot folder, and recording folder.
 - Inline validation that opens Settings when RTSP configuration is missing or invalid.
 - Persisted settings and window bounds.
-- Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and Store update events. Debug, Release, and installed builds use one application-data logging route; logs are redacted and retained for seven days.
-- Packaged Microsoft Store entitlement, Premium purchase, and app-update flows.
+- Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and purchase events. Debug, Release, and installed builds use one application-data logging route; logs are redacted and retained for seven days.
+- Packaged Microsoft Store entitlement and Premium purchase flows. Microsoft Store delivers package updates for Store-distributed releases.
 
 ## Current Limitations
 
@@ -35,7 +35,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 
 ## Settings and Persistence
 
-Settings are stored at `%LocalAppData%\\LocalCam\\settings.json` and include RTSP options, discovery preferences, save-folder choices, window bounds, Premium entitlement cache, and Store update state.
+Settings are stored at `%LocalAppData%\\LocalCam\\settings.json` and include RTSP options, discovery preferences, save-folder choices, window bounds, and Premium entitlement cache.
 
 - Snapshots default to `%UserProfile%\\Pictures\\LocalCam`.
 - Recordings default to `%UserProfile%\\Videos\\LocalCam`.
@@ -62,7 +62,7 @@ Packaged Store builds apply the Basic/Premium policy: Basic allows up to two act
 - .NET 10 for Windows: `net10.0-windows10.0.19041.0`.
 - WPF and XAML for the desktop UI.
 - LibVLCSharp.WPF `3.9.6` and VideoLAN.LibVLC.Windows `3.0.23` for playback and recording.
-- Windows Store APIs for packaged entitlement, in-app purchase, and package updates.
+- Windows Store APIs for packaged entitlement and in-app purchase.
 - `System.Net`, `System.Net.NetworkInformation`, and `System.Net.Sockets` for discovery.
 - JSON serialization and JSONL diagnostics using built-in .NET APIs and Windows application-data storage.
 - xUnit/Microsoft.NET.Test.Sdk are referenced by `LocalCam.Tests`; the project contains automated unit and persistence tests.
@@ -77,7 +77,6 @@ Packaged Store builds apply the Basic/Premium policy: Basic allows up to two act
 - `Services/SettingsStore.cs`: JSON settings persistence.
 - `Services/JsonLogStore.cs`: structured diagnostic logging.
 - `Services/PremiumEntitlementService.cs` and `PremiumPurchaseService.cs`: Store entitlement and purchase handling.
-- `Services/StoreAppUpdaterService.cs`: packaged Store update availability, installation, progress, and queue recovery.
 - `LocalCam.Package/`: x64-only Store packaging project and manifest.
 
 ## Build and Run
@@ -102,7 +101,7 @@ Launch the generated executable directly:
 .\bin\Debug\net10.0-windows10.0.19041.0\LocalCam.exe
 ```
 
-The project is configured for the `win-x64` runtime. Store packaging is x64-only and is separate from the routine Debug build.
+The project is configured for the `win-x64` runtime. Store packaging is x64-only and is separate from the routine Debug build. Microsoft Store delivers updates for Store-distributed MSIX releases; LocalCam has no custom in-app update route.
 
 ## Documentation
 - Project rules and operating instructions: [AGENTS.md](D:/Projects/LocalCam/AGENTS.md)

@@ -117,16 +117,7 @@ namespace LocalCam.Services {
                 MainWindowLeft = settings.MainWindowLeft,
                 MainWindowTop = settings.MainWindowTop,
                 MainWindowWidth = settings.MainWindowWidth,
-                MainWindowHeight = settings.MainWindowHeight,
-                StoreUpdateCheckHistoryUtc = settings.StoreUpdateCheckHistoryUtc?.Where(value => value is not null).ToList() ?? new(),
-                StoreUpdateLastKnownAvailable = settings.StoreUpdateLastKnownAvailable,
-                StoreUpdateLastKnownPhase = settings.StoreUpdateLastKnownPhase,
-                StoreUpdateLastKnownProgressPercent = settings.StoreUpdateLastKnownProgressPercent,
-                StoreUpdateLastKnownDetailText = settings.StoreUpdateLastKnownDetailText,
-                StoreUpdateLastKnownResultText = settings.StoreUpdateLastKnownResultText,
-                StoreUpdateExpectedSubmissionState = settings.StoreUpdateExpectedSubmissionState,
-                StoreUpdateExpectedRolloutMode = settings.StoreUpdateExpectedRolloutMode,
-                StoreUpdateExpectedFlightAudience = settings.StoreUpdateExpectedFlightAudience
+                MainWindowHeight = settings.MainWindowHeight
             };
         }
 
@@ -159,10 +150,6 @@ namespace LocalCam.Services {
             settings.RecentCameraConnections ??= new();
             settings.RecentCameraConnections = settings.RecentCameraConnections
                 .Where(entry => entry is not null)
-                .ToList();
-            settings.StoreUpdateCheckHistoryUtc ??= new();
-            settings.StoreUpdateCheckHistoryUtc = settings.StoreUpdateCheckHistoryUtc
-                .Where(value => value is not null)
                 .ToList();
             if (!Enum.IsDefined(settings.ThemePreference)) {
                 settings.ThemePreference = AppThemePreference.System;

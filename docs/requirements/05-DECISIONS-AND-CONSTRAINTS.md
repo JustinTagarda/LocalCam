@@ -80,7 +80,7 @@ Guardrail: do not replace Fluent resource tokens with fixed colors, mutate froze
 
 Status: Accepted
 
-MainWindow, SettingsWindow, and StoreUpdateProgressWindow use native Windows/WPF window frames. Their client areas begin with flattened root grids rather than decorative outer border wrappers. Settings no longer owns a custom title bar, close button, or manual drag behavior.
+MainWindow and SettingsWindow use native Windows/WPF window frames. Their client areas begin with flattened root grids rather than decorative outer border wrappers. Settings no longer owns a custom title bar, close button, or manual drag behavior.
 
 Internal borders remain valid for semantic UI surfaces such as status panels, camera cards, separators, control templates, and dropdown popups. This decision does not prohibit those borders.
 
@@ -164,6 +164,14 @@ If the primary settings file cannot be deserialized, the application attempts th
 
 Status: Accepted
 
-The MainWindow footer is the consolidated operational/status surface. It is presented as a flat footer row with a Fluent-backed top separator rather than an enclosing panel wrapper. It retains the existing status/activity text, progress indicator, Retry control, and conditional Store Update action; the Store Update action remains at the right edge and is collapsed when no update is available. Copyright, the resolved version text at the right edge, and packaged Store plan controls (`Basic`, `Premium`, and `Upgrade`) are presented in one compact, full-width row at the bottom of Settings. Unpackaged runs do not surface Store plan or Upgrade controls.
+The MainWindow footer is the consolidated operational/status surface. It is presented as a flat footer row with a Fluent-backed top separator rather than an enclosing panel wrapper. It retains the existing status/activity text, progress indicator, and Retry control. Copyright, the resolved version text at the right edge, and packaged Store plan controls (`Basic`, `Premium`, and `Upgrade`) are presented in one compact, full-width row at the bottom of Settings. Unpackaged runs do not surface Store plan or Upgrade controls.
 
-The existing MainWindow-owned Store services, entitlement rules, purchase route, gating behavior, and update flow remain unchanged; Settings receives presentation state and invokes the purchase route through a callback.
+The existing MainWindow-owned Store entitlement services, entitlement rules, purchase route, and gating behavior remain unchanged; Settings receives presentation state and invokes the purchase route through a callback. Microsoft Store delivers package updates outside the LocalCam process.
+
+## DEC-020: Microsoft Store-managed package updates
+
+Status: Accepted
+
+LocalCam relies on Microsoft Store to deliver updates for its x64 MSIX releases. The app does not check for package updates, render update-specific UI, persist update queue state, or request download, installation, restart, or cancellation through Store APIs.
+
+This removes a fragile application-owned path whose lifecycle depended on Store context availability, UI-thread affinity, update consent, and restart timing. Store-flight validation remains the release-level evidence that a published package update reaches Store-installed clients.
