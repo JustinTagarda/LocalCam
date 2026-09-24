@@ -83,7 +83,7 @@ namespace LocalCam {
             }
         }
 
-        private void UpdateButton_Click(object sender, RoutedEventArgs e) {
+        private void SaveButton_Click(object sender, RoutedEventArgs e) {
             TrySaveAndClose();
         }
 
@@ -264,7 +264,7 @@ namespace LocalCam {
         private void UpdateCommitState() {
             var current = BuildSettingsFromInputs();
             _isDirty = !SettingsEqual(current, _baselineSettings);
-            UpdateButton.IsEnabled = IsValid(current) &&
+            SaveButton.IsEnabled = IsValid(current) &&
                 (_isDirty || !HasCompleteRtspCredentials(current));
         }
 

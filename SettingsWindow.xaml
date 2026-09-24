@@ -72,7 +72,7 @@
                                     Background="{DynamicResource InputBackgroundBrush}">
                                 <Path x:Name="CheckMark"
                                       Data="M3,9 L7,13 L15,4"
-                                    Stroke="{DynamicResource CheckboxBrush}"
+                                    Stroke="{DynamicResource AccentTextBrush}"
                                       StrokeThickness="2"
                                       StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round"
@@ -120,48 +120,58 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0"
-                           Text="Startup"
-                           Foreground="{DynamicResource PrimaryTextBrush}"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,10" />
-
-                <Grid Grid.Row="1" Margin="0,0,0,8">
+                <Grid Grid.Row="0" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                     <TextBlock Text="Behavior"
-                                Foreground="{DynamicResource SecondaryTextBrush}"
-                               VerticalAlignment="Center"
-                               Margin="0,0,12,0" />
+                     <TextBlock Text="Startup"
+                                Foreground="{DynamicResource PrimaryTextBrush}"
+                                FontSize="14"
+                                FontWeight="SemiBold"
+                                VerticalAlignment="Center"
+                                Margin="0,0,12,0" />
                      <CheckBox x:Name="ReconnectRecentCamerasOnStartupCheckBox"
                               Grid.Column="1"
-                              Content="Reconnect recent cameras on startup"
+                               Content="Reconnect cameras on startup"
                               Style="{StaticResource DialogCheckBoxStyle}"
                               Checked="InputChanged"
                               Unchecked="InputChanged" />
+                     <TextBlock Grid.Column="2"
+                                Text="Theme"
+                                Foreground="{DynamicResource SecondaryTextBrush}"
+                                VerticalAlignment="Center"
+                                Margin="20,0,12,0" />
+                     <ComboBox x:Name="ThemePreferenceComboBox"
+                               Grid.Column="3"
+                               Width="140"
+                               Height="28"
+                               SelectedValuePath="Tag"
+                               SelectionChanged="ThemePreferenceComboBox_SelectionChanged">
+                         <ComboBoxItem Content="System" Tag="System" />
+                         <ComboBoxItem Content="Light" Tag="Light" />
+                         <ComboBoxItem Content="Dark" Tag="Dark" />
+                     </ComboBox>
                 </Grid>
 
-                <Border Grid.Row="3"
+                <Border Grid.Row="1"
                         Height="1"
                         Background="{DynamicResource BorderBrush}"
                         Margin="0,2,0,12" />
 
-                <TextBlock Grid.Row="4"
+                <TextBlock Grid.Row="2"
                            Text="RTSP Credentials"
                            Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="5" Margin="0,0,0,10">
+                <Grid Grid.Row="3" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -184,7 +194,7 @@
                      </Grid>
                 </Grid>
 
-                <Grid Grid.Row="6" Margin="0,0,0,10">
+                <Grid Grid.Row="4" Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -207,47 +217,52 @@
                      </Grid>
                 </Grid>
 
-                <Grid Grid.Row="7" Margin="0,0,0,12">
+                <Grid Grid.Row="5" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
                      <TextBlock Text="Stream Path"
                                 Foreground="{DynamicResource SecondaryTextBrush}"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0" />
-                    <StackPanel Grid.Column="1">
-                        <TextBox x:Name="StreamPathTextBox"
-                                 TextChanged="InputChanged"
-                                 Style="{StaticResource DialogTextBoxStyle}" />
-                        <TextBlock Margin="0,6,0,0"
-                                   TextWrapping="Wrap">
-                            <Run Text="Need help configuring your camera? "
-                                 Foreground="{DynamicResource SecondaryTextBrush}" />
-                            <Hyperlink NavigateUri="https://justintagarda.com/docs/localcam-camera-setup-guide.html"
-                                       RequestNavigate="CameraSetupGuideHyperlink_RequestNavigate"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       AutomationProperties.Name="Open the camera setup guide">
-                                Open the camera setup guide
-                            </Hyperlink>
-                        </TextBlock>
-                    </StackPanel>
+                     <TextBox x:Name="StreamPathTextBox"
+                              Grid.Column="1"
+                              TextChanged="InputChanged"
+                              Style="{StaticResource DialogTextBoxStyle}" />
+                     <TextBlock Grid.Column="1"
+                                Grid.Row="1"
+                                Margin="0,6,0,0"
+                                TextWrapping="Wrap">
+                         <Run Text="Need help configuring your camera? "
+                              Foreground="{DynamicResource SecondaryTextBrush}" />
+                         <Hyperlink NavigateUri="https://justintagarda.com/docs/localcam-camera-setup-guide.html"
+                                    RequestNavigate="CameraSetupGuideHyperlink_RequestNavigate"
+                                    Foreground="{DynamicResource AccentBrush}"
+                                    AutomationProperties.Name="Open the camera setup guide">
+                             Open the camera setup guide
+                         </Hyperlink>
+                     </TextBlock>
                 </Grid>
 
-                <Border Grid.Row="8"
+                <Border Grid.Row="6"
                         Height="1"
                         Background="{DynamicResource BorderBrush}"
                         Margin="0,2,0,12" />
 
-                <TextBlock Grid.Row="9"
+                <TextBlock Grid.Row="7"
                            Text="Media Location"
                            Foreground="{DynamicResource PrimaryTextBrush}"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Margin="0,0,0,10" />
 
-                <Grid Grid.Row="10" Margin="0,0,0,12">
+                <Grid Grid.Row="8" Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -298,7 +313,7 @@
                         </Grid>
                      </Grid>
 
-                <Grid Grid.Row="11" Margin="0,0,0,0">
+                <Grid Grid.Row="9" Margin="0,0,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="130" />
                         <ColumnDefinition Width="*" />
@@ -349,32 +364,27 @@
                         </Grid>
                      </Grid>
 
-                <Grid Grid.Row="12" Margin="0,20,0,0">
+                <Grid Grid.Row="10" Margin="0,20,0,20">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Theme" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                            <ComboBox x:Name="ThemePreferenceComboBox" Width="140" Height="28" SelectedValuePath="Tag" SelectionChanged="ThemePreferenceComboBox_SelectionChanged">
-                                <ComboBoxItem Content="System" Tag="System" />
-                                <ComboBoxItem Content="Light" Tag="Light" />
-                                <ComboBoxItem Content="Dark" Tag="Dark" />
-                            </ComboBox>
-                        </StackPanel>
-                        <TextBlock x:Name="InlineErrorTextBlock" Foreground="{DynamicResource ErrorBrush}" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,6,0,0" />
-                    </StackPanel>
+                    <TextBlock x:Name="InlineErrorTextBlock"
+                               Grid.Column="0"
+                               Foreground="{DynamicResource ErrorBrush}"
+                               Visibility="Collapsed"
+                               TextWrapping="Wrap"
+                               Margin="0,6,0,0" />
 
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right">
-                        <Button x:Name="UpdateButton"
+                        <Button x:Name="SaveButton"
                                 Style="{StaticResource GlobalButtonStyle}"
-                                Content="Update"
+                                Content="Save"
                                 Margin="0,0,8,0"
-                                Click="UpdateButton_Click" />
+                                Click="SaveButton_Click" />
                         <Button x:Name="CancelButton"
                                 Style="{StaticResource GlobalButtonStyle}"
                                 Content="Cancel"
