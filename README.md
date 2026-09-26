@@ -103,6 +103,8 @@ Launch the generated executable directly:
 
 The project is configured for the `win-x64` runtime. Store packaging is x64-only and is separate from the routine Debug build. Microsoft Store delivers updates for Store-distributed MSIX releases; LocalCam has no custom in-app update route.
 
+For the authoritative Store package versioning, build, validation, Partner Center submission, and Store-flight procedure, see [docs/STORE-SUBMISSION-GUIDE.md](D:/Projects/LocalCam/docs/STORE-SUBMISSION-GUIDE.md).
+
 ## Documentation
 - Project rules and operating instructions: [AGENTS.md](D:/Projects/LocalCam/AGENTS.md)
 - [SPECIFICATION.md](D:/Projects/LocalCam/SPECIFICATION.md): current product and implementation specification.

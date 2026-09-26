@@ -26,7 +26,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 2. Load settings and restore window bounds while the video engine prepares in the background.
 3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
 4. Use Detect and Play to reconnect or discover cameras and start playback for the detected cameras.
-5. Review detected camera tiles and discovery status.
+5. Review detected camera tiles and discovery status. Existing active camera tiles remain visible during recovery discovery, and one physical camera is represented by one tile when its MAC identity is known.
 6. Configure RTSP credentials and stream path in Settings, using the camera setup guide when needed.
 7. Play one camera or all cameras manually when needed.
 8. Capture snapshots or record one active stream, then stop streams and recording; resources are cleaned up during shutdown.

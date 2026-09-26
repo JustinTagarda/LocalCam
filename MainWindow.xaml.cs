@@ -581,19 +581,27 @@ namespace LocalCam {
         }
 
         private void PopulateCameraTiles(IReadOnlyList<TapoCameraDetection> detections) {
-            _expandedCameraIndex = null;
             EnsureCameraTileCount(detections.Count);
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var tile = _cameraTiles[i];
                 var detection = detections[i];
                 var identity = GetCameraIdentity(detection);
                 if (!string.Equals(tile.CameraIdentity, identity, StringComparison.Ordinal)) {
+                    if (_expandedCameraIndex == i) {
+                        _expandedCameraIndex = null;
+                    }
                     ResetCameraTileForDetectionChange(i);
                     tile.CameraIdentity = identity;
                 }
 
                 tile.Label.Text = $"camera {i + 1} - detected ({detection.IpAddress})";
-                SetVideoSurfaceActive(i, isActive: false);
+                if (tile.MediaPlayer is null || (!IsStreamRunning(i) && !IsStreamTransitioning(i))) {
+                    SetVideoSurfaceActive(i, isActive: false);
+                }
+            }
+
+            if (_expandedCameraIndex is int expandedIndex && expandedIndex >= _cameraTiles.Count) {
+                _expandedCameraIndex = null;
             }
 
             ApplyResponsiveCameraLayout();
@@ -624,9 +632,7 @@ namespace LocalCam {
         }
 
         private static string GetCameraIdentity(TapoCameraDetection detection) {
-            return !string.IsNullOrWhiteSpace(detection.MacAddress)
-                ? $"mac:{detection.MacAddress.Trim().ToUpperInvariant()}"
-                : $"ip:{detection.IpAddress}";
+            return CameraDetectionReconciler.GetIdentity(detection);
         }
 
         private void ResetCameraTileForDetectionChange(int tileIndex) {
@@ -2009,10 +2015,9 @@ namespace LocalCam {
                 return;
             }
             JsonLogStore.Information("recent_camera_reconnect_requested", "Attempting to reconnect recent cameras before local discovery.", "camera_reconnect", new Dictionary<string, object?> { ["cameraCount"] = cachedDetections.Count });
-            _detections = cachedDetections;
             ShowDetections(cachedDetections);
             CancelCachedReconnectAttempts();
-            for (var index = 0; index < cachedDetections.Count; index++) StartCachedReconnectConfirmation(index, cachedDetections[index]);
+            for (var index = 0; index < _detections.Count; index++) StartCachedReconnectConfirmation(index, _detections[index]);
             StreamingStatusText.Text = "Reconnecting to recent cameras...";
             QueueDetectedStreamStart();
         }
@@ -2213,7 +2218,9 @@ namespace LocalCam {
             StreamingStatusText.Text = preferredMethod is TapoDetectionMethod method
                 ? $"Trying last successful method: {GetDetectionMethodDisplayName(method)}..."
                 : "Searching local network for cameras...";
-            CameraTilesPanel.Visibility = Visibility.Collapsed;
+            CameraTilesPanel.Visibility = _detections.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             UpdateTileButtonStates();
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Visible;
@@ -2228,7 +2235,7 @@ namespace LocalCam {
         }
 
         private void ShowDetections(IReadOnlyList<TapoCameraDetection> detections, TapoDetectionMethod? successfulMethod = null) {
-            _detections = detections.ToArray();
+            _detections = CameraDetectionReconciler.Reconcile(_detections, detections);
             CameraTilesPanel.Visibility = Visibility.Visible;
             PopulateCameraTiles(_detections);
             ApplyResponsiveCameraLayout();
@@ -2244,18 +2251,36 @@ namespace LocalCam {
         }
 
         private void ShowNoDetections(string? prefixMessage = null) {
-            _expandedCameraIndex = null;
-            CameraTilesPanel.Visibility = Visibility.Collapsed;
+            var hasExistingDetections = _detections.Count > 0;
+            if (!hasExistingDetections) {
+                _expandedCameraIndex = null;
+            }
+            CameraTilesPanel.Visibility = hasExistingDetections
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             UpdateTileButtonStates();
             UpdateActionButtons();
             SearchProgressBar.Visibility = Visibility.Collapsed;
 
             if (!string.IsNullOrWhiteSpace(prefixMessage)) {
-                StreamingStatusText.Text = $"{prefixMessage} Retry search?";
+                if (hasExistingDetections && prefixMessage.StartsWith("No compatible camera detected.", StringComparison.Ordinal)) {
+                    prefixMessage = prefixMessage.Replace(
+                        "No compatible camera detected.",
+                        "No additional camera detected.",
+                        StringComparison.Ordinal);
+                    StreamingStatusText.Text = $"{prefixMessage} Existing camera cards remain visible. Retry search?";
+                }
+                else {
+                    StreamingStatusText.Text = hasExistingDetections
+                        ? $"{prefixMessage} Existing camera cards remain visible."
+                        : $"{prefixMessage} Retry search?";
+                }
                 return;
             }
 
-            StreamingStatusText.Text = "No compatible camera detected. Retry search?";
+            StreamingStatusText.Text = hasExistingDetections
+                ? "No new camera was detected. Existing camera cards remain visible. Retry search?"
+                : "No compatible camera detected. Retry search?";
         }
 
         private void DetectAndPlayButton_Click(object sender, RoutedEventArgs e) {

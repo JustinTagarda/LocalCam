@@ -20,11 +20,13 @@ The current repository toolchain baseline is .NET SDK `10.0.400`, pinned by `glo
 | [05 Decisions and constraints](05-DECISIONS-AND-CONSTRAINTS.md) | Durable design decisions and repository rules |
 | [06 Future roadmap](06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md) | Recommended next goals and sequencing |
 | [07 UI design requirements](07-UI-DESIGN-REQUIREMENTS.md) | Shared button baseline and scoped camera-area sizing rules |
+| [Store submission guide](../STORE-SUBMISSION-GUIDE.md) | Operational Store package creation, validation, submission, and flight evidence |
 
 ## Authority and maintenance
 
 - The running code is the source of truth for current behavior.
 - `README.md` and `SPECIFICATION.md` remain useful summaries; these documents add structure and traceability rather than replacing them.
+- `docs/STORE-SUBMISSION-GUIDE.md` is the operational source of truth for Store packaging and submission; it does not replace the SRS or verification requirements.
 - A requirement is current only when its status and code/test evidence agree.
 - New behavior should update the PRD, SRS, traceability, and relevant architecture/decision documents in the same change.
 - Unknown behavior is recorded as `Not found` or `Unverified`; it must not be presented as implemented.

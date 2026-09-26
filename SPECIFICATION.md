@@ -151,3 +151,4 @@ The `LocalCam.Tests` project references xUnit and the .NET test SDK and contains
 - `Services/JsonLogStore.cs`: diagnostics.
 - `Services/PremiumEntitlementService.cs`: entitlement resolution.
 - `Services/PremiumPurchaseService.cs`: Store purchase handling.
+- `docs/STORE-SUBMISSION-GUIDE.md`: Store package versioning, build, validation, submission, and flight procedure.

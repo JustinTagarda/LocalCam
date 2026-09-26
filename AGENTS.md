@@ -553,6 +553,8 @@ Do not include any of the following in a brand-neutral UI wording task:
 
 - Packaging project path: `LocalCam.Package\LocalCam.Package.wapproj`.
 - Manifest path: `LocalCam.Package\Package.appxmanifest`.
+- Store package creation and submission procedure: `docs\STORE-SUBMISSION-GUIDE.md`.
+- Unless a release decision specifies otherwise, increment the manifest Build component by one from the highest relevant Partner Center version; keep the fourth version component `0` and stop when Partner Center version state is unavailable or ambiguous.
 - Fixed identity data for Store packaging:
   - `Identity Name`: `JustinTagardaSoftware.LocalCam`
   - `Identity Publisher`: `CN=68EC506E-4B5E-416B-93E8-BA707CA3BE0F`
