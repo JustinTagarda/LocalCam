@@ -27,9 +27,10 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
 4. Use Detect and Play to reconnect or discover cameras and start playback for the detected cameras.
 5. Review detected camera tiles and discovery status. Existing active camera tiles remain visible during recovery discovery, and one physical camera is represented by one tile when its MAC identity is known.
-6. Configure RTSP credentials and stream path in Settings, using the camera setup guide when needed.
-7. Play one camera or all cameras manually when needed.
-8. Capture snapshots or record one active stream, then stop streams and recording; resources are cleaned up during shutdown.
+6. Open Information for a detected camera to review available identity, discovery, connection, playback, and recording details.
+7. Configure RTSP credentials and stream path in Settings, using the camera setup guide when needed.
+8. Play one camera or all cameras manually when needed.
+9. Capture snapshots or record one active stream, then stop streams and recording; resources are cleaned up during shutdown.
 
 ## Current capabilities
 
@@ -37,6 +38,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Play all/Stop All stream controls.
+- Per-camera Information view for available camera identity, discovery, RTSP configuration, playback, and recording state; credential values are not displayed.
 - System suspend/hibernate uses the normal Stop All path and leaves detected camera tiles and connection state intact; resume does not auto-start playback or recording.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
 - Stream path persistence with default `stream1`; RTSP port remains `554`.

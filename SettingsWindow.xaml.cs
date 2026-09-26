@@ -264,12 +264,11 @@ namespace LocalCam {
         private void UpdateCommitState() {
             var current = BuildSettingsFromInputs();
             _isDirty = !SettingsEqual(current, _baselineSettings);
-            SaveButton.IsEnabled = IsValid(current) &&
-                (_isDirty || !HasCompleteRtspCredentials(current));
+            SaveButton.IsEnabled = IsValid(current) && _isDirty;
         }
 
         private bool TrySaveAndClose() {
-            if (!TrySaveOnly(focusUsernameOnCredentialFailure: true)) {
+            if (!TrySaveOnly()) {
                 return false;
             }
 
@@ -279,14 +278,9 @@ namespace LocalCam {
             return true;
         }
 
-        private bool TrySaveOnly(bool focusUsernameOnCredentialFailure = false) {
+        private bool TrySaveOnly() {
             var current = BuildSettingsFromInputs();
             if (!IsValid(current)) {
-                return false;
-            }
-
-            if (!HasCompleteRtspCredentials(current)) {
-                ShowCredentialValidation(focusUsernameOnCredentialFailure);
                 return false;
             }
 
@@ -340,11 +334,6 @@ namespace LocalCam {
 
         private static bool IsValid(LocalCamSettings settings) {
             return !string.IsNullOrWhiteSpace(NormalizeStreamPath(settings.StreamPath));
-        }
-
-        private static bool HasCompleteRtspCredentials(LocalCamSettings settings) {
-            return !string.IsNullOrWhiteSpace(settings.RtspUsername) &&
-                   !string.IsNullOrWhiteSpace(settings.RtspPassword);
         }
 
         private void UpdateCredentialValidationState() {

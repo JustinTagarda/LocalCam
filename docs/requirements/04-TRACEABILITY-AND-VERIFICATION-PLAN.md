@@ -7,7 +7,7 @@
 | Startup/settings and theme | `App.xaml.cs`, `SettingsStore.cs`, `LocalCamSettings.cs`, `AppThemeService.cs`, `App.xaml`, `MainWindow.xaml(.cs)`, `SettingsWindow.xaml(.cs)` | `SettingsMergeTests.CloneSettingsPreservesAllPersistedState`; `SettingsStoreTests` obsolete-updater compatibility, backup recovery, concurrent-save, and invalid-file tests; FAST-BUILD and manual startup check | Add persisted-settings integration, pre-initialization theme mapping, persistence, brush-refresh, native-frame, host light/dark Fluent-resource, default Theme ComboBox behavior, accent-foreground UI, dashboard-before-engine-render, initialization retry, readiness gating, and repeated-launch activation checks |
 | Discovery | `Networking/TapoCameraScanner.cs` | No test source found | Add deterministic scanner tests with fakes |
 | Recent-camera reconnect | `Services/RecentCameraConnectionCache.cs`, `Services/CameraDetectionReconciler.cs`, `MainWindow.xaml.cs` | Cache-policy and detection-reconciliation tests | Add controlled-network reconnect/fallback check, including a delayed `Playing` event after timeout or tile reassignment |
-| Dashboard/playback and window state | `MainWindow.xaml(.cs)`, `Services/CameraDetectionReconciler.cs`, `Services/StreamHealthEvaluator.cs`, `LocalCam.Tests/CameraDetectionReconcilerTests.cs`, `LocalCam.Tests/StreamFailureClassificationTests.cs`, `LocalCam.Tests/StreamHealthEvaluatorTests.cs` | Camera detection reconciliation, stream-failure classification, and stream-health evaluator tests | Add Detect and Play single-start verification, confirmed-playback state transition, startup grace, consecutive stale-sample, bounded recovery/cooldown, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, per-card failure isolation, credential-escalation, and manual live-stream checks |
+| Dashboard/playback and window state | `MainWindow.xaml(.cs)`, `InformationWindow.xaml(.cs)`, `Services/CameraDetectionReconciler.cs`, `Services/StreamHealthEvaluator.cs`, `LocalCam.Tests/CameraDetectionReconcilerTests.cs`, `LocalCam.Tests/StreamFailureClassificationTests.cs`, `LocalCam.Tests/StreamHealthEvaluatorTests.cs` | Camera detection reconciliation, stream-failure classification, and stream-health evaluator tests | Add FR-025 Information view acceptance checks; also add Detect and Play single-start verification, confirmed-playback state transition, startup grace, consecutive stale-sample, bounded recovery/cooldown, terminal-event recovery invalidation, suspend/hibernate Stop All, resume-no-autostart, native WPF window, persisted-bounds, direct saved-size restore, close-time save, per-card failure isolation, credential-escalation, and manual live-stream checks |
 | Settings UI | `SettingsWindow.xaml(.cs)` | No UI test source found | Add validation, dirty-state, folder, placeholder, credential-border, focus, Update-with-missing-credentials, camera setup guide link/browser-launch, single-row copyright/Store-plan footer, packaged Basic/Premium visibility, Upgrade callback, and theme/DPI checks |
 | Snapshots | `MainWindow.xaml.cs`, settings folder logic | No test source found | Add unique-name and unavailable-folder tests |
 | Recording | `MainWindow.xaml.cs`, recording policy docs | No test source found | Add single-session, rollover, and failure tests |
@@ -20,10 +20,10 @@
 
 For FR-008 and FR-009, perform the following manual checks:
 
-1. Open Settings with empty credentials and confirm the username and password placeholders are visible without changing persisted values.
-2. Modify a non-credential setting and click Update with empty credentials. Confirm Settings remains open, the exact required message is shown, both empty credential fields use the theme-aware critical border, and focus moves to the username field.
-3. Repeat with only the username missing and then only the password missing. Confirm only the missing field is red. Enter a valid value and confirm that field returns to the normal input border while the other invalid field remains red.
-4. With detected cameras, trigger Detect and Play, Play all, and per-card Play with missing credentials. Confirm Settings opens and only missing fields are highlighted; the stream-start flow does not close Settings or attempt RTSP playback.
+1. Open Settings with empty credentials and confirm the username and password placeholders are visible.
+2. Modify a non-credential setting with both credentials empty and save. Confirm the setting and empty credential values persist after reopening Settings, with no credential validation error blocking the save.
+3. With detected cameras, trigger Detect and Play, Play all, and per-card Play with missing credentials. Confirm Settings opens, shows the exact required message, highlights only missing fields, and the stream-start flow does not close Settings or attempt RTSP playback.
+4. Repeat stream-start validation with only the username missing and then only the password missing. Confirm only the missing field is red, focus moves to the username field, and the valid field retains the normal input border.
 5. Open Settings and confirm the camera setup guide link is visible below Stream Path and opens the configured guide in the default browser.
 6. With cached cameras and with a fresh discovery result, trigger Detect and Play. Confirm cache-first reconnect/discovery occurs and each detected camera receives one playback request, with no duplicate start request from rendering and route orchestration.
 7. With multiple detected cameras, cause one camera to fail because of credential rejection, network failure, or playback/decode failure. Confirm the failed card alone shows centered red error text, the suggestion is shown only for a classified reason, and other cameras continue streaming.
@@ -52,6 +52,17 @@ The app-wide button invariant is owned by `App.xaml` and must be checked for eve
 ## Camera-area action-button verification
 
 For the camera-area in-video action buttons, verify that `CameraOverlayIconButtonStyle` derives from `GlobalButtonStyle`, has no fixed `Width` or `Height`, explicitly sets `MinWidth` to `0`, and sets uniform `Padding` to `6px`. Confirm every action icon uses a `16x16` content canvas, the buttons remain content-sized with automatic height, and existing glyph proportions, visibility, command, tooltip, accessibility, and overlay behavior are retained. Repeat in collapsed and expanded cards during active playback, resize, DPI scaling, and System/Light/Dark theme changes. Do not apply this sizing rule to non-camera buttons.
+
+## Camera Information view verification
+
+For FR-025, perform the following manual checks:
+
+1. Confirm a detected camera card shows an icon-only Information button as the first in-video action. Confirm it uses the camera overlay style and size, has the `Information` tooltip and accessible name, and is keyboard reachable.
+2. Confirm empty cards do not show Information. Open Information for a detected camera and verify available IP address, hostname, MAC address, brand-neutral detection reason, confidence, and open ports are shown. Missing values must be labeled unavailable; discovery method must be labeled as not retained per camera when it cannot be associated reliably.
+3. Confirm connection details show RTSP, host, port `554`, stream path and its configuration status, and whether shared credentials are configured. Verify neither credential value nor any credential-bearing URL appears.
+4. Open the view while playback is stopped and playing. Confirm playback lifecycle, position/duration when available, and visible playback error details match the current card. While recording, confirm recording status, elapsed time, and output path are current; after stopping, confirm the view reports not recording.
+5. Verify detection reason text does not expose Tapo, TAPO, or TP-Link wording.
+6. Repeat with persisted System, Light, and Dark themes. While streaming, resize and move the window, use expanded and collapsed cards, and confirm the Information action remains attached to its own video area and the modal stays readable and centered on its owner.
 
 ## Theme verification procedure
 

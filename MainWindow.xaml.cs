@@ -137,8 +137,9 @@ namespace LocalCam {
             public required TextBlock Label { get; init; }
             public required VideoView VideoView { get; init; }
             public required Border VideoBlanker { get; init; }
-            public required Button ExpandButton { get; init; }
-            public required Button CollapseButton { get; init; }
+            public required Button EnlargeButton { get; init; }
+            public required Button RestoreButton { get; init; }
+            public required Button InformationButton { get; init; }
             public required Button PlayButton { get; init; }
             public required Button StopButton { get; init; }
             public required Button SnapshotButton { get; init; }
@@ -195,7 +196,7 @@ namespace LocalCam {
         private static readonly TimeSpan BasicRecordingDailyLimit = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan RecordingSegmentDuration = TimeSpan.FromMinutes(60);
         private static readonly TimeSpan RecentCameraReconnectConfirmationTimeout = TimeSpan.FromSeconds(8);
-                        private static readonly Geometry ExpandButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
+                        private static readonly Geometry EnlargeButtonGeometry = Geometry.Parse("M2,6 L2,2 L6,2 M10,2 L14,2 L14,6 M14,10 L14,14 L10,14 M6,14 L2,14 L2,10");
 
         private IReadOnlyList<TapoCameraDetection> _detections = Array.Empty<TapoCameraDetection>();
         private readonly Dictionary<int, long> _cacheReconnectAttemptIdsByTile = [];
@@ -714,31 +715,45 @@ namespace LocalCam {
             };
             badge.Child = label;
 
-            var expandButton = new Button {
+            var informationButton = new Button {
                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0),
-                ToolTip = "Expand",
+                Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "Information",
+                Content = CreateInformationButtonContent(),
                 Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
                 BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
-            expandButton.Content = CreateExpandButtonContent();
-            expandButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+            System.Windows.Automation.AutomationProperties.SetName(informationButton, "Information");
+            informationButton.Click += (_, _) => ShowCameraInformation(tileIndex);
 
-            var collapseButton = new Button {
+            var enlargeButton = new Button {
                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0),
-                ToolTip = "Collapse",
-                Content = CreateCollapseButtonContent(),
+                ToolTip = "Enlarge",
                 Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
                 BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
                 BorderThickness = new Thickness(1)
             };
-            collapseButton.Click += (_, _) => ToggleCameraTileExpandCollapse(tileIndex);
+            enlargeButton.Content = CreateEnlargeButtonContent();
+            enlargeButton.Click += (_, _) => ToggleCameraTileEnlargeRestore(tileIndex);
+
+            var restoreButton = new Button {
+                Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0),
+                ToolTip = "Restore",
+                Content = CreateRestoreButtonContent(),
+                Background = AppThemeService.GetBrush("OverlayBackgroundBrush"),
+                BorderBrush = AppThemeService.GetBrush("OverlayBorderBrush"),
+                BorderThickness = new Thickness(1)
+            };
+            restoreButton.Click += (_, _) => ToggleCameraTileEnlargeRestore(tileIndex);
 
             var playButton = new Button {
                 Style = (Style)FindResource("CameraOverlayIconButtonStyle"),
@@ -808,11 +823,12 @@ namespace LocalCam {
                 UIElement.PreviewMouseLeftButtonDownEvent,
                 new MouseButtonEventHandler((_, e) => {
                     if (IsEventFromControl(e.OriginalSource as DependencyObject, playButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, informationButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, stopButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, snapshotButton) ||
                         IsEventFromControl(e.OriginalSource as DependencyObject, recordButton) ||
-                        IsEventFromControl(e.OriginalSource as DependencyObject, expandButton) ||
-                        IsEventFromControl(e.OriginalSource as DependencyObject, collapseButton)) {
+                        IsEventFromControl(e.OriginalSource as DependencyObject, enlargeButton) ||
+                        IsEventFromControl(e.OriginalSource as DependencyObject, restoreButton)) {
                         return;
                     }
 
@@ -835,7 +851,7 @@ namespace LocalCam {
                         }
 
                         LogDoubleClickToggleAttempt("WpfCardPreview", tileIndex, (int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y));
-                        ToggleCameraTileExpandCollapse(tileIndex);
+                        ToggleCameraTileEnlargeRestore(tileIndex);
                         e.Handled = true;
                     }
                 }),
@@ -854,12 +870,13 @@ namespace LocalCam {
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            overlayToolbarButtons.Children.Add(informationButton);
             overlayToolbarButtons.Children.Add(playButton);
             overlayToolbarButtons.Children.Add(stopButton);
             overlayToolbarButtons.Children.Add(snapshotButton);
             overlayToolbarButtons.Children.Add(recordButton);
-            overlayToolbarButtons.Children.Add(expandButton);
-            overlayToolbarButtons.Children.Add(collapseButton);
+            overlayToolbarButtons.Children.Add(enlargeButton);
+            overlayToolbarButtons.Children.Add(restoreButton);
             var overlayToolbar = new Border {
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Top,
@@ -908,8 +925,9 @@ namespace LocalCam {
                 Label = label,
                 VideoView = videoView,
                 VideoBlanker = videoBlanker,
-                ExpandButton = expandButton,
-                CollapseButton = collapseButton,
+                EnlargeButton = enlargeButton,
+                RestoreButton = restoreButton,
+                InformationButton = informationButton,
                 PlayButton = playButton,
                 StopButton = stopButton,
                 SnapshotButton = snapshotButton,
@@ -928,10 +946,10 @@ namespace LocalCam {
                 var stopBrush = AppThemeService.GetBrush("StopBrush");
 
                 tile.VideoBlanker.Background = AppThemeService.GetBrush("CardBackgroundBrush");
-                tile.ExpandButton.Background = overlayBackground;
-                tile.ExpandButton.BorderBrush = overlayBorder;
-                tile.CollapseButton.Background = overlayBackground;
-                tile.CollapseButton.BorderBrush = overlayBorder;
+                tile.EnlargeButton.Background = overlayBackground;
+                tile.EnlargeButton.BorderBrush = overlayBorder;
+                tile.RestoreButton.Background = overlayBackground;
+                tile.RestoreButton.BorderBrush = overlayBorder;
                 tile.PlayButton.Background = overlayBackground;
                 tile.PlayButton.BorderBrush = overlayBorder;
                 tile.StopButton.Background = overlayBackground;
@@ -940,6 +958,9 @@ namespace LocalCam {
                 tile.SnapshotButton.BorderBrush = overlayBorder;
                 tile.RecordButton.Background = overlayBackground;
                 tile.RecordButton.BorderBrush = overlayBorder;
+                tile.InformationButton.Background = overlayBackground;
+                tile.InformationButton.BorderBrush = overlayBorder;
+                tile.InformationButton.Content = CreateInformationButtonContent();
                 tile.OverlayToolbar.Background = AppThemeService.GetBrush("OverlayToolbarBrush");
                 tile.RecordingBadge.Background = AppThemeService.GetBrush("RecordingBrush");
                 tile.RecordingElapsedText.Foreground = stopBrush;
@@ -954,12 +975,12 @@ namespace LocalCam {
             }
         }
 
-        private static FrameworkElement CreateExpandButtonContent() {
+        private static FrameworkElement CreateEnlargeButtonContent() {
             var expandImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "expand.png");
             return CreateButtonImageContentOrFallback(expandImagePath);
         }
 
-        private static FrameworkElement CreateCollapseButtonContent() {
+        private static FrameworkElement CreateRestoreButtonContent() {
             var collapseImagePath = IOPath.Combine(AppContext.BaseDirectory, "Assets", "collapse.png");
             return CreateButtonImageContentOrFallback(collapseImagePath);
         }
@@ -1063,6 +1084,129 @@ namespace LocalCam {
             };
         }
 
+        private static FrameworkElement CreateInformationButtonContent() {
+            var icon = new Canvas {
+                Width = 16,
+                Height = 16,
+                ClipToBounds = false
+            };
+            icon.Children.Add(new Ellipse {
+                Width = 13,
+                Height = 13,
+                Margin = new Thickness(1.5),
+                Stroke = AppThemeService.GetBrush("PrimaryTextBrush"),
+                StrokeThickness = 1.25
+            });
+            icon.Children.Add(new Ellipse {
+                Width = 1.5,
+                Height = 1.5,
+                Margin = new Thickness(7.25, 3.7, 0, 0),
+                Fill = AppThemeService.GetBrush("PrimaryTextBrush")
+            });
+            icon.Children.Add(new Line {
+                X1 = 8,
+                Y1 = 6.5,
+                X2 = 8,
+                Y2 = 11.8,
+                Stroke = AppThemeService.GetBrush("PrimaryTextBrush"),
+                StrokeThickness = 1.35,
+                StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                StrokeEndLineCap = System.Windows.Media.PenLineCap.Round
+            });
+            return icon;
+        }
+
+        private void ShowCameraInformation(int tileIndex) {
+            if (tileIndex < 0 || tileIndex >= _detections.Count || tileIndex >= _cameraTiles.Count) {
+                return;
+            }
+
+            var detection = _detections[tileIndex];
+            var tile = _cameraTiles[tileIndex];
+            var rows = new List<(string Section, string Label, string Value)> {
+                ("Camera", "Camera", $"Camera {tileIndex + 1}"),
+                ("Camera", "IP address", detection.IpAddress.ToString()),
+                ("Camera", "Host name", DisplayAvailableValue(detection.HostName)),
+                ("Camera", "MAC address", DisplayAvailableValue(detection.MacAddress)),
+                ("Discovery", "Method", "Not retained per camera"),
+                ("Discovery", "Detection reason", MakeDetectionReasonBrandNeutral(detection.DetectionReason)),
+                ("Discovery", "Confidence", detection.ConfidenceScore.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)),
+                ("Discovery", "Open ports", detection.OpenPorts.Count > 0
+                    ? string.Join(", ", detection.OpenPorts.Order())
+                    : "None recorded"),
+                ("Connection", "Protocol", "RTSP"),
+                ("Connection", "Host", detection.IpAddress.ToString()),
+                ("Connection", "Port", "554"),
+                ("Connection", "Stream path", NormalizeStreamPath(_settings.StreamPath)),
+                ("Connection", "Stream path status", string.IsNullOrWhiteSpace(_settings.StreamPath)
+                    ? "Missing"
+                    : "Configured"),
+                ("Connection", "Shared credentials", HasCompleteStreamingSettings(
+                    _settings.RtspUsername.Trim(), _settings.RtspPassword)
+                    ? "Configured (values hidden)"
+                    : "Missing (values hidden)"),
+                ("Playback", "Status", IsStreamRunning(tileIndex) ? "Playing" : GetStreamLifecyclePhase(tileIndex).ToString()),
+                ("Playback", "Lifecycle", GetStreamLifecyclePhase(tileIndex).ToString())
+            };
+
+            if (tile.MediaPlayer is { } mediaPlayer && IsStreamRunning(tileIndex)) {
+                rows.Add(("Playback", "Position", FormatMediaTime(mediaPlayer.Time)));
+                if (mediaPlayer.Length > 0) {
+                    rows.Add(("Playback", "Duration", FormatMediaTime(mediaPlayer.Length)));
+                }
+            }
+
+            var playbackError = tile.PlaybackErrorText.Text?.Trim();
+            if (tile.PlaybackErrorText.Visibility == Visibility.Visible && !string.IsNullOrWhiteSpace(playbackError)) {
+                rows.Add(("Playback", "Last error", playbackError));
+            }
+
+            if (_activeRecordingTileIndex == tileIndex) {
+                var elapsed = _recordingSegmentStartedAt is DateTimeOffset startedAt
+                    ? FormatElapsedTime(DateTimeOffset.Now - startedAt)
+                    : "Starting";
+                rows.Add(("Recording", "Status", "Recording"));
+                rows.Add(("Recording", "Elapsed", elapsed));
+                rows.Add(("Recording", "Output", DisplayAvailableValue(_recordingOutputPath)));
+            } else {
+                rows.Add(("Recording", "Status", "Not recording"));
+            }
+
+            var dialog = new InformationWindow($"Camera {tileIndex + 1} Information", rows) {
+                Owner = this
+            };
+            dialog.ShowDialog();
+        }
+
+        private static string DisplayAvailableValue(string? value) {
+            return string.IsNullOrWhiteSpace(value) ? "Not available" : value.Trim();
+        }
+
+        private static string MakeDetectionReasonBrandNeutral(string? reason) {
+            if (string.IsNullOrWhiteSpace(reason)) {
+                return "Not available";
+            }
+
+            return reason
+                .Replace("TP-Link/Tapo", "camera vendor", StringComparison.OrdinalIgnoreCase)
+                .Replace("Tapo/TP-Link", "camera vendor", StringComparison.OrdinalIgnoreCase)
+                .Replace("TP-Link", "camera vendor", StringComparison.OrdinalIgnoreCase)
+                .Replace("Tapo", "camera", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FormatMediaTime(long milliseconds) {
+            var time = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+            return time.TotalHours >= 1
+                ? $"{(int)time.TotalHours:00}:{time.Minutes:00}:{time.Seconds:00}"
+                : $"{time.Minutes:00}:{time.Seconds:00}";
+        }
+
+        private static string FormatElapsedTime(TimeSpan elapsed) {
+            return elapsed.TotalHours >= 1
+                ? $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}"
+                : $"{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+        }
+
         private static FrameworkElement CreateButtonImageContentOrFallback(string imagePath) {
             if (!System.IO.File.Exists(imagePath)) {
                 return new Grid {
@@ -1070,7 +1214,7 @@ namespace LocalCam {
                     Height = 16,
                     Children = {
                         new System.Windows.Shapes.Path {
-                            Data = ExpandButtonGeometry,
+                            Data = EnlargeButtonGeometry,
                             Fill = System.Windows.Media.Brushes.Transparent,
                             Stroke = AppThemeService.GetBrush("StopBrush"),
                             StrokeThickness = 1.6,
@@ -1112,6 +1256,11 @@ namespace LocalCam {
                 var isTransitioning = IsStreamTransitioning(i);
                 var isDetectedCard = i < _detections.Count;
 
+                tile.InformationButton.Visibility = isCardVisible && isDetectedCard
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                tile.InformationButton.IsEnabled = isDetectedCard;
+
                 tile.PlayButton.Visibility = isCardVisible && isDetectedCard && !isRunning && _isStreamingEngineReady
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -1129,10 +1278,10 @@ namespace LocalCam {
                 tile.RecordButton.ToolTip = isRecordingThisTile ? "Stop Recording" : "Record";
                 tile.RecordingBadge.Visibility = isCardVisible && isRecordingThisTile ? Visibility.Visible : Visibility.Collapsed;
 
-                tile.ExpandButton.Visibility = isCardVisible && isRunning && !isExpanded ? Visibility.Visible : Visibility.Collapsed;
-                tile.CollapseButton.Visibility = isCardVisible && isRunning && isExpanded ? Visibility.Visible : Visibility.Collapsed;
-                tile.ExpandButton.IsEnabled = true;
-                tile.CollapseButton.IsEnabled = true;
+                tile.EnlargeButton.Visibility = isCardVisible && isRunning && !isExpanded ? Visibility.Visible : Visibility.Collapsed;
+                tile.RestoreButton.Visibility = isCardVisible && isRunning && isExpanded ? Visibility.Visible : Visibility.Collapsed;
+                tile.EnlargeButton.IsEnabled = true;
+                tile.RestoreButton.IsEnabled = true;
 
                 // Keep in-video controls available for visible cards, but force-hide hidden cards.
                 tile.VideoView.Visibility = isCardVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -1359,7 +1508,7 @@ namespace LocalCam {
             OpenSettingsDialog(RtspSettingsInvalidMessage, highlightMissingCredentials: true);
         }
 
-        private void ToggleCameraTileExpandCollapse(int tileIndex) {
+        private void ToggleCameraTileEnlargeRestore(int tileIndex) {
             if (IsSettingsDialogOpen()) {
                 JsonLogStore.Information(
                     "ExpandCollapseToggleSuppressed",
@@ -1541,11 +1690,12 @@ namespace LocalCam {
                 return;
             }
             if (IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].PlayButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].InformationButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].StopButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].SnapshotButton, screenX, screenY) ||
                 IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].RecordButton, screenX, screenY) ||
-                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].ExpandButton, screenX, screenY) ||
-                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].CollapseButton, screenX, screenY)) {
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].EnlargeButton, screenX, screenY) ||
+                IsScreenPointInsideControl(_cameraTiles[tileIndex.Value].RestoreButton, screenX, screenY)) {
                 ResetDoubleClickTracking();
                 return;
             }
@@ -1577,7 +1727,7 @@ namespace LocalCam {
             if (isDoubleClick) {
                 ResetDoubleClickTracking();
                 LogDoubleClickToggleAttempt("MouseHook", tileIndex.Value, screenX, screenY);
-                ToggleCameraTileExpandCollapse(tileIndex.Value);
+                ToggleCameraTileEnlargeRestore(tileIndex.Value);
                 return;
             }
 
