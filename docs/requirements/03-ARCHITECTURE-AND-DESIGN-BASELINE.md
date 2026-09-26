@@ -37,7 +37,8 @@ flowchart TD
 - `MainWindow` uses standard WPF window chrome; native window management is delegated to Windows while window-bound persistence remains owned by the main-window lifecycle.
 - Window framing: `MainWindow` and `SettingsWindow` use native WPF window frames. Their client content begins at a root `Grid`; decorative outer border wrappers are not used. Internal borders remain for panels, cards, separators, controls, and popup surfaces.
 - Button styling: `App.xaml` owns `GlobalButtonStyle`, using the Settings regular-button configuration as the app-wide baseline. The implicit `Button` style is based on it, and every specialized button style (including code-created camera-card buttons) must derive from it. Specialized styles may override only presentation-specific properties required by their control surface.
-- `Networking/TapoCameraScanner.cs`: interface enumeration, network probing, detection scoring, method preference, and diagnostics data.
+- `Networking/TapoCameraScanner.cs`: IPv4 interface enumeration, protocol probe orchestration, bounded per-host probing/cache, detection scoring, method preference, and diagnostics data.
+- `Networking/CameraDiscoveryParsers.cs`: bounded parsing and validation for ONVIF ProbeMatches, SSDP/UPnP, DNS-SD resource records, and RTSP OPTIONS responses.
 - `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, save/discard behavior, and packaged Store plan/Upgrade presentation.
 - `SettingsWindow` uses the default WPF `ComboBox` behavior for the theme preference; no LocalCam-specific control or item template overrides its closed control, focus visual, arrow, popup, or highlighted items.
 - `Models/LocalCamSettings.cs`: persisted settings and operational state model.
@@ -53,7 +54,7 @@ flowchart TD
 
 ### Startup and discovery
 
-`App` acquires the single-instance mutex and starts the activation listener -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> the dashboard shell is shown -> LibVLC initializes asynchronously with visible status -> valid recent connections reconnect first -> failed or absent cache entries fall back to local discovery -> confirmed playback refreshes the seven-day cache. Secondary launches signal and activate the existing instance.
+`App` acquires the single-instance mutex and starts the activation listener -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> the dashboard shell is shown -> LibVLC initializes asynchronously with visible status -> valid recent connections reconnect first -> failed or absent cache entries fall back to local discovery -> ONVIF, SSDP/UPnP, Tapo UDP, DNS-SD, ARP, and RTSP OPTIONS/subnet probing contribute validated evidence -> unique IPv4 hosts are probed once per scan and merged by address -> confirmed playback refreshes the seven-day cache. Secondary launches signal and activate the existing instance.
 
 ### Theme change flow
 

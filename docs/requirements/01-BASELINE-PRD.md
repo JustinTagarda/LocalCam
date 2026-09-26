@@ -34,11 +34,11 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 ## Current capabilities
 
-- Multi-method, best-effort local-network discovery.
+- Multi-method, best-effort IPv4 local-network discovery using validated ONVIF WS-Discovery, SSDP/UPnP descriptions, camera-related DNS-SD records, Tapo discovery, ARP/subnet probing, and RTSP OPTIONS service confirmation.
 - Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Play all/Stop All stream controls.
-- Per-camera Information view for available camera identity, discovery, RTSP configuration, playback, and recording state; credential values are not displayed.
+- Per-camera Information view for available camera identity, discovery, RTSP configuration, playback, and recording state, with a copy action; credential values are not displayed or copied.
 - System suspend/hibernate uses the normal Stop All path and leaves detected camera tiles and connection state intact; resume does not auto-start playback or recording.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
 - Stream path persistence with default `stream1`; RTSP port remains `554`.
@@ -53,11 +53,12 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 - Persisted System, Light, and Dark preferences using the Windows WPF Fluent theme and host-provided theme resources.
 - Theme changes apply before the initial visual tree is created and refresh existing LocalCam brush aliases and dynamically created camera-card visuals.
 - MainWindow and SettingsWindow use native Windows/WPF frames with flattened client-area roots; Settings uses a themed custom ComboBox for the System/Light/Dark preference.
+- Discovery validates protocol responses, bounds XML/DNS/RTSP/HTTP response handling, restricts follow-up SSDP requests to enumerated local IPv4 subnets, and reuses responsive and nonresponsive per-host probe results within one scan.
 - Microsoft Store delivers package updates for packaged releases; LocalCam has no in-app updater.
 
 ## Scope boundaries
 
-Current implementation does not provide manual IP entry, permanent camera profiles, arbitrary RTSP ports, custom RTSP URLs, device authentication handshakes, guaranteed universal compatibility, diagnostics export, or multi-page navigation.
+Current implementation does not provide manual IP entry, permanent camera profiles, arbitrary RTSP ports, custom RTSP URLs, authenticated device-management handshakes, IPv6 camera discovery, proprietary Hikvision/Dahua discovery, guaranteed universal compatibility, diagnostics export, or multi-page navigation.
 
 Store Basic/Premium behavior applies to packaged Store builds. Unpackaged development builds hide Store entitlement and upgrade UI.
 

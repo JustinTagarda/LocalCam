@@ -175,3 +175,13 @@ Status: Accepted
 LocalCam relies on Microsoft Store to deliver updates for its x64 MSIX releases. The app does not check for package updates, render update-specific UI, persist update queue state, or request download, installation, restart, or cancellation through Store APIs.
 
 This removes a fragile application-owned path whose lifecycle depended on Store context availability, UI-thread affinity, update consent, and restart timing. Store-flight validation remains the release-level evidence that a published package update reaches Store-installed clients.
+
+## DEC-021: Validated multi-protocol local discovery
+
+Status: Accepted
+
+Local discovery remains bounded, best-effort, and IPv4-only. Standard-protocol replies contribute camera evidence only after validation: ONVIF requires a matching `NetworkVideoTransmitter` ProbeMatch and service address; SSDP requires a valid search response plus a bounded local UPnP description that identifies a video device; DNS-SD requires linked PTR/SRV records identifying an RTSP or camera-related service; and RTSP requires a parseable OPTIONS response with a matching CSeq. DNS-SD uses UDP 5353, joins mDNS on each eligible interface, and queries common RTSP/ONVIF service types. SSDP description fetches must remain on enumerated local subnets, avoid redirects, and use bounded response sizes and timeouts. HTTP fingerprints use normal TLS certificate validation.
+
+Within a scan, protocol evidence is merged by IPv4 address and responsive or unresponsive host probe results are cached so the later subnet fallback does not repeat host probes. Connected IPv4 interfaces remain eligible even when they have no gateway. Tapo UDP payloads and Tapo-first internal scoring remain supported. Discovery sends no RTSP credentials and does not start media playback.
+
+Guardrails: preserve Detect and Play fallback, detection identity reconciliation, RTSP stream construction and port behavior, credentials, cache expiry/eviction, user-facing brand-neutral labels, and scan cancellation. IPv6 discovery, proprietary Hikvision/Dahua protocols, arbitrary RTSP ports, and authenticated ONVIF management remain out of scope.

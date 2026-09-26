@@ -4750,6 +4750,7 @@ namespace LocalCam {
                 TapoDetectionMethod.MdnsDnsSdSweep => "mDNS",
                 TapoDetectionMethod.ArpSeededTargetProbe => "ARP probe",
                 TapoDetectionMethod.SubnetProbeFallback => "subnet probe",
+                TapoDetectionMethod.RtspOptionsProbe => "RTSP",
                 _ => method.ToString()
             };
         }

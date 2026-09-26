@@ -35,13 +35,46 @@
             <StackPanel x:Name="InformationSections" />
         </ScrollViewer>
 
-        <Button Grid.Row="2"
-                Margin="0,12,0,0"
-                HorizontalAlignment="Right"
-                Style="{StaticResource GlobalButtonStyle}"
-                Content="Close"
-                IsDefault="True"
-                IsCancel="True"
-                Click="CloseButton_Click" />
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <Button x:Name="CopyButton"
+                        MinWidth="0"
+                        Padding="6"
+                        ToolTip="Copy camera information"
+                        Style="{StaticResource GlobalButtonStyle}"
+                        Click="CopyButton_Click">
+                    <Canvas Width="16" Height="16">
+                        <Path Data="M5,3 H4 V14 H12 V3 H11 M6,2 H10 V4 H6 Z M6,7 H10 M6,9 H10 M6,11 H9"
+                              Fill="{x:Null}"
+                              Stroke="{DynamicResource PrimaryTextBrush}"
+                              StrokeThickness="1.25"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round" />
+                    </Canvas>
+                </Button>
+                <TextBlock x:Name="CopyStatusText"
+                           Margin="8,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           FontSize="12"
+                           Visibility="Collapsed" />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    HorizontalAlignment="Right"
+                    Style="{StaticResource GlobalButtonStyle}"
+                    Content="Close"
+                    IsDefault="True"
+                    IsCancel="True"
+                    Click="CloseButton_Click" />
+        </Grid>
     </Grid>
 </Window>

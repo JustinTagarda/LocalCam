@@ -24,7 +24,7 @@ Set targets for scan completion time, cancellation responsiveness, time to first
 
 ## P2: Expand compatibility deliberately
 
-Before adding manual camera entry or custom RTSP URLs, define a compatibility model: supported protocols, authentication expectations, port behavior, and user-facing limits. Add controlled fixtures for ONVIF, SSDP, mDNS, and RTSP variations.
+Before adding manual camera entry or custom RTSP URLs, define a compatibility model: supported protocols, authentication expectations, port behavior, and user-facing limits. Expand controlled-network fixtures with real camera responses and measure false positives, multi-interface discovery, cancellation, and scan duration. IPv6 and proprietary vendor discovery remain separate compatibility decisions.
 
 ## P2: Add release automation
 

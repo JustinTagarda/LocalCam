@@ -27,6 +27,9 @@ namespace LocalCam.Networking {
         string? MacAddress,
         bool SeenInArpTable,
         bool DiscoveredViaOnvif,
+        bool DiscoveredViaSsdp,
+        bool DiscoveredViaMdns,
+        bool DiscoveredViaRtspOptions,
         bool DiscoveredViaTapoBroadcast,
         bool DiscoveredViaTapoUnicast,
         IReadOnlyList<int> OpenPorts);
@@ -36,6 +39,9 @@ namespace LocalCam.Networking {
         int EnumeratedHostCount,
         int ArpSeedCount,
         int OnvifHintCount,
+        int SsdpCameraHintCount,
+        int MdnsCameraHintCount,
+        int RtspOptionsHintCount,
         int TapoBroadcastHintCount,
         int TapoUnicastHintCount,
         int ResponsiveHostCount,
@@ -47,7 +53,8 @@ namespace LocalCam.Networking {
         TapoUdpBroadcast,
         MdnsDnsSdSweep,
         ArpSeededTargetProbe,
-        SubnetProbeFallback
+        SubnetProbeFallback,
+        RtspOptionsProbe
     }
 
     public sealed record TapoDetectionMethodAttempt(
@@ -80,6 +87,8 @@ namespace LocalCam.Networking {
         private const int TapoDiscoveryPort = 20002;
         private const int TpLinkLegacyDiscoveryPort = 9999;
         private const int TapoDiscoveryReceiveWindowMs = 2200;
+        private const int RtspOptionsTimeoutMs = 650;
+        private const int MaxSsdpDescriptionFetches = 128;
         private const int ProbeTcpTimeoutMsPrimary = 450;
         private const int ProbeTcpTimeoutMsRetry = 1300;
         private const int ProbeTcpMaxAttempts = 2;
@@ -99,6 +108,7 @@ namespace LocalCam.Networking {
             TapoDetectionMethod.TapoUdpBroadcast,
             TapoDetectionMethod.MdnsDnsSdSweep,
             TapoDetectionMethod.ArpSeededTargetProbe,
+            TapoDetectionMethod.RtspOptionsProbe,
             TapoDetectionMethod.SubnetProbeFallback
         ];
         private static readonly string[] TapoDiscoveryPayloads = [
@@ -149,27 +159,6 @@ namespace LocalCam.Networking {
 
             var startedAtUtc = DateTimeOffset.UtcNow;
             var subnets = GetCandidateSubnets();
-            var gatewayBearingSubnets = subnets
-                .Where(static s => s.GatewayAddresses.Count > 0)
-                .ToArray();
-
-            if (gatewayBearingSubnets.Length > 0 && gatewayBearingSubnets.Length < subnets.Count) {
-                JsonLogStore.Information(
-                    eventName: "camera_search_subnets_filtered",
-                    message: "Skipping subnets without a gateway because gateway-bearing subnets are available.",
-                    category: "camera_search",
-                    data: new Dictionary<string, object?> {
-                        ["originalSubnetCount"] = subnets.Count,
-                        ["keptSubnetCount"] = gatewayBearingSubnets.Length,
-                        ["excludedSubnets"] = subnets
-                            .Where(static s => s.GatewayAddresses.Count == 0)
-                            .Select(FormatSubnetDiagnostic)
-                            .ToArray()
-                    });
-
-                subnets = gatewayBearingSubnets;
-            }
-
             JsonLogStore.Information(
                 eventName: "camera_search_started",
                 message: "Starting local network scan for likely Tapo cameras.",
@@ -262,6 +251,9 @@ namespace LocalCam.Networking {
                             EnumeratedHostCount: enumeratedSubnetHosts.Length,
                             ArpSeedCount: arpSeedTable.Count,
                             OnvifHintCount: 0,
+                            SsdpCameraHintCount: 0,
+                            MdnsCameraHintCount: 0,
+                            RtspOptionsHintCount: 0,
                             TapoBroadcastHintCount: 0,
                             TapoUnicastHintCount: 0,
                             ResponsiveHostCount: 0,
@@ -294,6 +286,7 @@ namespace LocalCam.Networking {
                 var attemptedMethods = new List<TapoDetectionMethodAttempt>();
                 var aggregatedCandidates = new Dictionary<string, TapoCameraCandidateDiagnostics>(StringComparer.Ordinal);
                 var aggregatedDetections = new Dictionary<string, TapoCameraDetection>(StringComparer.Ordinal);
+                var probedHosts = new ConcurrentDictionary<IPAddress, ProbeCacheEntry>();
                 TapoDetectionMethod? successfulMethod = null;
 
                 foreach (var method in BuildAttemptOrder(preferredFirstMethod)) {
@@ -316,7 +309,7 @@ namespace LocalCam.Networking {
                         MethodExecutionResult executionResult;
                         switch (method) {
                             case TapoDetectionMethod.OnvifWsDiscovery:
-                                onvifHints ??= await DiscoverOnvifCameraAddressesAsync(localAddresses, cancellationToken).ConfigureAwait(false);
+                                onvifHints ??= await DiscoverOnvifCameraAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
                                 executionResult = await ExecuteHintMethodAsync(
                                     method,
                                     onvifHints,
@@ -324,10 +317,13 @@ namespace LocalCam.Networking {
                                     maxParallelism,
                                     discoveredViaOnvif: true,
                                     discoveredViaTapoBroadcast: false,
+                                    discoveredViaSsdp: false,
+                                    discoveredViaMdns: false,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
                             case TapoDetectionMethod.SsdpUpnpSearch:
-                                ssdpHints ??= await DiscoverSsdpAddressesAsync(localAddresses, cancellationToken).ConfigureAwait(false);
+                                ssdpHints ??= await DiscoverSsdpAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
                                 executionResult = await ExecuteHintMethodAsync(
                                     method,
                                     ssdpHints,
@@ -335,6 +331,9 @@ namespace LocalCam.Networking {
                                     maxParallelism,
                                     discoveredViaOnvif: false,
                                     discoveredViaTapoBroadcast: false,
+                                    discoveredViaSsdp: true,
+                                    discoveredViaMdns: false,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
                             case TapoDetectionMethod.TapoUdpBroadcast:
@@ -346,10 +345,13 @@ namespace LocalCam.Networking {
                                     maxParallelism,
                                     discoveredViaOnvif: false,
                                     discoveredViaTapoBroadcast: true,
+                                    discoveredViaSsdp: false,
+                                    discoveredViaMdns: false,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
                             case TapoDetectionMethod.MdnsDnsSdSweep:
-                                mdnsHints ??= await DiscoverMdnsCandidateAddressesAsync(localAddresses, cancellationToken).ConfigureAwait(false);
+                                mdnsHints ??= await DiscoverMdnsCandidateAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
                                 executionResult = await ExecuteHintMethodAsync(
                                     method,
                                     mdnsHints,
@@ -357,6 +359,9 @@ namespace LocalCam.Networking {
                                     maxParallelism,
                                     discoveredViaOnvif: false,
                                     discoveredViaTapoBroadcast: false,
+                                    discoveredViaSsdp: false,
+                                    discoveredViaMdns: true,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
                             case TapoDetectionMethod.ArpSeededTargetProbe:
@@ -364,8 +369,31 @@ namespace LocalCam.Networking {
                                     arpSeedTable,
                                     subnets,
                                     maxParallelism,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
+                            case TapoDetectionMethod.RtspOptionsProbe: {
+                                var rtspCandidates = enumeratedSubnetHosts
+                                    .Concat(arpSeedTable.Keys)
+                                    .Concat(onvifHints ?? [])
+                                    .Concat(ssdpHints ?? [])
+                                    .Concat(tapoBroadcastHints ?? [])
+                                    .Concat(mdnsHints ?? [])
+                                    .DistinctBy(static address => address.ToString())
+                                    .ToArray();
+                                executionResult = await ProbeAndEvaluateCandidatesAsync(
+                                    rtspCandidates,
+                                    arpSeedTable,
+                                    maxParallelism,
+                                    onvifHints,
+                                    tapoBroadcastHints,
+                                    ssdpHints,
+                                    mdnsHints,
+                                    "RTSP did not confirm any compatible camera services.",
+                                    probedHosts,
+                                    cancellationToken).ConfigureAwait(false);
+                                break;
+                            }
                             case TapoDetectionMethod.SubnetProbeFallback:
                                 executionResult = await ExecuteSubnetProbeFallbackAsync(
                                     enumeratedSubnetHosts,
@@ -375,8 +403,10 @@ namespace LocalCam.Networking {
                                     tapoBroadcastHints,
                                     mdnsHints,
                                     maxParallelism,
+                                    probedHosts,
                                     cancellationToken).ConfigureAwait(false);
                                 break;
+
                             default:
                                 throw new InvalidOperationException($"Unknown camera detection method '{method}'.");
                         }
@@ -446,6 +476,9 @@ namespace LocalCam.Networking {
                     enumeratedSubnetHosts.Length,
                     arpSeedTable.Count,
                     onvifHints?.Count ?? 0,
+                    ssdpHints?.Count ?? 0,
+                    mdnsHints?.Count ?? 0,
+                    aggregatedCandidates.Values.Count(static candidate => candidate.DiscoveredViaRtspOptions),
                     tapoBroadcastHints?.Count ?? 0,
                     aggregatedCandidates,
                     successfulMethod,
@@ -546,6 +579,7 @@ namespace LocalCam.Networking {
                 TapoDetectionMethod.MdnsDnsSdSweep => "mDNS/DNS-SD sweep",
                 TapoDetectionMethod.ArpSeededTargetProbe => "ARP-seeded target probe",
                 TapoDetectionMethod.SubnetProbeFallback => "subnet probe fallback",
+                TapoDetectionMethod.RtspOptionsProbe => "RTSP",
                 _ => method.ToString()
             };
         }
@@ -556,6 +590,9 @@ namespace LocalCam.Networking {
             int enumeratedHostCount,
             int arpSeedCount,
             int onvifHintCount,
+            int ssdpCameraHintCount,
+            int mdnsCameraHintCount,
+            int rtspOptionsHintCount,
             int tapoBroadcastHintCount,
             Dictionary<string, TapoCameraCandidateDiagnostics> aggregatedCandidates,
             TapoDetectionMethod? successfulMethod,
@@ -571,6 +608,9 @@ namespace LocalCam.Networking {
                     EnumeratedHostCount: enumeratedHostCount,
                     ArpSeedCount: arpSeedCount,
                     OnvifHintCount: onvifHintCount,
+                    SsdpCameraHintCount: ssdpCameraHintCount,
+                    MdnsCameraHintCount: mdnsCameraHintCount,
+                    RtspOptionsHintCount: rtspOptionsHintCount,
                     TapoBroadcastHintCount: tapoBroadcastHintCount,
                     TapoUnicastHintCount: orderedCandidates.Count(static c => c.DiscoveredViaTapoUnicast),
                     ResponsiveHostCount: orderedCandidates.Length,
@@ -587,7 +627,32 @@ namespace LocalCam.Networking {
                 if (!aggregatedCandidates.TryGetValue(key, out var existing) ||
                     candidate.IsLikelyTapo && !existing.IsLikelyTapo ||
                     candidate.ConfidenceScore > existing.ConfidenceScore) {
-                    aggregatedCandidates[key] = candidate;
+                    if (existing is not null) {
+                        var mergedCandidate = candidate with {
+                            DiscoveredViaOnvif = candidate.DiscoveredViaOnvif || existing.DiscoveredViaOnvif,
+                            DiscoveredViaSsdp = candidate.DiscoveredViaSsdp || existing.DiscoveredViaSsdp,
+                            DiscoveredViaMdns = candidate.DiscoveredViaMdns || existing.DiscoveredViaMdns,
+                            DiscoveredViaRtspOptions = candidate.DiscoveredViaRtspOptions || existing.DiscoveredViaRtspOptions,
+                            DiscoveredViaTapoBroadcast = candidate.DiscoveredViaTapoBroadcast || existing.DiscoveredViaTapoBroadcast,
+                            DiscoveredViaTapoUnicast = candidate.DiscoveredViaTapoUnicast || existing.DiscoveredViaTapoUnicast,
+                            OpenPorts = candidate.OpenPorts.Union(existing.OpenPorts).Order().ToArray()
+                        };
+                        aggregatedCandidates[key] = mergedCandidate;
+                    }
+                    else {
+                        aggregatedCandidates[key] = candidate;
+                    }
+                }
+                else if (aggregatedCandidates.TryGetValue(key, out existing)) {
+                    aggregatedCandidates[key] = existing with {
+                        DiscoveredViaOnvif = candidate.DiscoveredViaOnvif || existing.DiscoveredViaOnvif,
+                        DiscoveredViaSsdp = candidate.DiscoveredViaSsdp || existing.DiscoveredViaSsdp,
+                        DiscoveredViaMdns = candidate.DiscoveredViaMdns || existing.DiscoveredViaMdns,
+                        DiscoveredViaRtspOptions = candidate.DiscoveredViaRtspOptions || existing.DiscoveredViaRtspOptions,
+                        DiscoveredViaTapoBroadcast = candidate.DiscoveredViaTapoBroadcast || existing.DiscoveredViaTapoBroadcast,
+                        DiscoveredViaTapoUnicast = candidate.DiscoveredViaTapoUnicast || existing.DiscoveredViaTapoUnicast,
+                        OpenPorts = candidate.OpenPorts.Union(existing.OpenPorts).Order().ToArray()
+                    };
                 }
             }
         }
@@ -611,6 +676,9 @@ namespace LocalCam.Networking {
             int maxParallelism,
             bool discoveredViaOnvif,
             bool discoveredViaTapoBroadcast,
+            bool discoveredViaSsdp,
+            bool discoveredViaMdns,
+            ConcurrentDictionary<IPAddress, ProbeCacheEntry> probedHosts,
             CancellationToken cancellationToken) {
             if (hintAddresses.Count == 0) {
                 return new MethodExecutionResult(
@@ -625,7 +693,10 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 discoveredViaOnvif ? hintAddresses : null,
                 discoveredViaTapoBroadcast ? hintAddresses : null,
+                discoveredViaSsdp ? hintAddresses : null,
+                discoveredViaMdns ? hintAddresses : null,
                 $"{GetMethodDisplayName(method)} did not detect a compatible camera.",
+                probedHosts,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -633,6 +704,7 @@ namespace LocalCam.Networking {
             Dictionary<IPAddress, string> arpSeedTable,
             IReadOnlyList<Ipv4Subnet> subnets,
             int maxParallelism,
+            ConcurrentDictionary<IPAddress, ProbeCacheEntry> probedHosts,
             CancellationToken cancellationToken) {
             var candidates = arpSeedTable.Keys
                 .Where(ip => IsInCandidateSubnets(ip, subnets))
@@ -653,7 +725,10 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 discoveredViaOnvifHints: null,
                 discoveredViaTapoBroadcastHints: null,
+                discoveredViaSsdpHints: null,
+                discoveredViaMdnsHints: null,
                 $"{GetMethodDisplayName(TapoDetectionMethod.ArpSeededTargetProbe)} did not detect a compatible camera.",
+                probedHosts,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -665,6 +740,7 @@ namespace LocalCam.Networking {
             HashSet<IPAddress>? tapoBroadcastHints,
             HashSet<IPAddress>? mdnsHints,
             int maxParallelism,
+            ConcurrentDictionary<IPAddress, ProbeCacheEntry> probedHosts,
             CancellationToken cancellationToken) {
             var hostAddresses = enumeratedSubnetHosts
                 .Concat(arpSeedTable.Keys)
@@ -688,7 +764,10 @@ namespace LocalCam.Networking {
                 maxParallelism,
                 onvifHints,
                 tapoBroadcastHints,
+                ssdpHints,
+                mdnsHints,
                 $"{GetMethodDisplayName(TapoDetectionMethod.SubnetProbeFallback)} did not detect a compatible camera.",
+                probedHosts,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -698,7 +777,10 @@ namespace LocalCam.Networking {
             int maxParallelism,
             HashSet<IPAddress>? discoveredViaOnvifHints,
             HashSet<IPAddress>? discoveredViaTapoBroadcastHints,
+            HashSet<IPAddress>? discoveredViaSsdpHints,
+            HashSet<IPAddress>? discoveredViaMdnsHints,
             string noDetectionMessage,
+            ConcurrentDictionary<IPAddress, ProbeCacheEntry> probedHosts,
             CancellationToken cancellationToken) {
             var normalizedCandidates = candidateAddresses
                 .Where(static ip =>
@@ -715,13 +797,23 @@ namespace LocalCam.Networking {
                     noDetectionMessage);
             }
 
-            var probes = await ProbeHostsAsync(
-                normalizedCandidates,
+            var unseenCandidates = normalizedCandidates
+                .Where(address => !probedHosts.ContainsKey(address))
+                .ToArray();
+            var newProbes = await ProbeHostsAsync(
+                unseenCandidates,
                 discoveredViaOnvifHints,
                 discoveredViaTapoBroadcastHints,
+                discoveredViaSsdpHints,
+                discoveredViaMdnsHints,
                 maxParallelism,
                 cancellationToken).ConfigureAwait(false);
-            if (probes.Length == 0) {
+            foreach (var probe in newProbes) {
+                probedHosts.TryAdd(probe.IpAddress, probe);
+            }
+
+            if (normalizedCandidates.All(address =>
+                    !probedHosts.TryGetValue(address, out var entry) || entry.Probe is null)) {
                 return new MethodExecutionResult(
                     Array.Empty<TapoCameraDetection>(),
                     Array.Empty<TapoCameraCandidateDiagnostics>(),
@@ -730,7 +822,20 @@ namespace LocalCam.Networking {
 
             var arpPostProbeTable = await ReadArpTableAsync(cancellationToken).ConfigureAwait(false);
             var arpTable = MergeArpTables(arpSeedTable, arpPostProbeTable);
-            var orderedProbes = probes
+            var orderedProbes = normalizedCandidates
+                .Where(address => probedHosts.TryGetValue(address, out var entry) && entry.Probe is not null)
+                .Select(address => MergeProbeEvidence(
+                    probedHosts[address].Probe!,
+                    discoveredViaOnvifHints?.Contains(address) == true,
+                    discoveredViaSsdpHints?.Contains(address) == true,
+                    discoveredViaMdnsHints?.Contains(address) == true,
+                    discoveredViaTapoBroadcastHints?.Contains(address) == true))
+                .ToArray();
+            foreach (var probe in orderedProbes) {
+                probedHosts[probe.IpAddress] = new ProbeCacheEntry(probe.IpAddress, probe);
+            }
+
+            orderedProbes = orderedProbes
                 .OrderBy(static probe => IpToUInt32(probe.IpAddress))
                 .ToArray();
             var detections = new List<TapoCameraDetection>();
@@ -751,6 +856,9 @@ namespace LocalCam.Networking {
                     macAddress,
                     hasArpEntry,
                     probe.DiscoveredViaOnvif,
+                    probe.DiscoveredViaSsdp,
+                    probe.DiscoveredViaMdns,
+                    probe.DiscoveredViaRtspOptions,
                     probe.DiscoveredViaTapoBroadcast,
                     probe.DiscoveredViaTapoUnicast,
                     probe.OpenPorts);
@@ -776,13 +884,15 @@ namespace LocalCam.Networking {
             return new MethodExecutionResult(detections, candidates, statusMessage);
         }
 
-        private static async Task<HostProbeResult[]> ProbeHostsAsync(
+        private static async Task<ProbeCacheEntry[]> ProbeHostsAsync(
             IReadOnlyList<IPAddress> hostAddresses,
             HashSet<IPAddress>? discoveredViaOnvifHints,
             HashSet<IPAddress>? discoveredViaTapoBroadcastHints,
+            HashSet<IPAddress>? discoveredViaSsdpHints,
+            HashSet<IPAddress>? discoveredViaMdnsHints,
             int maxParallelism,
             CancellationToken cancellationToken) {
-            var probes = new ConcurrentBag<HostProbeResult>();
+            var probes = new ConcurrentBag<ProbeCacheEntry>();
             var completedProbeCount = 0;
             var responsiveProbeCount = 0;
 
@@ -797,9 +907,11 @@ namespace LocalCam.Networking {
                         ipAddress,
                         discoveredViaOnvifHints?.Contains(ipAddress) == true,
                         discoveredViaTapoBroadcastHints?.Contains(ipAddress) == true,
+                        discoveredViaSsdpHints?.Contains(ipAddress) == true,
+                        discoveredViaMdnsHints?.Contains(ipAddress) == true,
                         token).ConfigureAwait(false);
+                    probes.Add(new ProbeCacheEntry(ipAddress, result));
                     if (result is not null) {
-                        probes.Add(result);
                         Interlocked.Increment(ref responsiveProbeCount);
                     }
 
@@ -836,6 +948,8 @@ namespace LocalCam.Networking {
             IPAddress ipAddress,
             bool discoveredViaOnvif,
             bool discoveredViaTapoBroadcast,
+            bool discoveredViaSsdp,
+            bool discoveredViaMdns,
             CancellationToken cancellationToken) {
             var pingTask = PingHostAsync(ipAddress, timeoutMs: ProbePingTimeoutMs, cancellationToken);
             var portTasks = ProbePorts.ToDictionary(
@@ -851,12 +965,22 @@ namespace LocalCam.Networking {
                 .ToArray();
 
             var pingSucceeded = pingTask.Result;
+            var rtspResponseDetected = false;
+            foreach (var rtspPort in new[] { 554, 8554 }.Where(openPorts.Contains)) {
+                if (await TryProbeRtspOptionsAsync(ipAddress, rtspPort, cancellationToken).ConfigureAwait(false)) {
+                    rtspResponseDetected = true;
+                    break;
+                }
+            }
+
             var discoveredViaTapoUnicast =
                 await TryProbeTapoUnicastAsync(ipAddress, cancellationToken).ConfigureAwait(false);
 
             if (!pingSucceeded
                 && openPorts.Length == 0
                 && !discoveredViaOnvif
+                && !discoveredViaSsdp
+                && !discoveredViaMdns
                 && !discoveredViaTapoBroadcast
                 && !discoveredViaTapoUnicast) {
                 return null;
@@ -885,8 +1009,68 @@ namespace LocalCam.Networking {
                 openPorts,
                 httpFingerprint,
                 discoveredViaOnvif,
+                discoveredViaSsdp,
+                discoveredViaMdns,
+                rtspResponseDetected,
                 discoveredViaTapoBroadcast,
                 discoveredViaTapoUnicast);
+        }
+
+        private static HostProbeResult MergeProbeEvidence(
+            HostProbeResult probe,
+            bool discoveredViaOnvif,
+            bool discoveredViaSsdp,
+            bool discoveredViaMdns,
+            bool discoveredViaTapoBroadcast) {
+            return probe with {
+                DiscoveredViaOnvif = probe.DiscoveredViaOnvif || discoveredViaOnvif,
+                DiscoveredViaSsdp = probe.DiscoveredViaSsdp || discoveredViaSsdp,
+                DiscoveredViaMdns = probe.DiscoveredViaMdns || discoveredViaMdns,
+                DiscoveredViaTapoBroadcast = probe.DiscoveredViaTapoBroadcast || discoveredViaTapoBroadcast
+            };
+        }
+
+        private static async Task<bool> TryProbeRtspOptionsAsync(
+            IPAddress ipAddress,
+            int port,
+            CancellationToken cancellationToken) {
+            try {
+                using var client = new TcpClient();
+                await client.ConnectAsync(ipAddress, port)
+                    .WaitAsync(TimeSpan.FromMilliseconds(RtspOptionsTimeoutMs), cancellationToken)
+                    .ConfigureAwait(false);
+
+                await using var stream = client.GetStream();
+                var request = Encoding.ASCII.GetBytes(
+                    $"OPTIONS rtsp://{ipAddress}:{port}/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: LocalCam/1.0\r\n\r\n");
+                await stream.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+
+                using var response = new MemoryStream();
+                var buffer = new byte[1024];
+                while (response.Length < 16 * 1024) {
+                    var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                        .AsTask()
+                        .WaitAsync(TimeSpan.FromMilliseconds(RtspOptionsTimeoutMs), cancellationToken)
+                        .ConfigureAwait(false);
+                    if (read == 0) {
+                        break;
+                    }
+
+                    response.Write(buffer, 0, read);
+                    var text = Encoding.ASCII.GetString(response.GetBuffer(), 0, (int)response.Length);
+                    if (text.Contains("\r\n\r\n", StringComparison.Ordinal)) {
+                        return CameraDiscoveryParsers.TryParseRtspOptionsResponse(text, 1, out _);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                throw;
+            }
+            catch {
+                // RTSP capability probing is best-effort.
+            }
+
+            return false;
         }
 
         internal static CandidateEvaluation EvaluateCandidate(HostProbeResult probe, string? macAddress, string? hostName) {
@@ -894,7 +1078,10 @@ namespace LocalCam.Networking {
             var score = 0d;
 
             var hasRtsp = probe.OpenPorts.Contains(554) || probe.OpenPorts.Contains(8554);
-            var hasOnvif = probe.OpenPorts.Contains(2020);
+            var hasRtspResponse = probe.DiscoveredViaRtspOptions;
+            var hasOnvif = probe.DiscoveredViaOnvif;
+            var hasSsdpCameraDescription = probe.DiscoveredViaSsdp;
+            var hasMdnsCameraService = probe.DiscoveredViaMdns;
             var hasTapoControlPort = probe.OpenPorts.Contains(20002) || probe.OpenPorts.Contains(9999);
             var hasWebManagement = probe.OpenPorts.Contains(80)
                 || probe.OpenPorts.Contains(443)
@@ -902,19 +1089,28 @@ namespace LocalCam.Networking {
                 || probe.OpenPorts.Contains(8443);
             var hasTpLinkMac = !string.IsNullOrWhiteSpace(macAddress) && IsTpLinkMac(macAddress);
 
-            if (hasRtsp) {
+            if (hasRtspResponse) {
                 score += 2.0;
+                reasons.Add("Responded to RTSP OPTIONS");
+            }
+            else if (hasRtsp) {
+                score += 0.5;
                 reasons.Add("RTSP service port is open");
             }
 
             if (hasOnvif) {
-                score += 1.5;
-                reasons.Add("ONVIF port 2020 is open");
+                score += 2.0;
+                reasons.Add("Matched ONVIF WS-Discovery response");
             }
 
-            if (probe.DiscoveredViaOnvif) {
+            if (hasSsdpCameraDescription) {
                 score += 2.0;
-                reasons.Add("Responded to ONVIF WS-Discovery probe");
+                reasons.Add("SSDP description identifies a camera or video device");
+            }
+
+            if (hasMdnsCameraService) {
+                score += 2.0;
+                reasons.Add("Advertised a camera-related DNS-SD service");
             }
 
             if (probe.DiscoveredViaTapoBroadcast) {
@@ -971,16 +1167,18 @@ namespace LocalCam.Networking {
                 fingerprint.Contains("tapo") || fingerprint.Contains("tp-link") || fingerprint.Contains("tplink");
             var hasStrongBrandSignal = fingerprint.Contains("tapo") || hostSuggestsTpLink;
             var hasCameraService =
-                hasRtsp
+                hasRtspResponse
                 || hasOnvif
+                || hasSsdpCameraDescription
+                || hasMdnsCameraService
                 || hasTapoControlPort
-                || probe.DiscoveredViaOnvif
                 || probe.DiscoveredViaTapoBroadcast
                 || probe.DiscoveredViaTapoUnicast;
             var hasGenericCameraService =
-                hasRtsp
+                hasRtspResponse
                 || hasOnvif
-                || probe.DiscoveredViaOnvif
+                || hasSsdpCameraDescription
+                || hasMdnsCameraService
                 || probe.DiscoveredViaTapoBroadcast
                 || probe.DiscoveredViaTapoUnicast;
             var hasTpLinkSignal = hasTpLinkMac || hostSuggestsTpLink || fingerprintSuggestsTpLink;
@@ -988,13 +1186,12 @@ namespace LocalCam.Networking {
             var isLikely =
                 hasStrongBrandSignal
                 || (hasCameraService && hasTpLinkSignal)
-                || (hasRtsp && hasOnvif)
-                || (probe.DiscoveredViaOnvif && hasRtsp)
+                || (hasRtspResponse && hasOnvif)
                 || (probe.DiscoveredViaTapoBroadcast && (hasRtsp || hasOnvif || hasWebManagement))
                 || (probe.DiscoveredViaTapoUnicast && (hasRtsp || hasOnvif || hasWebManagement || hasTpLinkSignal))
                 || (hasTapoControlPort && hasTpLinkSignal && !looksLikeRepeater)
                 || (hasGenericCameraService && score >= 2.0 && !looksLikeRepeater)
-                || (hasRtsp && hasWebManagement && score >= 2.5);
+                || (hasRtspResponse && hasWebManagement && score >= 2.5);
 
             if (looksLikeRepeater
                 && !hasRtsp
@@ -1127,11 +1324,10 @@ namespace LocalCam.Networking {
 
                     var serverHeader = response.Headers.Server.ToString();
                     var authHeader = response.Headers.WwwAuthenticate.ToString();
-                    var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-                    if (body.Length > HttpFingerprintBodyLimit) {
-                        body = body[..HttpFingerprintBodyLimit];
-                    }
+                    var body = await ReadResponseContentBoundedAsync(
+                        response.Content,
+                        HttpFingerprintBodyLimit,
+                        cancellationToken).ConfigureAwait(false);
 
                     if (!string.IsNullOrWhiteSpace(serverHeader)) {
                         fingerprintParts.Add(serverHeader);
@@ -1159,6 +1355,7 @@ namespace LocalCam.Networking {
 
         private static async Task<HashSet<IPAddress>> DiscoverOnvifCameraAddressesAsync(
             IEnumerable<IPAddress> localAddresses,
+            IReadOnlyList<Ipv4Subnet> subnets,
             CancellationToken cancellationToken) {
             var discoveredAddresses = new HashSet<IPAddress>();
             var probeBytes = Encoding.UTF8.GetBytes(BuildOnvifProbePayload());
@@ -1188,22 +1385,28 @@ namespace LocalCam.Networking {
                             break;
                         }
 
-                        if (response.RemoteEndPoint.Address.AddressFamily == AddressFamily.InterNetwork
-                            && !IPAddress.IsLoopback(response.RemoteEndPoint.Address)
-                            && !IsApipaAddress(response.RemoteEndPoint.Address)) {
+                        if (!CameraDiscoveryParsers.TryParseOnvifProbeMatches(
+                                Encoding.UTF8.GetString(response.Buffer), out var serviceAddresses)) {
+                            continue;
+                        }
+
+                        if (IsLocalCandidateAddress(response.RemoteEndPoint.Address, subnets)) {
                             discoveredAddresses.Add(response.RemoteEndPoint.Address);
                         }
 
-                        foreach (var extractedAddress in ExtractIpv4Addresses(Encoding.UTF8.GetString(response.Buffer))) {
-                            discoveredAddresses.Add(extractedAddress);
+                        foreach (var serviceAddress in serviceAddresses) {
+                            if (IPAddress.TryParse(serviceAddress.Host, out var address)
+                                && IsLocalCandidateAddress(address, subnets)) {
+                                discoveredAddresses.Add(address);
+                            }
                         }
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                     throw;
                 }
-                catch {
-                    // Best-effort discovery only.
+                catch (Exception ex) {
+                    LogDiscoveryTransportFailure("ONVIF WS-Discovery", localAddress, ex);
                 }
             }
 
@@ -1266,22 +1469,22 @@ namespace LocalCam.Networking {
                             break;
                         }
 
-                        if (response.RemoteEndPoint.Address.AddressFamily == AddressFamily.InterNetwork
-                            && !IPAddress.IsLoopback(response.RemoteEndPoint.Address)
-                            && !IsApipaAddress(response.RemoteEndPoint.Address)) {
+                        if (IsLocalCandidateAddress(response.RemoteEndPoint.Address, subnets)) {
                             discoveredAddresses.Add(response.RemoteEndPoint.Address);
                         }
 
                         foreach (var extractedAddress in ExtractIpv4Addresses(Encoding.UTF8.GetString(response.Buffer))) {
-                            discoveredAddresses.Add(extractedAddress);
+                            if (IsLocalCandidateAddress(extractedAddress, subnets)) {
+                                discoveredAddresses.Add(extractedAddress);
+                            }
                         }
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                     throw;
                 }
-                catch {
-                    // Best-effort discovery only.
+                catch (Exception ex) {
+                    LogDiscoveryTransportFailure("TP-Link/Tapo UDP", localAddress, ex);
                 }
             }
 
@@ -1290,10 +1493,12 @@ namespace LocalCam.Networking {
 
         private static async Task<HashSet<IPAddress>> DiscoverSsdpAddressesAsync(
             IEnumerable<IPAddress> localAddresses,
+            IReadOnlyList<Ipv4Subnet> subnets,
             CancellationToken cancellationToken) {
             var discoveredAddresses = new HashSet<IPAddress>();
             var requestBytes = Encoding.ASCII.GetBytes(BuildSsdpSearchRequest());
             var multicastEndpoint = new IPEndPoint(SsdpMulticastAddress, SsdpDiscoveryPort);
+            var descriptionsFetched = 0;
 
             foreach (var localAddress in localAddresses.DistinctBy(static ip => ip.ToString())) {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1319,22 +1524,29 @@ namespace LocalCam.Networking {
                             break;
                         }
 
-                        if (response.RemoteEndPoint.Address.AddressFamily == AddressFamily.InterNetwork
-                            && !IPAddress.IsLoopback(response.RemoteEndPoint.Address)
-                            && !IsApipaAddress(response.RemoteEndPoint.Address)) {
-                            discoveredAddresses.Add(response.RemoteEndPoint.Address);
+                        if (!CameraDiscoveryParsers.TryParseSsdpResponse(
+                                Encoding.UTF8.GetString(response.Buffer), out var ssdpResponse)
+                            || ssdpResponse is null
+                            || !IPAddress.TryParse(ssdpResponse.Location.Host, out var locationAddress)
+                            || !IsLocalCandidateAddress(locationAddress, subnets)
+                            || descriptionsFetched >= MaxSsdpDescriptionFetches) {
+                            continue;
                         }
 
-                        foreach (var extractedAddress in ExtractSsdpAddresses(Encoding.UTF8.GetString(response.Buffer))) {
-                            discoveredAddresses.Add(extractedAddress);
+                        descriptionsFetched++;
+                        var descriptionIsCamera = await TryFetchCameraDescriptionAsync(
+                            ssdpResponse.Location,
+                            cancellationToken).ConfigureAwait(false);
+                        if (descriptionIsCamera) {
+                            discoveredAddresses.Add(locationAddress);
                         }
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                     throw;
                 }
-                catch {
-                    // Best-effort discovery only.
+                catch (Exception ex) {
+                    LogDiscoveryTransportFailure("SSDP/UPnP", localAddress, ex);
                 }
             }
 
@@ -1343,11 +1555,14 @@ namespace LocalCam.Networking {
 
         private static async Task<HashSet<IPAddress>> DiscoverMdnsCandidateAddressesAsync(
             IEnumerable<IPAddress> localAddresses,
+            IReadOnlyList<Ipv4Subnet> subnets,
             CancellationToken cancellationToken) {
             var discoveredAddresses = new HashSet<IPAddress>();
             var queries = new[] {
                 BuildMdnsQuery("_services._dns-sd._udp.local"),
-                BuildMdnsQuery("_http._tcp.local")
+                BuildMdnsQuery("_http._tcp.local"),
+                BuildMdnsQuery("_rtsp._tcp.local"),
+                BuildMdnsQuery("_onvif._tcp.local")
             };
             var multicastEndpoint = new IPEndPoint(MdnsMulticastAddress, MdnsDiscoveryPort);
 
@@ -1355,8 +1570,19 @@ namespace LocalCam.Networking {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 try {
-                    using var udpClient = new UdpClient(new IPEndPoint(localAddress, 0));
+                    using var udpClient = new UdpClient(AddressFamily.InterNetwork);
+                    udpClient.Client.ExclusiveAddressUse = false;
                     udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, MdnsDiscoveryPort));
+                    udpClient.Client.SetSocketOption(
+                        SocketOptionLevel.IP,
+                        SocketOptionName.MulticastInterface,
+                        localAddress.GetAddressBytes());
+                    udpClient.Client.SetSocketOption(
+                        SocketOptionLevel.IP,
+                        SocketOptionName.MulticastTimeToLive,
+                        255);
+                    udpClient.JoinMulticastGroup(MdnsMulticastAddress, localAddress);
 
                     foreach (var query in queries) {
                         await udpClient.SendAsync(query, query.Length, multicastEndpoint).ConfigureAwait(false);
@@ -1379,22 +1605,115 @@ namespace LocalCam.Networking {
                             break;
                         }
 
-                        if (response.RemoteEndPoint.Address.AddressFamily == AddressFamily.InterNetwork
-                            && !IPAddress.IsLoopback(response.RemoteEndPoint.Address)
-                            && !IsApipaAddress(response.RemoteEndPoint.Address)) {
-                            discoveredAddresses.Add(response.RemoteEndPoint.Address);
+                        foreach (var service in CameraDiscoveryParsers.ParseDnsSdServices(response.Buffer)) {
+                            if (!IsCameraMdnsService(service)) {
+                                continue;
+                            }
+
+                            var localServiceAddresses = service.Addresses
+                                .Where(address => IsLocalCandidateAddress(address, subnets))
+                                .ToArray();
+                            if (localServiceAddresses.Length == 0
+                                && IsLocalCandidateAddress(response.RemoteEndPoint.Address, subnets)) {
+                                discoveredAddresses.Add(response.RemoteEndPoint.Address);
+                            }
+                            else {
+                                discoveredAddresses.UnionWith(localServiceAddresses);
+                            }
                         }
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                     throw;
                 }
-                catch {
-                    // Best-effort discovery only.
+                catch (Exception ex) {
+                    LogDiscoveryTransportFailure("mDNS/DNS-SD", localAddress, ex);
                 }
             }
 
             return discoveredAddresses;
+        }
+
+        private static void LogDiscoveryTransportFailure(string protocol, IPAddress localAddress, Exception exception) {
+            JsonLogStore.Warning(
+                eventName: "camera_search_protocol_error",
+                message: "A local camera discovery protocol probe failed on a network interface.",
+                category: "camera_search",
+                data: new Dictionary<string, object?> {
+                    ["protocol"] = protocol,
+                    ["localAddress"] = localAddress.ToString(),
+                    ["exceptionType"] = exception.GetType().Name
+                });
+        }
+
+        private static bool IsCameraMdnsService(CameraDiscoveryParsers.DnsSdService service) {
+            var identity = $"{service.ServiceType} {service.InstanceName}";
+            return service.ServiceType.Contains("_rtsp._tcp", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("camera", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("video", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("surveillance", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("nvr", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("dvr", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static async Task<bool> TryFetchCameraDescriptionAsync(Uri location, CancellationToken cancellationToken) {
+            try {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromMilliseconds(1000));
+                using var request = new HttpRequestMessage(HttpMethod.Get, location);
+                request.Headers.UserAgent.ParseAdd("LocalCam/1.0");
+                using var response = await ProbeHttpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeout.Token).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode) {
+                    return false;
+                }
+
+                var body = await ReadResponseContentBoundedAsync(response.Content, 64 * 1024, timeout.Token).ConfigureAwait(false);
+                return body is not null && CameraDiscoveryParsers.IsCameraDescription(body);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                throw;
+            }
+            catch {
+                return false;
+            }
+        }
+
+        private static async Task<string?> ReadResponseContentBoundedAsync(
+            HttpContent content,
+            int maximumBytes,
+            CancellationToken cancellationToken) {
+            if (content.Headers.ContentLength is long contentLength && contentLength > maximumBytes) {
+                return null;
+            }
+
+            await using var source = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var destination = new MemoryStream(Math.Min(maximumBytes, 4096));
+            var buffer = new byte[4096];
+            while (destination.Length <= maximumBytes) {
+                var bytesToRead = (int)Math.Min(buffer.Length, maximumBytes + 1L - destination.Length);
+                if (bytesToRead <= 0) {
+                    return null;
+                }
+
+                var read = await source.ReadAsync(buffer.AsMemory(0, bytesToRead), cancellationToken).ConfigureAwait(false);
+                if (read == 0) {
+                    return Encoding.UTF8.GetString(destination.ToArray());
+                }
+
+                destination.Write(buffer, 0, read);
+            }
+
+            return null;
+        }
+
+        private static bool IsLocalCandidateAddress(IPAddress address, IReadOnlyList<Ipv4Subnet> subnets) {
+            return address.AddressFamily == AddressFamily.InterNetwork
+                && !IPAddress.IsLoopback(address)
+                && !IsApipaAddress(address)
+                && IsInCandidateSubnets(address, subnets);
         }
 
         private static IPEndPoint[] BuildTapoBroadcastEndpoints(IReadOnlyList<Ipv4Subnet> subnets) {
@@ -1502,30 +1821,6 @@ namespace LocalCam.Networking {
                 }
 
                 yield return parsedAddress;
-            }
-        }
-
-        private static IEnumerable<IPAddress> ExtractSsdpAddresses(string payload) {
-            foreach (var address in ExtractIpv4Addresses(payload)) {
-                yield return address;
-            }
-
-            foreach (var line in payload.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)) {
-                if (!line.StartsWith("LOCATION:", StringComparison.OrdinalIgnoreCase)) {
-                    continue;
-                }
-
-                var location = line["LOCATION:".Length..].Trim();
-                if (!Uri.TryCreate(location, UriKind.Absolute, out var uri)) {
-                    continue;
-                }
-
-                if (IPAddress.TryParse(uri.Host, out var address) &&
-                    address.AddressFamily == AddressFamily.InterNetwork &&
-                    !IPAddress.IsLoopback(address) &&
-                    !IsApipaAddress(address)) {
-                    yield return address;
-                }
             }
         }
 
@@ -1707,7 +2002,7 @@ namespace LocalCam.Networking {
                     }
 
                     var networkAddress = IpToUInt32(ipAddress) & PrefixMask(prefixLength);
-                    var key = $"{networkAddress}/{prefixLength}";
+                    var key = $"{ipAddress}/{networkAddress}/{prefixLength}";
                     if (!seen.Add(key)) {
                         continue;
                     }
@@ -1909,7 +2204,7 @@ namespace LocalCam.Networking {
 
         private static HttpClient CreateProbeHttpClient() {
             var handler = new HttpClientHandler {
-                ServerCertificateCustomValidationCallback = static (_, _, _, _) => true
+                AllowAutoRedirect = false
             };
 
             return new HttpClient(handler) {
@@ -1928,8 +2223,13 @@ namespace LocalCam.Networking {
             IReadOnlyList<int> OpenPorts,
             string? HttpFingerprint,
             bool DiscoveredViaOnvif,
+            bool DiscoveredViaSsdp,
+            bool DiscoveredViaMdns,
+            bool DiscoveredViaRtspOptions,
             bool DiscoveredViaTapoBroadcast,
             bool DiscoveredViaTapoUnicast);
+
+        private sealed record ProbeCacheEntry(IPAddress IpAddress, HostProbeResult? Probe);
 
         private sealed record MethodExecutionResult(
             IReadOnlyList<TapoCameraDetection> Detections,
