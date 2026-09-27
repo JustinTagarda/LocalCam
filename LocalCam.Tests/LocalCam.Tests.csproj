@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**\bin\**;**\obj\**;**\artifacts\**;**\staging\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,5 +16,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LocalCam.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="**\bin\**;**\obj\**;**\artifacts\**;**\staging\**" />
+    <None Remove="**\bin\**;**\obj\**;**\artifacts\**;**\staging\**" />
   </ItemGroup>
 </Project>

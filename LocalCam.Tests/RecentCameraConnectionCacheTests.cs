@@ -57,7 +57,11 @@ public sealed class RecentCameraConnectionCacheTests {
         var settings = new LocalCamSettings {
             RecentCameraConnections = [
                 Entry("not-an-ip", DateTimeOffset.UtcNow),
-                Entry("192.168.1.10", DateTimeOffset.UtcNow)
+                new RecentCameraConnection {
+                    IpAddress = "192.168.1.10",
+                    RtspPort = 8554,
+                    LastConfirmedPlaybackUtc = DateTimeOffset.UtcNow
+                }
             ]
         };
 
@@ -65,6 +69,7 @@ public sealed class RecentCameraConnectionCacheTests {
 
         var detection = Assert.Single(detections);
         Assert.Equal("192.168.1.10", detection.IpAddress.ToString());
+        Assert.Equal(8554, detection.RtspPort);
         Assert.Single(settings.RecentCameraConnections);
     }
 
@@ -73,6 +78,7 @@ public sealed class RecentCameraConnectionCacheTests {
         var settings = new LocalCamSettings {
             RecentCameraConnections = [new RecentCameraConnection {
                 IpAddress = "192.168.1.10",
+                RtspPort = 8554,
                 MacAddress = "AA:BB:CC:DD:EE:FF",
                 LastConfirmedPlaybackUtc = DateTimeOffset.UtcNow
             }]
@@ -85,6 +91,7 @@ public sealed class RecentCameraConnectionCacheTests {
 
         var entry = Assert.Single(settings.RecentCameraConnections);
         Assert.Equal("192.168.1.25", entry.IpAddress);
+        Assert.Equal(554, entry.RtspPort);
     }
 
     private static RecentCameraConnection Entry(string ip, DateTimeOffset at, int failures = 0) => new() { IpAddress = ip, LastConfirmedPlaybackUtc = at, ConsecutiveReconnectFailures = failures };

@@ -122,6 +122,25 @@ public sealed class CameraDiscoveryParserTests {
         Assert.False(CameraDiscoveryParsers.TryParseRtspOptionsResponse(http, 7, out _));
     }
 
+    [Fact]
+    public void TryParseRtspResponse_RecognizesAuthenticationChallenge() {
+        const string challenge = "RTSP/1.0 401 Unauthorized\r\nCSeq: 3\r\nWWW-Authenticate: Digest realm=\"camera\", nonce=\"abc\"\r\n\r\n";
+
+        Assert.True(CameraDiscoveryParsers.TryParseRtspResponse(challenge, 3, out var response));
+        Assert.True(response!.RequiresAuthentication);
+        Assert.True(response.HasAuthenticationChallenge);
+        Assert.Equal(401, response.StatusCode);
+    }
+
+    [Fact]
+    public void TryParseRtspResponse_DoesNotTreatWrongSequenceOrHttpAsRtsp() {
+        const string wrongSequence = "RTSP/1.0 401 Unauthorized\r\nCSeq: 4\r\nWWW-Authenticate: Digest realm=\"camera\"\r\n\r\n";
+        const string http = "HTTP/1.1 401 Unauthorized\r\nCSeq: 3\r\nWWW-Authenticate: Basic\r\n\r\n";
+
+        Assert.False(CameraDiscoveryParsers.TryParseRtspResponse(wrongSequence, 3, out _));
+        Assert.False(CameraDiscoveryParsers.TryParseRtspResponse(http, 3, out _));
+    }
+
     private static byte[] BuildMdnsResponse() {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);

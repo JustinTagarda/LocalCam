@@ -1136,7 +1136,7 @@ namespace LocalCam {
                     : "None recorded"),
                 ("Connection", "Protocol", "RTSP"),
                 ("Connection", "Host", detection.IpAddress.ToString()),
-                ("Connection", "Port", "554"),
+                ("Connection", "Port", detection.RtspPort.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 ("Connection", "Stream path", NormalizeStreamPath(_settings.StreamPath)),
                 ("Connection", "Stream path status", string.IsNullOrWhiteSpace(_settings.StreamPath)
                     ? "Missing"
@@ -2277,10 +2277,16 @@ namespace LocalCam {
                 SetScanningState(preferredMethod);
 
                 try {
+                    var recentCameraAddresses = RecentCameraConnectionCache
+                        .GetValidDetections(_settings, DateTimeOffset.UtcNow)
+                        .Select(static detection => detection.IpAddress)
+                        .ToArray();
                     var scanResult = await TapoCameraScanner.ScanLocalNetworkForTapoCamerasWithDiagnosticsAsync(
                         preferredFirstMethod: preferredMethod,
                         progress: progress,
-                        cancellationToken: _scanCancellation.Token);
+                        cancellationToken: _scanCancellation.Token,
+                        recentCameraAddresses: recentCameraAddresses,
+                        streamPath: _settings.StreamPath);
 
                     if (_isClosing) {
                         return;
@@ -2637,7 +2643,7 @@ namespace LocalCam {
                     break;
                 }
                 var ipAddress = _detections[i].IpAddress.ToString();
-                var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath);
+                var streamUrl = BuildRtspUrl(ipAddress, username, password, streamPath, _detections[i].RtspPort);
                 VlcMediaPlayer? mediaPlayer = null;
 
                 try {
@@ -2867,7 +2873,7 @@ namespace LocalCam {
                 SetStreamLifecyclePhase(tileIndex, isMonitorRecovery ? StreamLifecyclePhase.Restarting : StreamLifecyclePhase.Starting);
                 EnsureVideoSurfaceAttached(tileIndex);
 
-                using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath), FromType.FromLocation);
+                using var media = new Media(_libVlc, BuildRtspUrl(ipAddress, username, password, streamPath, _detections[tileIndex].RtspPort), FromType.FromLocation);
                 media.AddOption(":network-caching=300");
                 media.AddOption(":live-caching=300");
                 media.AddOption(":clock-jitter=0");
@@ -3775,7 +3781,7 @@ namespace LocalCam {
                 };
                 AttachRecordingEventHandlers(recorder, tileIndex, recordingPath);
 
-                using var media = CreateRtspPlaybackMedia(BuildRtspUrl(ipAddress, username, password, streamPath));
+                using var media = CreateRtspPlaybackMedia(BuildRtspUrl(ipAddress, username, password, streamPath, _detections[tileIndex].RtspPort));
                 media.AddOption(BuildRecordingSoutOption(recordingPath));
 
                 if (!recorder.Play(media)) {
@@ -4687,6 +4693,10 @@ namespace LocalCam {
                 return;
             }
 
+            if (method == TapoDetectionMethod.AdaptiveRtspVerificationProbe) {
+                return;
+            }
+
             var persistedValue = method.ToString();
             if (string.Equals(_settings.LastSuccessfulDetectionMethod, persistedValue, StringComparison.Ordinal)) {
                 return;
@@ -4744,6 +4754,7 @@ namespace LocalCam {
 
         private static string GetDetectionMethodDisplayName(TapoDetectionMethod method) {
             return method switch {
+                TapoDetectionMethod.AdaptiveRtspVerificationProbe => "extended network search",
                 TapoDetectionMethod.OnvifWsDiscovery => "ONVIF",
                 TapoDetectionMethod.SsdpUpnpSearch => "SSDP",
                 TapoDetectionMethod.TapoUdpBroadcast => "local discovery",
@@ -4755,10 +4766,11 @@ namespace LocalCam {
             };
         }
 
-        private static string BuildRtspUrl(string host, string username, string password, string streamPath) {
+        private static string BuildRtspUrl(string host, string username, string password, string streamPath, int port = 554) {
             var escapedUsername = Uri.EscapeDataString(username);
             var escapedPassword = Uri.EscapeDataString(password);
-            return $"rtsp://{escapedUsername}:{escapedPassword}@{host}:554/{streamPath}";
+            var supportedPort = port is 554 or 8554 ? port : 554;
+            return $"rtsp://{escapedUsername}:{escapedPassword}@{host}:{supportedPort}/{streamPath}";
         }
 
         private void Window_StateChanged(object sender, EventArgs e) {

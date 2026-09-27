@@ -184,4 +184,38 @@ Local discovery remains bounded, best-effort, and IPv4-only. Standard-protocol r
 
 Within a scan, protocol evidence is merged by IPv4 address and responsive or unresponsive host probe results are cached so the later subnet fallback does not repeat host probes. Connected IPv4 interfaces remain eligible even when they have no gateway. Tapo UDP payloads and Tapo-first internal scoring remain supported. Discovery sends no RTSP credentials and does not start media playback.
 
-Guardrails: preserve Detect and Play fallback, detection identity reconciliation, RTSP stream construction and port behavior, credentials, cache expiry/eviction, user-facing brand-neutral labels, and scan cancellation. IPv6 discovery, proprietary Hikvision/Dahua protocols, arbitrary RTSP ports, and authenticated ONVIF management remain out of scope.
+Guardrails: preserve Detect and Play fallback, detection identity reconciliation, credentials, cache expiry/eviction, user-facing brand-neutral labels, and scan cancellation. IPv6 discovery, proprietary Hikvision/Dahua protocols, arbitrary RTSP ports, and authenticated ONVIF management remain out of scope. RTSP port selection is governed by DEC-022.
+
+## DEC-022: Additive route-aware discovery and validated RTSP port
+
+Status: Partially superseded by DEC-024 (configured CIDR UI and probing only); validated RTSP-port behavior remains accepted
+
+The existing automatic local-interface scan and its method order remain intact. Settings may supply up to 16 additional IPv4 CIDR ranges from /20 through /30, with a total cap of 8,192 additional hosts. Those targets join the existing per-host unicast probing/cache and evidence merge. Invalid values are rejected by Settings and ignored by the scanner if present in legacy or manually edited settings. Protocol multicast remains local-link behavior; the application does not imply that mDNS or multicast crosses routers.
+
+Diagnostics classify observable adapter and route evidence using Windows network interfaces and the OS-selected local source address for each route lookup. The app reports Wi-Fi, virtual-network, wired/other, direct-subnet, or routed paths as available. Mesh, extender, wireless-backhaul, AP, and VMware NAT mode are not asserted unless an authoritative source exposes that fact. A configured CIDR does not create a route or bypass Windows firewall, network ACLs, NAT, or camera-side service restrictions.
+
+Port 554 remains the default playback port. Port 8554 is used only when a validated RTSP OPTIONS exchange confirms RTSP on that port; this validated endpoint is retained in the recent-camera cache and used for playback/reconnect. No credentials are sent during discovery. Existing stream path normalization, credential handling, LibVLC options, and stream lifecycle remain unchanged.
+
+This decision is based on Windows route entries exposing destination prefix, next hop, interface, and metric ([Microsoft route structure](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/mib-ipforward-row2)) and mDNS being link-local multicast ([RFC 6762](https://www.rfc-editor.org/info/rfc6762/)).
+
+## DEC-023: On-demand early probing of configured camera networks
+
+Status: Superseded by DEC-024
+
+When the user configures additional IPv4 camera CIDR ranges, LocalCam probes those targets using the existing bounded unicast host-probe and evidence-merge path before waiting on link-local discovery protocols. When no ranges are configured, the existing local discovery method order is unchanged. ARP cache priming remains limited to connected local subnets because it cannot prime individual hosts across a routed boundary. Configured ranges remain on-demand and bounded by DEC-022; they do not imply that a NAT route, firewall permission, or remote camera service exists. The new early-pass result uses normal detection reconciliation and RTSP playback behavior, but is not persisted as the preferred local discovery method.
+
+## DEC-024: Automatic bounded additional-network discovery
+
+Status: Accepted
+
+The technical Additional Camera Networks Settings field and persisted range input are removed. The established local discovery methods and their order remain unchanged. Only after those methods yield zero cameras does LocalCam run an additional unicast search. It derives private /24 candidate networks from valid recent-camera cache addresses, adapter DNS/DHCP addresses, and a bounded list of common home networks. It checks the Windows-selected route for each candidate and tests common gateway addresses. The first stage prioritizes candidates with network evidence and responsive gateways, then fills remaining range slots with the next ranked candidates. When untried candidates remain within the global limits, the second stage selects up to four more ranges regardless of whether stage one found cameras. Detections and evidence from both stages are merged. Across both stages it selects at most eight ranges and inventories at most 2,032 additional hosts from at most 16 candidates per scan. It reuses the existing per-host probe, evidence validation, cache, cancellation, and connection flow. The automatic method is not persisted as the preferred local discovery method.
+
+This is a best-effort search, not network configuration or a guarantee of camera discovery. A VM NAT guest may not expose the host's physical LAN prefix, and a guest route or firewall may still prevent unicast camera access. The app does not change Windows routes, VMware configuration, firewall rules, or camera settings. Diagnostics record candidate and selected-range counts and sources without credentials or complete RTSP URLs. The former DEC-022 range-input portion and DEC-023 early probe are historical behavior superseded by this decision; the validated 8554 behavior of DEC-022 remains.
+
+## DEC-025: Adaptive RTSP verification after local discovery
+
+Status: Accepted
+
+After the established discovery methods produce zero detections, the final adaptive pass may verify RTSP endpoints found in its selected networks. Verification is limited to 64 open RTSP endpoints across both search stages, uses bounded unauthenticated OPTIONS requests for `*` and the configured stream path, plus one DESCRIBE request for port 554, and reads no more than 16 KiB per response under existing cancellation and timeout controls. A syntactically valid RTSP response with the matching CSeq is service evidence; 401/407 with an authentication challenge is recognized as an endpoint requiring authentication. The confirmed playback port remains constrained by DEC-022: 8554 is selected only after a validated OPTIONS response.
+
+The verification pass never transmits saved RTSP credentials. Once a target is detected, the existing playback flow uses shared Settings credentials for that detected address only. Reachable non-camera devices may receive bounded ICMP/TCP checks and unauthenticated RTSP requests when their RTSP port is open; these probes do not change device configuration. Diagnostics record bounded target outcomes and never store credentials, authorization headers, or complete RTSP URLs. Existing local method order, scoring, identity merge, reconnect-cache policy, and playback behavior remain unchanged.

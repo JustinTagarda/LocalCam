@@ -35,13 +35,14 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 ## Current capabilities
 
 - Multi-method, best-effort IPv4 local-network discovery using validated ONVIF WS-Discovery, SSDP/UPnP descriptions, camera-related DNS-SD records, Tapo discovery, ARP/subnet probing, and RTSP OPTIONS service confirmation.
+- After the existing local methods find no cameras, an automatic, bounded IPv4 unicast search chooses candidate networks from recent camera addresses, adapter DNS/DHCP data, and common home-network ranges. It searches up to four /24 ranges in a first stage, then up to four more untried ranges when available, even if the first stage finds some cameras. Results from both stages are merged. The total remains capped at 2,032 hosts and 64 unauthenticated RTSP verification endpoints. Local multicast remains limited to its network link. Windows interface/route evidence distinguishes direct, routed, Wi-Fi, and recognized virtual-network paths without claiming mesh/extender/backhaul identity.
 - Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Play all/Stop All stream controls.
 - Per-camera Information view for available camera identity, discovery, RTSP configuration, playback, and recording state, with a copy action; credential values are not displayed or copied.
 - System suspend/hibernate uses the normal Stop All path and leaves detected camera tiles and connection state intact; resume does not auto-start playback or recording.
 - RTSP playback using LibVLCSharp.WPF and VideoLAN.LibVLC.Windows.
-- Stream path persistence with default `stream1`; RTSP port remains `554`.
+- Stream path persistence with default `stream1`; RTSP uses port `554` by default and may use `8554` only after a valid RTSP OPTIONS response confirms that service on the camera endpoint.
 - Detect and Play for cache-first reconnect, discovery, and playback of detected cameras.
 - Settings for credentials, reconnect recent cameras on startup, snapshot folder, recording folder, and a camera setup guide link.
 - Validation escalation to Settings for invalid RTSP configuration.
@@ -58,7 +59,7 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 ## Scope boundaries
 
-Current implementation does not provide manual IP entry, permanent camera profiles, arbitrary RTSP ports, custom RTSP URLs, authenticated device-management handshakes, IPv6 camera discovery, proprietary Hikvision/Dahua discovery, guaranteed universal compatibility, diagnostics export, or multi-page navigation.
+Current implementation does not provide manual single-IP entry, permanent camera profiles, arbitrary RTSP ports beyond validated `554`/`8554`, custom RTSP URLs, authenticated device-management handshakes, IPv6 camera discovery, proprietary Hikvision/Dahua discovery, guaranteed universal compatibility, diagnostics export, or multi-page navigation. Routed scanning requires a reachable IPv4 path and compatible firewall/routing configuration; the app cannot create a missing VM NAT route.
 
 Store Basic/Premium behavior applies to packaged Store builds. Unpackaged development builds hide Store entitlement and upgrade UI.
 

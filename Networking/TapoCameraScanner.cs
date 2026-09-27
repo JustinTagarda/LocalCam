@@ -16,7 +16,8 @@ namespace LocalCam.Networking {
         string? MacAddress,
         IReadOnlyList<int> OpenPorts,
         double ConfidenceScore,
-        string DetectionReason);
+        string DetectionReason,
+        int RtspPort = 554);
 
     public sealed record TapoCameraCandidateDiagnostics(
         IPAddress IpAddress,
@@ -32,7 +33,9 @@ namespace LocalCam.Networking {
         bool DiscoveredViaRtspOptions,
         bool DiscoveredViaTapoBroadcast,
         bool DiscoveredViaTapoUnicast,
-        IReadOnlyList<int> OpenPorts);
+        IReadOnlyList<int> OpenPorts,
+        bool DiscoveredViaRtspDescribe = false,
+        bool RtspAuthenticationRequired = false);
 
     public sealed record TapoScanDiagnostics(
         IReadOnlyList<string> SubnetsScanned,
@@ -54,7 +57,8 @@ namespace LocalCam.Networking {
         MdnsDnsSdSweep,
         ArpSeededTargetProbe,
         SubnetProbeFallback,
-        RtspOptionsProbe
+        RtspOptionsProbe,
+        AdaptiveRtspVerificationProbe
     }
 
     public sealed record TapoDetectionMethodAttempt(
@@ -152,13 +156,16 @@ namespace LocalCam.Networking {
             int maxParallelism = 64,
             TapoDetectionMethod? preferredFirstMethod = null,
             IProgress<TapoCameraScanActivity>? progress = null,
-            CancellationToken cancellationToken = default) {
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<IPAddress>? recentCameraAddresses = null,
+            string? streamPath = null) {
             if (maxParallelism < 1) {
                 throw new ArgumentOutOfRangeException(nameof(maxParallelism), "Parallelism must be at least 1.");
             }
 
             var startedAtUtc = DateTimeOffset.UtcNow;
             var subnets = GetCandidateSubnets();
+            var networkInterfaces = CameraNetworkTopology.GetInterfaces();
             JsonLogStore.Information(
                 eventName: "camera_search_started",
                 message: "Starting local network scan for likely Tapo cameras.",
@@ -166,7 +173,9 @@ namespace LocalCam.Networking {
                 data: new Dictionary<string, object?> {
                     ["maxParallelism"] = maxParallelism,
                     ["subnetCount"] = subnets.Count,
-                    ["subnets"] = subnets.Select(FormatSubnetDiagnostic).ToArray()
+                    ["subnets"] = subnets.Select(FormatSubnetDiagnostic).ToArray(),
+                    ["networkInterfaces"] = networkInterfaces,
+                    ["networkKinds"] = networkInterfaces.Select(static item => item.Kind).Distinct().ToArray()
                 });
 
             if (preferredFirstMethod is TapoDetectionMethod preferredMethod) {
@@ -179,10 +188,11 @@ namespace LocalCam.Networking {
                     });
             }
 
-            var enumeratedSubnetHosts = subnets
+            var subnetHosts = subnets
                 .SelectMany(EnumerateHostAddresses)
                 .DistinctBy(static ip => ip.ToString())
                 .ToArray();
+            var enumeratedSubnetHosts = subnetHosts;
 
             JsonLogStore.Information(
                 eventName: "camera_search_phase_complete",
@@ -201,11 +211,11 @@ namespace LocalCam.Networking {
                 category: "camera_search",
                 data: new Dictionary<string, object?> {
                     ["phase"] = "prime_arp",
-                    ["hostCount"] = enumeratedSubnetHosts.Length
+                    ["hostCount"] = subnetHosts.Length
                 });
 
             try {
-                await PrimeArpCacheAsync(enumeratedSubnetHosts, cancellationToken).ConfigureAwait(false);
+                await PrimeArpCacheAsync(subnetHosts, cancellationToken).ConfigureAwait(false);
 
                 JsonLogStore.Information(
                     eventName: "camera_search_phase_complete",
@@ -214,7 +224,7 @@ namespace LocalCam.Networking {
                     data: new Dictionary<string, object?> {
                         ["phase"] = "prime_arp",
                         ["elapsedMs"] = (long)(DateTimeOffset.UtcNow - startedAtUtc).TotalMilliseconds,
-                        ["hostCount"] = enumeratedSubnetHosts.Length
+                        ["hostCount"] = subnetHosts.Length
                     });
 
                 JsonLogStore.Information(
@@ -241,9 +251,9 @@ namespace LocalCam.Networking {
                     .OrderBy(static s => s.NetworkAddress)
                     .ThenBy(static s => s.PrefixLength)
                     .Select(FormatSubnetDiagnostic)
-                    .ToArray();
+                    .ToList();
 
-                if (enumeratedSubnetHosts.Length == 0 && arpSeedTable.Count == 0) {
+                if (enumeratedSubnetHosts.Length == 0 && arpSeedTable.Count == 0 && networkInterfaces.Count == 0) {
                     var emptyResult = new TapoCameraScanResult(
                         Array.Empty<TapoCameraDetection>(),
                         new TapoScanDiagnostics(
@@ -288,9 +298,13 @@ namespace LocalCam.Networking {
                 var aggregatedDetections = new Dictionary<string, TapoCameraDetection>(StringComparer.Ordinal);
                 var probedHosts = new ConcurrentDictionary<IPAddress, ProbeCacheEntry>();
                 TapoDetectionMethod? successfulMethod = null;
+                var adaptiveHostCount = 0;
 
                 foreach (var method in BuildAttemptOrder(preferredFirstMethod)) {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (method == TapoDetectionMethod.AdaptiveRtspVerificationProbe && aggregatedDetections.Count > 0) {
+                        break;
+                    }
 
                     var startMessage = BuildMethodStartMessage(method, preferredFirstMethod == method);
                     progress?.Report(new TapoCameraScanActivity(method, startMessage));
@@ -308,6 +322,150 @@ namespace LocalCam.Networking {
                     try {
                         MethodExecutionResult executionResult;
                         switch (method) {
+                            case TapoDetectionMethod.AdaptiveRtspVerificationProbe: {
+                                var candidates = AdaptiveCameraNetworkPlanner.BuildCandidates(
+                                    networkInterfaces,
+                                    recentCameraAddresses ?? []);
+                                var routedCandidates = candidates
+                                    .Where(candidate => CameraNetworkTopology.ClassifyRoute(
+                                        candidate.Range.EnumerateHosts().First(), networkInterfaces) != "no-local-route-evidence")
+                                    .ToArray();
+                                var responsiveGateways = await ProbeAdaptiveGatewayCluesAsync(
+                                    routedCandidates, cancellationToken).ConfigureAwait(false);
+                                var initialRanges = AdaptiveCameraNetworkPlanner.SelectRangesForProbe(
+                                    routedCandidates, responsiveGateways);
+                                var attemptedRanges = new HashSet<Ipv4CidrRange>();
+                                var allCandidates = new List<TapoCameraCandidateDiagnostics>();
+                                var allDetections = new List<TapoCameraDetection>();
+                                var rtspEndpointCount = 0;
+
+                                for (var stageIndex = 0;
+                                     stageIndex < AdaptiveCameraNetworkPlanner.MaxExpansionStages
+                                     && attemptedRanges.Count < AdaptiveCameraNetworkPlanner.MaxTotalExpandedRanges;
+                                     stageIndex++) {
+                                    cancellationToken.ThrowIfCancellationRequested();
+                                    var selectedRanges = stageIndex == 0
+                                        ? initialRanges
+                                        : AdaptiveCameraNetworkPlanner.SelectNextStageRangesForProbe(
+                                            routedCandidates,
+                                            responsiveGateways,
+                                            attemptedRanges);
+                                    if (selectedRanges.Count == 0) {
+                                        break;
+                                    }
+
+                                    foreach (var selectedRange in selectedRanges) {
+                                        attemptedRanges.Add(selectedRange.Range);
+                                        subnetDiagnostics.Add($"{selectedRange.Range} (automatic unicast search)");
+                                    }
+
+                                    var adaptiveHosts = selectedRanges
+                                        .SelectMany(static candidate => candidate.Range.EnumerateHosts())
+                                        .DistinctBy(static address => address.ToString())
+                                        .ToArray();
+                                    adaptiveHostCount += adaptiveHosts.Length;
+                                    JsonLogStore.Information(
+                                        eventName: "camera_search_adaptive_plan",
+                                        message: "Selected bounded additional camera networks from current network evidence.",
+                                        category: "camera_search",
+                                        data: new Dictionary<string, object?> {
+                                            ["stage"] = stageIndex + 1,
+                                            ["stageLimit"] = AdaptiveCameraNetworkPlanner.MaxExpansionStages,
+                                            ["candidateRangeCount"] = candidates.Count,
+                                            ["routedRangeCount"] = routedCandidates.Length,
+                                            ["responsiveGatewayCount"] = responsiveGateways.Count,
+                                            ["selectedRanges"] = selectedRanges.Select(static candidate => candidate.Range.ToString()).ToArray(),
+                                            ["sources"] = selectedRanges.Select(static candidate => candidate.Source).ToArray(),
+                                            ["targetRouteClasses"] = selectedRanges.Select(candidate => CameraNetworkTopology.ClassifyRoute(
+                                                candidate.Range.EnumerateHosts().First(), networkInterfaces)).ToArray(),
+                                            ["stageHostCount"] = adaptiveHosts.Length,
+                                            ["cumulativeHostCount"] = adaptiveHostCount
+                                        });
+
+                                    var stageResult = await ProbeAndEvaluateCandidatesAsync(
+                                        adaptiveHosts,
+                                        arpSeedTable,
+                                        maxParallelism,
+                                        discoveredViaOnvifHints: null,
+                                        discoveredViaTapoBroadcastHints: null,
+                                        discoveredViaSsdpHints: null,
+                                        discoveredViaMdnsHints: null,
+                                        "Extended network search did not detect a compatible camera.",
+                                        probedHosts,
+                                        cancellationToken).ConfigureAwait(false);
+                                    allCandidates.AddRange(stageResult.Candidates);
+                                    allDetections.AddRange(stageResult.Detections);
+
+                                    var remainingRtspTargets = AdaptiveRtspVerificationProbe.MaxTargets - rtspEndpointCount;
+                                    var rtspTargets = AdaptiveRtspVerificationProbe.SelectTargets(
+                                        stageResult.Candidates,
+                                        stageResult.Detections,
+                                        remainingRtspTargets);
+                                    rtspEndpointCount += rtspTargets.Count;
+                                    var rtspOutcomes = await AdaptiveRtspVerificationProbe.ProbeAsync(
+                                        rtspTargets,
+                                        streamPath,
+                                        maxParallelism,
+                                        cancellationToken).ConfigureAwait(false);
+                                    var verifiedDetections = new List<TapoCameraDetection>();
+                                    var verifiedCandidates = new List<TapoCameraCandidateDiagnostics>();
+                                    foreach (var outcome in rtspOutcomes.Where(static outcome => outcome.Verified)) {
+                                        var requiresAuthentication = outcome.AuthenticationRequired;
+                                        var reason = outcome.AuthenticationChallengeReceived
+                                            ? $"RTSP endpoint requested authentication after {outcome.RequestMethod}."
+                                            : $"RTSP endpoint responded to {outcome.RequestMethod} with status {outcome.StatusCode}.";
+                                        var candidate = outcome.Target.Candidate with {
+                                            IsLikelyTapo = true,
+                                            ConfidenceScore = Math.Max(outcome.Target.Candidate.ConfidenceScore, 2.0),
+                                            Reason = reason,
+                                            DiscoveredViaRtspOptions = outcome.Target.Candidate.DiscoveredViaRtspOptions || outcome.OptionsConfirmed,
+                                            DiscoveredViaRtspDescribe = outcome.Target.Candidate.DiscoveredViaRtspDescribe || outcome.DescribeConfirmed,
+                                            RtspAuthenticationRequired = requiresAuthentication
+                                        };
+                                        verifiedCandidates.Add(candidate);
+                                        verifiedDetections.Add(new TapoCameraDetection(
+                                            outcome.Target.IpAddress,
+                                            candidate.HostName,
+                                            candidate.MacAddress,
+                                            candidate.OpenPorts,
+                                            candidate.ConfidenceScore,
+                                            candidate.Reason,
+                                            outcome.Target.Port));
+                                    }
+
+                                    allCandidates.AddRange(verifiedCandidates);
+                                    allDetections.AddRange(verifiedDetections);
+                                    JsonLogStore.Information(
+                                        eventName: "camera_search_adaptive_rtsp_verification",
+                                        message: "Adaptive RTSP verification completed for reachable RTSP endpoints.",
+                                        category: "camera_search",
+                                        data: new Dictionary<string, object?> {
+                                            ["stage"] = stageIndex + 1,
+                                            ["eligibleEndpointCount"] = rtspTargets.Count,
+                                            ["cumulativeEndpointCount"] = rtspEndpointCount,
+                                            ["verifiedEndpointCount"] = rtspOutcomes.Count(static outcome => outcome.Verified),
+                                            ["authenticationChallengeCount"] = rtspOutcomes.Count(static outcome => outcome.AuthenticationChallengeReceived),
+                                            ["timeoutCount"] = rtspOutcomes.Count(static outcome => outcome.Outcome == "timeout"),
+                                            ["unverifiedEndpointCount"] = rtspOutcomes.Count(static outcome => !outcome.Verified),
+                                            ["targetOutcomes"] = rtspOutcomes.Select(static outcome => new {
+                                                ipAddress = outcome.Target.IpAddress.ToString(),
+                                                port = outcome.Target.Port,
+                                                outcome.Outcome,
+                                                outcome.RequestMethod,
+                                                outcome.StatusCode,
+                                                outcome.AuthenticationRequired,
+                                                outcome.AuthenticationChallengeReceived
+                                            }).ToArray()
+                                        });
+
+                                }
+
+                                var statusMessage = allDetections.Count > 0
+                                    ? $"Detected {allDetections.Count} {Pluralize(allDetections.Count, "camera")}."
+                                    : "Extended network search did not detect a compatible camera.";
+                                executionResult = new MethodExecutionResult(allDetections, allCandidates, statusMessage);
+                                break;
+                            }
                             case TapoDetectionMethod.OnvifWsDiscovery:
                                 onvifHints ??= await DiscoverOnvifCameraAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
                                 executionResult = await ExecuteHintMethodAsync(
@@ -429,15 +587,25 @@ namespace LocalCam.Networking {
                         }
 
                         progress?.Report(new TapoCameraScanActivity(method, executionResult.StatusMessage));
-                        JsonLogStore.Warning(
-                            eventName: "camera_search_method_no_detections",
-                            message: executionResult.StatusMessage,
-                            category: "camera_search",
-                            data: new Dictionary<string, object?> {
-                                ["method"] = method.ToString(),
-                                ["durationMs"] = durationMs,
-                                ["candidateCount"] = executionResult.Candidates.Count
-                            });
+                        var methodLogData = new Dictionary<string, object?> {
+                            ["method"] = method.ToString(),
+                            ["durationMs"] = durationMs,
+                            ["candidateCount"] = executionResult.Candidates.Count,
+                            ["detectionCount"] = executionResult.Detections.Count
+                        };
+                        if (executionResult.Detections.Count > 0) {
+                            JsonLogStore.Information(
+                                eventName: "camera_search_method_completed",
+                                message: executionResult.StatusMessage,
+                                category: "camera_search",
+                                data: methodLogData);
+                        } else {
+                            JsonLogStore.Warning(
+                                eventName: "camera_search_method_no_detections",
+                                message: executionResult.StatusMessage,
+                                category: "camera_search",
+                                data: methodLogData);
+                        }
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                         throw;
@@ -473,7 +641,7 @@ namespace LocalCam.Networking {
                 var finalResult = BuildScanResult(
                     detections,
                     subnetDiagnostics,
-                    enumeratedSubnetHosts.Length,
+                    enumeratedSubnetHosts.Length + adaptiveHostCount,
                     arpSeedTable.Count,
                     onvifHints?.Count ?? 0,
                     ssdpHints?.Count ?? 0,
@@ -550,7 +718,7 @@ namespace LocalCam.Networking {
         }
 
         private static IReadOnlyList<TapoDetectionMethod> BuildAttemptOrder(TapoDetectionMethod? preferredFirstMethod) {
-            var orderedMethods = new List<TapoDetectionMethod>(DetectionMethodOrder.Length);
+            var orderedMethods = new List<TapoDetectionMethod>(DetectionMethodOrder.Length + 1);
             if (preferredFirstMethod is TapoDetectionMethod preferred && DetectionMethodOrder.Contains(preferred)) {
                 orderedMethods.Add(preferred);
             }
@@ -560,6 +728,8 @@ namespace LocalCam.Networking {
                     orderedMethods.Add(method);
                 }
             }
+
+            orderedMethods.Add(TapoDetectionMethod.AdaptiveRtspVerificationProbe);
 
             return orderedMethods;
         }
@@ -573,6 +743,7 @@ namespace LocalCam.Networking {
 
         private static string GetMethodDisplayName(TapoDetectionMethod method) {
             return method switch {
+                TapoDetectionMethod.AdaptiveRtspVerificationProbe => "extended network search",
                 TapoDetectionMethod.OnvifWsDiscovery => "ONVIF WS-Discovery",
                 TapoDetectionMethod.SsdpUpnpSearch => "SSDP/UPnP search",
                 TapoDetectionMethod.TapoUdpBroadcast => "local discovery",
@@ -633,6 +804,8 @@ namespace LocalCam.Networking {
                             DiscoveredViaSsdp = candidate.DiscoveredViaSsdp || existing.DiscoveredViaSsdp,
                             DiscoveredViaMdns = candidate.DiscoveredViaMdns || existing.DiscoveredViaMdns,
                             DiscoveredViaRtspOptions = candidate.DiscoveredViaRtspOptions || existing.DiscoveredViaRtspOptions,
+                            DiscoveredViaRtspDescribe = candidate.DiscoveredViaRtspDescribe || existing.DiscoveredViaRtspDescribe,
+                            RtspAuthenticationRequired = candidate.RtspAuthenticationRequired || existing.RtspAuthenticationRequired,
                             DiscoveredViaTapoBroadcast = candidate.DiscoveredViaTapoBroadcast || existing.DiscoveredViaTapoBroadcast,
                             DiscoveredViaTapoUnicast = candidate.DiscoveredViaTapoUnicast || existing.DiscoveredViaTapoUnicast,
                             OpenPorts = candidate.OpenPorts.Union(existing.OpenPorts).Order().ToArray()
@@ -649,6 +822,8 @@ namespace LocalCam.Networking {
                         DiscoveredViaSsdp = candidate.DiscoveredViaSsdp || existing.DiscoveredViaSsdp,
                         DiscoveredViaMdns = candidate.DiscoveredViaMdns || existing.DiscoveredViaMdns,
                         DiscoveredViaRtspOptions = candidate.DiscoveredViaRtspOptions || existing.DiscoveredViaRtspOptions,
+                        DiscoveredViaRtspDescribe = candidate.DiscoveredViaRtspDescribe || existing.DiscoveredViaRtspDescribe,
+                        RtspAuthenticationRequired = candidate.RtspAuthenticationRequired || existing.RtspAuthenticationRequired,
                         DiscoveredViaTapoBroadcast = candidate.DiscoveredViaTapoBroadcast || existing.DiscoveredViaTapoBroadcast,
                         DiscoveredViaTapoUnicast = candidate.DiscoveredViaTapoUnicast || existing.DiscoveredViaTapoUnicast,
                         OpenPorts = candidate.OpenPorts.Union(existing.OpenPorts).Order().ToArray()
@@ -667,6 +842,30 @@ namespace LocalCam.Networking {
                     aggregatedDetections[key] = detection;
                 }
             }
+        }
+
+        private static async Task<HashSet<Ipv4CidrRange>> ProbeAdaptiveGatewayCluesAsync(
+            IReadOnlyList<AdaptiveCameraNetworkCandidate> candidates,
+            CancellationToken cancellationToken) {
+            var responsive = new ConcurrentDictionary<Ipv4CidrRange, byte>();
+            await Parallel.ForEachAsync(candidates.Where(static candidate => !candidate.HasNetworkEvidence),
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 8 },
+                async (candidate, token) => {
+                    var firstHost = candidate.Range.EnumerateHosts().First();
+                    var lastHost = candidate.Range.EnumerateHosts().Last();
+                    var probes = new[] {
+                        PingHostAsync(firstHost, 350, token),
+                        ProbeTcpPortAsync(firstHost, 80, 350, token),
+                        ProbeTcpPortAsync(firstHost, 443, 350, token),
+                        PingHostAsync(lastHost, 350, token),
+                        ProbeTcpPortAsync(lastHost, 80, 350, token),
+                        ProbeTcpPortAsync(lastHost, 443, 350, token)
+                    };
+                    if ((await Task.WhenAll(probes).ConfigureAwait(false)).Any(static answer => answer)) {
+                        responsive.TryAdd(candidate.Range, 0);
+                    }
+                }).ConfigureAwait(false);
+            return responsive.Keys.ToHashSet();
         }
 
         private static async Task<MethodExecutionResult> ExecuteHintMethodAsync(
@@ -874,7 +1073,8 @@ namespace LocalCam.Networking {
                     macAddress,
                     probe.OpenPorts,
                     Math.Round(evaluation.Score, 2),
-                    evaluation.Reason));
+                    evaluation.Reason,
+                    probe.RtspPort));
             }
 
             var statusMessage = detections.Count > 0
@@ -966,9 +1166,11 @@ namespace LocalCam.Networking {
 
             var pingSucceeded = pingTask.Result;
             var rtspResponseDetected = false;
+            var confirmedRtspPort = 554;
             foreach (var rtspPort in new[] { 554, 8554 }.Where(openPorts.Contains)) {
                 if (await TryProbeRtspOptionsAsync(ipAddress, rtspPort, cancellationToken).ConfigureAwait(false)) {
                     rtspResponseDetected = true;
+                    confirmedRtspPort = rtspPort;
                     break;
                 }
             }
@@ -1008,6 +1210,7 @@ namespace LocalCam.Networking {
                 ipAddress,
                 openPorts,
                 httpFingerprint,
+                confirmedRtspPort,
                 discoveredViaOnvif,
                 discoveredViaSsdp,
                 discoveredViaMdns,
@@ -2222,6 +2425,7 @@ namespace LocalCam.Networking {
             IPAddress IpAddress,
             IReadOnlyList<int> OpenPorts,
             string? HttpFingerprint,
+            int RtspPort,
             bool DiscoveredViaOnvif,
             bool DiscoveredViaSsdp,
             bool DiscoveredViaMdns,

@@ -190,6 +190,7 @@ namespace LocalCam.Services {
 
         private static RecentCameraConnection CloneRecentConnection(RecentCameraConnection entry) => new() {
             IpAddress = entry.IpAddress,
+            RtspPort = entry.RtspPort is 554 or 8554 ? entry.RtspPort : 554,
             MacAddress = entry.MacAddress,
             HostName = entry.HostName,
             DetectionMethod = entry.DetectionMethod,

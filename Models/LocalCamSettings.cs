@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 namespace LocalCam.Models {
     public sealed class RecentCameraConnection {
         public string IpAddress { get; set; } = string.Empty;
+        public int RtspPort { get; set; } = 554;
         public string? MacAddress { get; set; }
         public string? HostName { get; set; }
         public string? DetectionMethod { get; set; }

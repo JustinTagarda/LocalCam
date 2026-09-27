@@ -15,6 +15,11 @@ internal static class CameraDiscoveryParsers {
     internal sealed record SsdpResponse(string SearchTarget, string UniqueServiceName, Uri Location);
     internal sealed record DnsSdService(string InstanceName, string ServiceType, string TargetHost, int Port, IReadOnlyList<string> TextRecords, IReadOnlyList<IPAddress> Addresses);
     internal sealed record RtspOptionsResponse(string Version, int StatusCode, IReadOnlyDictionary<string, string> Headers);
+    internal sealed record RtspResponse(string Version, int StatusCode, IReadOnlyDictionary<string, string> Headers) {
+        public bool RequiresAuthentication => StatusCode is 401 or 407;
+        public bool HasAuthenticationChallenge =>
+            RequiresAuthentication && (Headers.ContainsKey("WWW-Authenticate") || Headers.ContainsKey("Proxy-Authenticate"));
+    }
 
     public static bool TryParseOnvifProbeMatches(string payload, out IReadOnlyList<Uri> serviceAddresses) {
         serviceAddresses = Array.Empty<Uri>();
@@ -210,6 +215,16 @@ internal static class CameraDiscoveryParsers {
 
     public static bool TryParseRtspOptionsResponse(string payload, int expectedCSeq, out RtspOptionsResponse? response) {
         response = null;
+        if (!TryParseRtspResponse(payload, expectedCSeq, out var parsed)) {
+            return false;
+        }
+
+        response = new RtspOptionsResponse(parsed!.Version, parsed.StatusCode, parsed.Headers);
+        return true;
+    }
+
+    public static bool TryParseRtspResponse(string payload, int expectedCSeq, out RtspResponse? response) {
+        response = null;
         if (payload.Length > 16 * 1024) {
             return false;
         }
@@ -247,7 +262,7 @@ internal static class CameraDiscoveryParsers {
             return false;
         }
 
-        response = new RtspOptionsResponse(parts[0], statusCode, headers);
+        response = new RtspResponse(parts[0], statusCode, headers);
         return true;
     }
 

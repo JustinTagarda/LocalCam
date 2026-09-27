@@ -16,6 +16,7 @@ public sealed class SettingsMergeTests {
             ReconnectRecentCamerasOnStartup = true,
             RecentCameraConnections = [new RecentCameraConnection {
                 IpAddress = "192.168.1.20",
+                RtspPort = 8554,
                 LastConfirmedPlaybackUtc = DateTimeOffset.UtcNow,
                 ConsecutiveReconnectFailures = 1
             }],
@@ -58,6 +59,7 @@ public sealed class SettingsMergeTests {
         Assert.Equal(source.MainWindowHeight, clone.MainWindowHeight);
         Assert.NotSame(source.RecentCameraConnections, clone.RecentCameraConnections);
         Assert.Equal(source.RecentCameraConnections[0].IpAddress, clone.RecentCameraConnections[0].IpAddress);
+        Assert.Equal(source.RecentCameraConnections[0].RtspPort, clone.RecentCameraConnections[0].RtspPort);
         Assert.Equal(source.RecentCameraConnections[0].ConsecutiveReconnectFailures, clone.RecentCameraConnections[0].ConsecutiveReconnectFailures);
     }
 

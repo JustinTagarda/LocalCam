@@ -21,7 +21,7 @@ namespace LocalCam.Services {
             return settings.RecentCameraConnections
                 .Select(entry => new TapoCameraDetection(
                     IPAddress.Parse(entry.IpAddress), entry.HostName, entry.MacAddress,
-                    Array.Empty<int>(), 0, "Recent successful connection"))
+                    Array.Empty<int>(), 0, "Recent successful connection", entry.RtspPort is 554 or 8554 ? entry.RtspPort : 554))
                 .ToArray();
         }
 
@@ -33,6 +33,7 @@ namespace LocalCam.Services {
             }
 
             entry.IpAddress = detection.IpAddress.ToString();
+            entry.RtspPort = detection.RtspPort is 554 or 8554 ? detection.RtspPort : 554;
             entry.MacAddress = detection.MacAddress;
             entry.HostName = detection.HostName;
             entry.LastConfirmedPlaybackUtc = now;

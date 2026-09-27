@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LocalCam.Models;
 using LocalCam.Services;
 using Xunit;
@@ -37,6 +38,33 @@ public sealed class SettingsStoreTests {
             SettingsStore.Save(settings);
             var persistedJson = File.ReadAllText(Path.Combine(directory, "settings.json"));
             Assert.DoesNotContain("StoreUpdate", persistedJson);
+        }
+        finally {
+            scope.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LegacyCameraRangeSettingIsDroppedAndValidatedRtspPortPersists() {
+        var (directory, scope) = CreateSettingsDirectory();
+        try {
+            SettingsStore.Save(new LocalCamSettings {
+                RecentCameraConnections = [new RecentCameraConnection {
+                    IpAddress = "192.168.254.12",
+                    RtspPort = 8554,
+                    LastConfirmedPlaybackUtc = DateTimeOffset.UtcNow
+                }]
+            });
+            var settingsPath = Path.Combine(directory, "settings.json");
+            var legacyJson = JsonNode.Parse(File.ReadAllText(settingsPath))!;
+            legacyJson["AdditionalCameraRanges"] = "192.168.254.0/24";
+            File.WriteAllText(settingsPath, legacyJson.ToJsonString());
+
+            Assert.True(SettingsStore.TryLoad(out var settings));
+            Assert.Equal(8554, settings.RecentCameraConnections.Single().RtspPort);
+            SettingsStore.Save(settings);
+            Assert.DoesNotContain("AdditionalCameraRanges", File.ReadAllText(settingsPath));
         }
         finally {
             scope.Dispose();

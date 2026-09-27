@@ -7,6 +7,25 @@ namespace LocalCam.Tests;
 
 public sealed class TapoCameraScannerTests {
     [Fact]
+    public void AdaptiveProbeRemainsAfterEstablishedLocalMethods() {
+        var method = typeof(TapoCameraScanner).GetMethod("BuildAttemptOrder", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var ordered = Assert.IsAssignableFrom<IReadOnlyList<TapoDetectionMethod>>(
+            method!.Invoke(null, [null]));
+        Assert.Equal([
+            TapoDetectionMethod.OnvifWsDiscovery,
+            TapoDetectionMethod.SsdpUpnpSearch,
+            TapoDetectionMethod.TapoUdpBroadcast,
+            TapoDetectionMethod.MdnsDnsSdSweep,
+            TapoDetectionMethod.ArpSeededTargetProbe,
+            TapoDetectionMethod.RtspOptionsProbe,
+            TapoDetectionMethod.SubnetProbeFallback,
+            TapoDetectionMethod.AdaptiveRtspVerificationProbe
+        ], ordered);
+    }
+
+    [Fact]
     public void EvaluateCandidate_ReturnsTrue_ForRtspOptionsResponderWithoutTapoSignals() {
         var probe = CreateHostProbeResult(
             IPAddress.Parse("192.168.1.50"),
@@ -74,6 +93,7 @@ public sealed class TapoCameraScannerTests {
                 ipAddress,
                 openPorts,
                 httpFingerprint,
+                554,
                 discoveredViaOnvif,
                 discoveredViaSsdp,
                 discoveredViaMdns,

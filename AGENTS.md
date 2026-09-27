@@ -88,6 +88,7 @@
   - Local-network discovery is heuristic and best-effort.
   - Scanner uses multi-method probing with persisted preferred detection method.
   - Detection and scan lifecycle statuses are surfaced in the main window.
+  - Settings can optionally store bounded IPv4 CIDR ranges for routed camera networks; automatic active-interface scanning remains enabled regardless of that setting.
 
 - Streaming:
   - RTSP playback uses LibVLCSharp.
@@ -235,6 +236,15 @@ The app remains Tapo-first and may continue using:
 
 The app may discover non-Tapo cameras when they expose compatible services, especially RTSP and ONVIF.
 
+Route-aware discovery additions:
+
+- Preserve the existing automatic local-network methods, ordering, evidence scoring, identity merge, cancellation, and per-host probe cache.
+- Optional Settings CIDR ranges are restricted to IPv4 /20 through /30, at most 16 entries and 8,192 additional hosts total.
+- Routed ranges add unicast host probes. Do not claim that local-link mDNS or multicast discovery crosses routers; a CIDR does not create a route or bypass NAT/firewall policy.
+- Use Windows-observable interface and selected-route data only. Do not infer exact mesh, extender, AP, wireless-backhaul, or VMware NAT mode from an adapter label alone.
+- Discovery may select RTSP port 8554 only after a validated RTSP OPTIONS reply confirms the service. Port 554 remains the default. Preserve the confirmed port in recent-camera reconnect data.
+- Never send credentials during discovery. Keep stream path normalization, credential handling, LibVLC options, and stream lifecycle unchanged.
+
 Do not claim or imply universal camera compatibility.
 
 Avoid wording such as:
@@ -275,12 +285,12 @@ Do not change the default stream path unless explicitly requested.
 
 ### Streaming Requirements
 
-RTSP streaming behavior must remain unchanged during brand-neutral UI work.
+RTSP streaming behavior must remain unchanged during brand-neutral UI work, except that the explicitly approved route-aware discovery feature may carry a validated RTSP service port of 8554 from discovery into playback and recent-camera reconnect.
 
 Do not change:
 
-- RTSP URL construction
-- RTSP port behavior
+- RTSP URL credential escaping and normalized path behavior
+- arbitrary RTSP ports; only validated 554 and 8554 are supported, with 554 default
 - credential handling
 - stream path normalization
 - LibVLC options
@@ -290,7 +300,7 @@ Do not change:
 
 Current RTSP URL construction may remain:
 
-`rtsp://{username}:{password}@{host}:554/{streamPath}`
+`rtsp://{username}:{password}@{host}:{validatedPort}/{streamPath}` where `validatedPort` is `554` by default or `8554` only after a valid RTSP OPTIONS response.
 
 ## Stream Start Validation and Settings Escalation Policy
 

@@ -37,11 +37,13 @@ flowchart TD
 - `MainWindow` uses standard WPF window chrome; native window management is delegated to Windows while window-bound persistence remains owned by the main-window lifecycle.
 - Window framing: `MainWindow` and `SettingsWindow` use native WPF window frames. Their client content begins at a root `Grid`; decorative outer border wrappers are not used. Internal borders remain for panels, cards, separators, controls, and popup surfaces.
 - Button styling: `App.xaml` owns `GlobalButtonStyle`, using the Settings regular-button configuration as the app-wide baseline. The implicit `Button` style is based on it, and every specialized button style (including code-created camera-card buttons) must derive from it. Specialized styles may override only presentation-specific properties required by their control surface.
-- `Networking/TapoCameraScanner.cs`: IPv4 interface enumeration, protocol probe orchestration, bounded per-host probing/cache, detection scoring, method preference, and diagnostics data.
-- `Networking/CameraDiscoveryParsers.cs`: bounded parsing and validation for ONVIF ProbeMatches, SSDP/UPnP, DNS-SD resource records, and RTSP OPTIONS responses.
+- `Networking/TapoCameraScanner.cs`: IPv4 interface enumeration, preserved local protocol orchestration, a two-stage automatic additional unicast pass after zero local detections (up to eight /24 ranges and 2,032 hosts), completion of remaining selected stage ranges after partial detections, bounded per-host probing/cache, detection scoring, method preference, and diagnostics data.
+- `Networking/AdaptiveRtspVerificationProbe.cs`: bounded unauthenticated RTSP OPTIONS/DESCRIBE verification on eligible adaptive-search endpoints, with target outcomes and authentication-challenge classification. Credentials remain in the normal playback path.
+- `Networking/Ipv4CidrRange.cs`, `Networking/CameraNetworkTopology.cs`, and `Networking/AdaptiveCameraNetworkPlanner.cs`: bounded IPv4 range enumeration, adapter/selected-route classification, and automatic candidate selection from recent cameras, DNS/DHCP addresses, and common home-network clues. These classify Windows-visible connection facts, not mesh/extender/backhaul product topology.
+- `Networking/CameraDiscoveryParsers.cs`: bounded parsing and validation for ONVIF ProbeMatches, SSDP/UPnP, DNS-SD resource records, and RTSP responses with matching CSeq and authentication-challenge headers.
 - `SettingsWindow.xaml(.cs)`: settings editing, validation, folder selection, dirty-state handling, save/discard behavior, and packaged Store plan/Upgrade presentation.
 - `SettingsWindow` uses the default WPF `ComboBox` behavior for the theme preference; no LocalCam-specific control or item template overrides its closed control, focus visual, arrow, popup, or highlighted items.
-- `Models/LocalCamSettings.cs`: persisted settings and operational state model.
+- `Models/LocalCamSettings.cs`: persisted settings and operational state model, including optional extra IPv4 camera ranges and the validated RTSP port in recent connections.
 - `Services/SettingsStore.cs`: synchronized JSON settings load/save, null normalization, atomic replacement, and backup recovery.
 - `Services/RecentCameraConnectionCache.cs`: expiry, failure-count, invalidation, and connection-cache reconciliation policy.
 - `Services/AppThemeService.cs`: maps the persisted theme preference to WPF `Application.ThemeMode` and synchronizes LocalCam brush aliases from the active Fluent brush resources. Brush synchronization replaces frozen-resource instances with cloned brushes rather than mutating them.
@@ -54,7 +56,7 @@ flowchart TD
 
 ### Startup and discovery
 
-`App` acquires the single-instance mutex and starts the activation listener -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> the dashboard shell is shown -> LibVLC initializes asynchronously with visible status -> valid recent connections reconnect first -> failed or absent cache entries fall back to local discovery -> ONVIF, SSDP/UPnP, Tapo UDP, DNS-SD, ARP, and RTSP OPTIONS/subnet probing contribute validated evidence -> unique IPv4 hosts are probed once per scan and merged by address -> confirmed playback refreshes the seven-day cache. Secondary launches signal and activate the existing instance.
+`App` acquires the single-instance mutex and starts the activation listener -> `MainWindow` loads settings before `InitializeComponent()` -> the persisted WPF theme is applied -> Fluent-backed LocalCam brush aliases are synchronized -> the first visual tree, window bounds, and tiles are initialized -> the dashboard shell is shown -> LibVLC initializes asynchronously with visible status -> valid recent connections reconnect first -> failed or absent cache entries fall back to discovery -> the existing local ONVIF, SSDP/UPnP, Tapo UDP, DNS-SD, ARP, RTSP OPTIONS, and subnet method order runs unchanged -> only after zero local detections, a bounded additional unicast pass selects candidate private networks from recent cameras and network clues -> hosts with open RTSP ports receive a capped unauthenticated verification sequence using OPTIONS and, on port 554, DESCRIBE at the configured path -> valid RTSP responses and authentication challenges become service evidence -> detected endpoints use the existing credentialed playback path -> results and bounded target outcomes are logged without credentials. Secondary launches signal and activate the existing instance.
 
 ### Theme change flow
 
@@ -86,7 +88,8 @@ Active tile requests recording -> output folder is validated -> existing recordi
 ## Architecture risks
 
 - `MainWindow.xaml.cs` owns many responsibilities, increasing change coupling and making automated testing difficult.
-- Discovery is heuristic and network-environment dependent.
+- Discovery is heuristic and network-environment dependent. Automatic additional scanning can reach a routed camera subnet only when the selected Windows route, NAT/firewall path, and camera services permit it. Windows guest adapter metadata may not expose the host's physical camera subnet or identify mesh/backhaul/extender topology reliably. The bounded fallback cannot cover arbitrary private networks.
+- Configured range probes use unicast and run before link-local discovery waits. They do not create a VMware NAT route or bypass host/guest firewalls; remote subnets remain dependent on the OS-selected route and camera service reachability.
 - Automated coverage exists for stream-failure classification and health evaluation, while broader WPF/media integration coverage remains a risk.
 - Store and development paths coexist in the same UI orchestration surface.
 - Credential handling is local and URL construction must remain carefully escaped and never be logged in clear text.
