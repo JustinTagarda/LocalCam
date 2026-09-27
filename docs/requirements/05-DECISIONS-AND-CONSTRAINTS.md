@@ -216,6 +216,38 @@ This is a best-effort search, not network configuration or a guarantee of camera
 
 Status: Accepted
 
-After the established discovery methods produce zero detections, the final adaptive pass may verify RTSP endpoints found in its selected networks. Verification is limited to 64 open RTSP endpoints across both search stages, uses bounded unauthenticated OPTIONS requests for `*` and the configured stream path, plus one DESCRIBE request for port 554, and reads no more than 16 KiB per response under existing cancellation and timeout controls. A syntactically valid RTSP response with the matching CSeq is service evidence; 401/407 with an authentication challenge is recognized as an endpoint requiring authentication. The confirmed playback port remains constrained by DEC-022: 8554 is selected only after a validated OPTIONS response.
+After the established discovery methods produce zero detections, the final adaptive pass may verify responsive hosts in its selected networks. It prioritizes hosts whose initial TCP probe confirmed RTSP ports, then uses remaining budget to try ports 554 and 8554 on other responsive candidates. The combined budget is limited to 64 endpoints across both search stages. Verification uses bounded unauthenticated OPTIONS requests for `*` and the configured stream path, plus one DESCRIBE request for port 554, and reads no more than 16 KiB per response under existing cancellation and timeout controls. A syntactically valid RTSP response with the matching CSeq is service evidence; 401/407 with an authentication challenge is recognized as an endpoint requiring authentication. The confirmed playback port remains constrained by DEC-022: 8554 is selected only after a validated OPTIONS response.
 
-The verification pass never transmits saved RTSP credentials. Once a target is detected, the existing playback flow uses shared Settings credentials for that detected address only. Reachable non-camera devices may receive bounded ICMP/TCP checks and unauthenticated RTSP requests when their RTSP port is open; these probes do not change device configuration. Diagnostics record bounded target outcomes and never store credentials, authorization headers, or complete RTSP URLs. Existing local method order, scoring, identity merge, reconnect-cache policy, and playback behavior remain unchanged.
+The verification pass never transmits saved RTSP credentials. Once a target is detected, the existing playback flow uses shared Settings credentials for that detected address only. Responsive non-camera devices may receive a bounded TCP connection attempt on fallback RTSP ports and, if a connection succeeds, unauthenticated RTSP requests; these probes do not change device configuration. Diagnostics record whether the initial port probe confirmed each target and its bounded outcome, and never store credentials, authorization headers, or complete RTSP URLs. Existing local method order, scoring, identity merge, reconnect-cache policy, and playback behavior remain unchanged.
+
+## DEC-026: Incremental discovery playback and credential-specific scan handling
+
+Status: Accepted
+
+The scanner publishes cumulative detection snapshots after each completed local detection method and each adaptive unicast stage. The MainWindow reconciles each snapshot immediately and submits one playback request per newly discovered camera identity while the scan continues. The progress indicator remains active until discovery completes or is canceled. The established detection method order, probes, evidence scoring, identity reconciliation, and Bridged behavior remain unchanged.
+
+If a camera is found while the shared RTSP username, password, or stream path is incomplete, discovery is canceled and Settings opens after scanner cleanup. If RTSP configuration is present but a discovery-started camera rejects it or otherwise fails playback, the failure remains on that camera's card and discovery continues for other cameras. User-requested playback retains the existing credential-related Settings escalation. Discovery-started identities are tracked so playback retries or subsequent LibVLC error events do not convert a camera-specific auto-play failure into a global Settings interruption.
+
+## DEC-027: Confirm video output separately from LibVLC Playing
+
+Status: Accepted
+
+LibVLC `Playing` remains the established confirmation for a started RTSP playback attempt and for refreshing the recent-camera reconnect cache. It does not by itself prove that video output or frames are available. The per-camera health state therefore records first video evidence separately, using LibVLC video-output presence or decoded/displayed picture counters; media time and read-byte changes alone do not count as frame evidence.
+
+The existing startup grace, health sampling cadence, stale deadline, and bounded recovery policy remain in force. If no video evidence has appeared by that deadline, the affected card reports that the stream connected but no video frames arrived. The existing recovery path remains per-camera; the no-video failure stays visible through recovery attempts and clears when video evidence appears. This change does not alter discovery methods, RTSP URL construction, credentials, stream start/stop, or the cache's `Playing` confirmation semantics.
+
+## DEC-028: Refresh discovery after cache-first reconnect
+
+Status: Accepted
+
+Recent camera connections are a fast reconnect hint, not a complete inventory of currently reachable cameras. Startup reconnect and Detect and Play shall request playback for cached cameras first, then run the existing discovery pipeline even when all cached reconnects succeed. Discovery runs while cached streams play and while their reconnect confirmations remain tracked. Reconciliation preserves existing camera identities and active players; only newly discovered identities receive a new auto-play request. Discovery does not start when shared RTSP settings are incomplete, preserving the existing Settings escalation.
+
+This decision does not change the cache expiry or two-consecutive-failure eviction rules, local discovery method order, adaptive discovery bounds, or the behavior of the established Bridged path.
+
+## DEC-029: Prioritize the last successful method and run early protocol hints concurrently
+
+Status: Accepted
+
+Each discovery process shall place the valid persisted `LastSuccessfulDetectionMethod` first. A successful scan continues to update and persist that method at runtime so later startup or Detect and Play scans use the latest successful local method. If the preferred method is Tapo UDP broadcast or ONVIF WS-Discovery, it runs alone first and the other follows next. If there is no preferred method, or the preferred method is outside that pair, Tapo UDP broadcast and ONVIF WS-Discovery hint collection run concurrently as the first pair after the preferred method. Detection evidence is then processed in deterministic Tapo-before-ONVIF order.
+
+The remaining default local order is mDNS/DNS-SD, SSDP/UPnP, ARP-seeded target probing, RTSP OPTIONS probing, and subnet fallback. Method probes, scoring, identity reconciliation, adaptive-search conditions and bounds, and RTSP connection behavior remain unchanged. This decision supersedes only the local method-order statement in DEC-026; its incremental publishing, playback, and credential handling decisions remain in force.

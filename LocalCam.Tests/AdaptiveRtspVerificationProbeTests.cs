@@ -23,7 +23,7 @@ public sealed class AdaptiveRtspVerificationProbeTests {
     }
 
     [Fact]
-    public void SelectTargetsUsesOnlyOpenRtspPortsAndSkipsAlreadyDetectedCameras() {
+    public void SelectTargetsPrioritizesOpenRtspPortsThenUsesFallbackAndSkipsDetectedCameras() {
         var candidate = CreateCandidate("192.168.1.50", [554, 8554]);
         var alreadyDetected = CreateCandidate("192.168.1.51", [554]);
         var webOnlyHost = CreateCandidate("192.168.1.52", [80, 443]);
@@ -34,8 +34,35 @@ public sealed class AdaptiveRtspVerificationProbeTests {
         var targets = AdaptiveRtspVerificationProbe.SelectTargets([candidate, alreadyDetected, webOnlyHost], detections);
 
         Assert.Collection(targets,
-            target => Assert.Equal(("192.168.1.50", 554), (target.IpAddress.ToString(), target.Port)),
-            target => Assert.Equal(("192.168.1.50", 8554), (target.IpAddress.ToString(), target.Port)));
+            target => {
+                Assert.Equal(("192.168.1.50", 554), (target.IpAddress.ToString(), target.Port));
+                Assert.True(target.PortWasConfirmedOpen);
+            },
+            target => {
+                Assert.Equal(("192.168.1.50", 8554), (target.IpAddress.ToString(), target.Port));
+                Assert.True(target.PortWasConfirmedOpen);
+            },
+            target => {
+                Assert.Equal(("192.168.1.52", 554), (target.IpAddress.ToString(), target.Port));
+                Assert.False(target.PortWasConfirmedOpen);
+            },
+            target => {
+                Assert.Equal(("192.168.1.52", 8554), (target.IpAddress.ToString(), target.Port));
+                Assert.False(target.PortWasConfirmedOpen);
+            });
+    }
+
+    [Fact]
+    public void SelectTargetsUsesFallbackForResponsiveHostsWithoutOpenPorts() {
+        var cameraLike = CreateCandidate("192.168.1.60", [], isLikelyCamera: true, confidenceScore: 1.5);
+        var genericHost = CreateCandidate("192.168.1.61", []);
+
+        var targets = AdaptiveRtspVerificationProbe.SelectTargets([genericHost, cameraLike, genericHost], []);
+
+        Assert.Equal(["192.168.1.60", "192.168.1.60", "192.168.1.61", "192.168.1.61"],
+            targets.Select(static target => target.IpAddress.ToString()));
+        Assert.All(targets, target => Assert.False(target.PortWasConfirmedOpen));
+        Assert.Equal([554, 8554, 554, 8554], targets.Select(static target => target.Port));
     }
 
     [Fact]
@@ -67,11 +94,34 @@ public sealed class AdaptiveRtspVerificationProbeTests {
         Assert.Equal(AdaptiveRtspVerificationProbe.MaxTargets, firstStageTargets.Count + secondStageTargets.Count);
     }
 
-    private static TapoCameraCandidateDiagnostics CreateCandidate(string address, IReadOnlyList<int> ports) =>
+    [Fact]
+    public void SelectTargetsFallbackHonorsRemainingBudgetAcrossStages() {
+        var firstStageCandidates = Enumerable.Range(1, 40)
+            .Select(index => CreateCandidate($"10.0.0.{index}", []))
+            .ToArray();
+        var secondStageCandidates = Enumerable.Range(1, 40)
+            .Select(index => CreateCandidate($"10.0.1.{index}", []))
+            .ToArray();
+
+        var firstStageTargets = AdaptiveRtspVerificationProbe.SelectTargets(firstStageCandidates, []);
+        var secondStageTargets = AdaptiveRtspVerificationProbe.SelectTargets(
+            secondStageCandidates,
+            [],
+            AdaptiveRtspVerificationProbe.MaxTargets - firstStageTargets.Count);
+
+        Assert.Equal(AdaptiveRtspVerificationProbe.MaxTargets, firstStageTargets.Count + secondStageTargets.Count);
+        Assert.All(firstStageTargets.Concat(secondStageTargets), target => Assert.False(target.PortWasConfirmedOpen));
+    }
+
+    private static TapoCameraCandidateDiagnostics CreateCandidate(
+        string address,
+        IReadOnlyList<int> ports,
+        bool isLikelyCamera = false,
+        double confidenceScore = 0.5) =>
         new(
             IPAddress.Parse(address),
-            IsLikelyTapo: false,
-            ConfidenceScore: 0.5,
+            IsLikelyTapo: isLikelyCamera,
+            ConfidenceScore: confidenceScore,
             Reason: "RTSP port is open",
             HostName: null,
             MacAddress: null,

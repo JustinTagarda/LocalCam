@@ -70,7 +70,8 @@ namespace LocalCam.Networking {
 
     public sealed record TapoCameraScanActivity(
         TapoDetectionMethod? Method,
-        string StatusMessage);
+        string StatusMessage,
+        IReadOnlyList<TapoCameraDetection>? Detections = null);
 
     public sealed record TapoCameraScanResult(
         IReadOnlyList<TapoCameraDetection> Detections,
@@ -107,10 +108,10 @@ namespace LocalCam.Networking {
         private static readonly IPAddress SsdpMulticastAddress = IPAddress.Parse("239.255.255.250");
         private static readonly IPAddress MdnsMulticastAddress = IPAddress.Parse("224.0.0.251");
         private static readonly TapoDetectionMethod[] DetectionMethodOrder = [
-            TapoDetectionMethod.OnvifWsDiscovery,
-            TapoDetectionMethod.SsdpUpnpSearch,
             TapoDetectionMethod.TapoUdpBroadcast,
+            TapoDetectionMethod.OnvifWsDiscovery,
             TapoDetectionMethod.MdnsDnsSdSweep,
+            TapoDetectionMethod.SsdpUpnpSearch,
             TapoDetectionMethod.ArpSeededTargetProbe,
             TapoDetectionMethod.RtspOptionsProbe,
             TapoDetectionMethod.SubnetProbeFallback
@@ -299,6 +300,11 @@ namespace LocalCam.Networking {
                 var probedHosts = new ConcurrentDictionary<IPAddress, ProbeCacheEntry>();
                 TapoDetectionMethod? successfulMethod = null;
                 var adaptiveHostCount = 0;
+                var parallelPriorityMethodHints = new Dictionary<TapoDetectionMethod, DiscoveryHintResult>();
+                var priorityMethodsStartedTogether = false;
+                var preferredMethodIsPriorityMethod = preferredFirstMethod is
+                    TapoDetectionMethod.TapoUdpBroadcast or TapoDetectionMethod.OnvifWsDiscovery;
+                var priorityMethodsStartedAtUtc = DateTimeOffset.MinValue;
 
                 foreach (var method in BuildAttemptOrder(preferredFirstMethod)) {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -306,18 +312,64 @@ namespace LocalCam.Networking {
                         break;
                     }
 
-                    var startMessage = BuildMethodStartMessage(method, preferredFirstMethod == method);
-                    progress?.Report(new TapoCameraScanActivity(method, startMessage));
-                    JsonLogStore.Information(
-                        eventName: "camera_search_method_started",
-                        message: startMessage,
-                        category: "camera_search",
-                        data: new Dictionary<string, object?> {
-                            ["method"] = method.ToString(),
-                            ["preferred"] = preferredFirstMethod == method
-                        });
+                    if (!priorityMethodsStartedTogether &&
+                        !preferredMethodIsPriorityMethod &&
+                        method == TapoDetectionMethod.TapoUdpBroadcast) {
+                        priorityMethodsStartedTogether = true;
+                        priorityMethodsStartedAtUtc = DateTimeOffset.UtcNow;
+                        var priorityMethods = new[] {
+                            TapoDetectionMethod.TapoUdpBroadcast,
+                            TapoDetectionMethod.OnvifWsDiscovery
+                        };
+                        foreach (var priorityMethod in priorityMethods) {
+                            progress?.Report(new TapoCameraScanActivity(
+                                priorityMethod,
+                                BuildMethodStartMessage(priorityMethod, isPreferred: false)));
+                            JsonLogStore.Information(
+                                eventName: "camera_search_method_started",
+                                message: BuildMethodStartMessage(priorityMethod, isPreferred: false),
+                                category: "camera_search",
+                                data: new Dictionary<string, object?> {
+                                    ["method"] = priorityMethod.ToString(),
+                                    ["preferred"] = false,
+                                    ["parallelPriorityGroup"] = true
+                                });
+                        }
 
-                    var methodStartedAtUtc = DateTimeOffset.UtcNow;
+                        JsonLogStore.Information(
+                            eventName: "camera_search_priority_methods_started_together",
+                            message: "Starting Tapo local discovery and ONVIF WS-Discovery concurrently.",
+                            category: "camera_search");
+                        var tapoHintsTask = CaptureDiscoveryHintsAsync(
+                            token => DiscoverTapoBroadcastAddressesAsync(subnets, token),
+                            cancellationToken);
+                        var onvifHintsTask = CaptureDiscoveryHintsAsync(
+                            token => DiscoverOnvifCameraAddressesAsync(localAddresses, subnets, token),
+                            cancellationToken);
+                        await Task.WhenAll(tapoHintsTask, onvifHintsTask).ConfigureAwait(false);
+                        parallelPriorityMethodHints[TapoDetectionMethod.TapoUdpBroadcast] = await tapoHintsTask.ConfigureAwait(false);
+                        parallelPriorityMethodHints[TapoDetectionMethod.OnvifWsDiscovery] = await onvifHintsTask.ConfigureAwait(false);
+                        tapoBroadcastHints = parallelPriorityMethodHints[TapoDetectionMethod.TapoUdpBroadcast].Addresses;
+                        onvifHints = parallelPriorityMethodHints[TapoDetectionMethod.OnvifWsDiscovery].Addresses;
+                    }
+
+                    var hasParallelPriorityHints = parallelPriorityMethodHints.TryGetValue(method, out var parallelHints);
+                    var startMessage = BuildMethodStartMessage(method, preferredFirstMethod == method);
+                    if (!hasParallelPriorityHints) {
+                        progress?.Report(new TapoCameraScanActivity(method, startMessage));
+                        JsonLogStore.Information(
+                            eventName: "camera_search_method_started",
+                            message: startMessage,
+                            category: "camera_search",
+                            data: new Dictionary<string, object?> {
+                                ["method"] = method.ToString(),
+                                ["preferred"] = preferredFirstMethod == method
+                            });
+                    }
+
+                    var methodStartedAtUtc = hasParallelPriorityHints
+                        ? priorityMethodsStartedAtUtc
+                        : DateTimeOffset.UtcNow;
 
                     try {
                         MethodExecutionResult executionResult;
@@ -395,6 +447,7 @@ namespace LocalCam.Networking {
                                         cancellationToken).ConfigureAwait(false);
                                     allCandidates.AddRange(stageResult.Candidates);
                                     allDetections.AddRange(stageResult.Detections);
+                                    MergeDetections(aggregatedDetections, stageResult.Detections);
 
                                     var remainingRtspTargets = AdaptiveRtspVerificationProbe.MaxTargets - rtspEndpointCount;
                                     var rtspTargets = AdaptiveRtspVerificationProbe.SelectTargets(
@@ -435,6 +488,16 @@ namespace LocalCam.Networking {
 
                                     allCandidates.AddRange(verifiedCandidates);
                                     allDetections.AddRange(verifiedDetections);
+                                    MergeDetections(aggregatedDetections, verifiedDetections);
+                                    if (aggregatedDetections.Count > 0) {
+                                        var stageDetections = aggregatedDetections.Values
+                                            .OrderBy(static detection => IpToUInt32(detection.IpAddress))
+                                            .ToArray();
+                                        progress?.Report(new TapoCameraScanActivity(
+                                            method,
+                                            $"Found {stageDetections.Length} {Pluralize(stageDetections.Length, "camera")}. Continuing extended search...",
+                                            stageDetections));
+                                    }
                                     JsonLogStore.Information(
                                         eventName: "camera_search_adaptive_rtsp_verification",
                                         message: "Adaptive RTSP verification completed for reachable RTSP endpoints.",
@@ -450,6 +513,7 @@ namespace LocalCam.Networking {
                                             ["targetOutcomes"] = rtspOutcomes.Select(static outcome => new {
                                                 ipAddress = outcome.Target.IpAddress.ToString(),
                                                 port = outcome.Target.Port,
+                                                portWasConfirmedOpen = outcome.Target.PortWasConfirmedOpen,
                                                 outcome.Outcome,
                                                 outcome.RequestMethod,
                                                 outcome.StatusCode,
@@ -467,7 +531,15 @@ namespace LocalCam.Networking {
                                 break;
                             }
                             case TapoDetectionMethod.OnvifWsDiscovery:
-                                onvifHints ??= await DiscoverOnvifCameraAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
+                                if (hasParallelPriorityHints) {
+                                    if (parallelHints!.Failure is not null) {
+                                        throw parallelHints.Failure;
+                                    }
+                                    onvifHints = parallelHints.Addresses;
+                                }
+                                else {
+                                    onvifHints ??= await DiscoverOnvifCameraAddressesAsync(localAddresses, subnets, cancellationToken).ConfigureAwait(false);
+                                }
                                 executionResult = await ExecuteHintMethodAsync(
                                     method,
                                     onvifHints,
@@ -495,7 +567,15 @@ namespace LocalCam.Networking {
                                     cancellationToken).ConfigureAwait(false);
                                 break;
                             case TapoDetectionMethod.TapoUdpBroadcast:
-                                tapoBroadcastHints ??= await DiscoverTapoBroadcastAddressesAsync(subnets, cancellationToken).ConfigureAwait(false);
+                                if (hasParallelPriorityHints) {
+                                    if (parallelHints!.Failure is not null) {
+                                        throw parallelHints.Failure;
+                                    }
+                                    tapoBroadcastHints = parallelHints.Addresses;
+                                }
+                                else {
+                                    tapoBroadcastHints ??= await DiscoverTapoBroadcastAddressesAsync(subnets, cancellationToken).ConfigureAwait(false);
+                                }
                                 executionResult = await ExecuteHintMethodAsync(
                                     method,
                                     tapoBroadcastHints,
@@ -580,19 +660,28 @@ namespace LocalCam.Networking {
                             executionResult.StatusMessage));
 
                         if (executionResult.Detections.Count > 0) {
-                            var successMessage =
-                                $"Detected {executionResult.Detections.Count} {Pluralize(executionResult.Detections.Count, "camera")} using {GetMethodDisplayName(method)}.";
-                            progress?.Report(new TapoCameraScanActivity(method, successMessage));
                             successfulMethod ??= method;
                         }
 
-                        progress?.Report(new TapoCameraScanActivity(method, executionResult.StatusMessage));
+                        var currentDetections = aggregatedDetections.Count == 0
+                            ? null
+                            : aggregatedDetections.Values
+                                .OrderBy(static detection => IpToUInt32(detection.IpAddress))
+                                .ToArray();
+                        progress?.Report(new TapoCameraScanActivity(
+                            method,
+                            executionResult.StatusMessage,
+                            currentDetections));
                         var methodLogData = new Dictionary<string, object?> {
                             ["method"] = method.ToString(),
                             ["durationMs"] = durationMs,
                             ["candidateCount"] = executionResult.Candidates.Count,
                             ["detectionCount"] = executionResult.Detections.Count
                         };
+                        if (hasParallelPriorityHints) {
+                            methodLogData["protocolDiscoveryDurationMs"] = parallelHints!.DiscoveryDurationMs;
+                            methodLogData["parallelPriorityGroup"] = true;
+                        }
                         if (executionResult.Detections.Count > 0) {
                             JsonLogStore.Information(
                                 eventName: "camera_search_method_completed",
@@ -627,7 +716,11 @@ namespace LocalCam.Networking {
                             exception: ex,
                             data: new Dictionary<string, object?> {
                                 ["method"] = method.ToString(),
-                                ["durationMs"] = durationMs
+                                ["durationMs"] = durationMs,
+                                ["protocolDiscoveryDurationMs"] = hasParallelPriorityHints
+                                    ? parallelHints!.DiscoveryDurationMs
+                                    : null,
+                                ["parallelPriorityGroup"] = hasParallelPriorityHints
                             });
                     }
                 }
@@ -732,6 +825,22 @@ namespace LocalCam.Networking {
             orderedMethods.Add(TapoDetectionMethod.AdaptiveRtspVerificationProbe);
 
             return orderedMethods;
+        }
+
+        private static async Task<DiscoveryHintResult> CaptureDiscoveryHintsAsync(
+            Func<CancellationToken, Task<HashSet<IPAddress>>> discover,
+            CancellationToken cancellationToken) {
+            var stopwatch = Stopwatch.StartNew();
+            try {
+                var addresses = await discover(cancellationToken).ConfigureAwait(false);
+                return new DiscoveryHintResult(addresses, null, stopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                throw;
+            }
+            catch (Exception ex) {
+                return new DiscoveryHintResult([], ex, stopwatch.ElapsedMilliseconds);
+            }
         }
 
         private static string BuildMethodStartMessage(TapoDetectionMethod method, bool isPreferred) {
@@ -2439,6 +2548,11 @@ namespace LocalCam.Networking {
             IReadOnlyList<TapoCameraDetection> Detections,
             IReadOnlyList<TapoCameraCandidateDiagnostics> Candidates,
             string StatusMessage);
+
+        private sealed record DiscoveryHintResult(
+            HashSet<IPAddress> Addresses,
+            Exception? Failure,
+            long DiscoveryDurationMs);
 
         internal readonly record struct CandidateEvaluation(bool IsLikelyTapo, double Score, string Reason);
 

@@ -24,8 +24,8 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 1. Launch the single-window application and immediately see the dashboard shell.
 2. Load settings and restore window bounds while the video engine prepares in the background.
-3. Reconnect recent cameras when enabled, falling back to discovery for unavailable or new cameras after the video engine is ready.
-4. Use Detect and Play to reconnect or discover cameras and start playback for the detected cameras.
+3. Reconnect recent cameras when enabled and start their playback immediately, then refresh discovery to find cameras not present in the recent list.
+4. Use Detect and Play to reconnect recent cameras immediately while discovery continues for additional cameras; newly discovered cameras are added and played without restarting existing streams.
 5. Review detected camera tiles and discovery status. Existing active camera tiles remain visible during recovery discovery, and one physical camera is represented by one tile when its MAC identity is known.
 6. Open Information for a detected camera to review available identity, discovery, connection, playback, and recording details.
 7. Configure RTSP credentials and stream path in Settings, using the camera setup guide when needed.
@@ -34,9 +34,9 @@ LocalCam is a Windows desktop application that discovers compatible cameras on a
 
 ## Current capabilities
 
-- Multi-method, best-effort IPv4 local-network discovery using validated ONVIF WS-Discovery, SSDP/UPnP descriptions, camera-related DNS-SD records, Tapo discovery, ARP/subnet probing, and RTSP OPTIONS service confirmation.
+- Multi-method, best-effort IPv4 local-network discovery that runs the last successful method first, starts Tapo discovery and ONVIF together when neither has prior priority, then checks DNS-SD, SSDP/UPnP, ARP, RTSP, and subnet candidates.
 - After the existing local methods find no cameras, an automatic, bounded IPv4 unicast search chooses candidate networks from recent camera addresses, adapter DNS/DHCP data, and common home-network ranges. It searches up to four /24 ranges in a first stage, then up to four more untried ranges when available, even if the first stage finds some cameras. Results from both stages are merged. The total remains capped at 2,032 hosts and 64 unauthenticated RTSP verification endpoints. Local multicast remains limited to its network link. Windows interface/route evidence distinguishes direct, routed, Wi-Fi, and recognized virtual-network paths without claiming mesh/extender/backhaul identity.
-- Seven-day local recent-camera reconnect cache with discovery fallback and two-failure eviction.
+- Seven-day local recent-camera reconnect cache with immediate cache-first playback, a discovery refresh to find uncached cameras, and two-failure eviction.
 - Brand-neutral display labels for discovery methods.
 - Per-camera and Play all/Stop All stream controls.
 - Per-camera Information view for available camera identity, discovery, RTSP configuration, playback, and recording state, with a copy action; credential values are not displayed or copied.

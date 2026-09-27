@@ -32,6 +32,7 @@ internal sealed class StreamHealthState {
     public int LastReadBytes { get; set; }
     public DateTimeOffset LastSampleAt { get; set; }
     public DateTimeOffset? PlaybackConfirmedAt { get; set; }
+    public DateTimeOffset? VideoOutputConfirmedAt { get; set; }
     public DateTimeOffset LastProgressAt { get; set; }
     public int ConsecutiveUnhealthySamples { get; set; }
     public StreamLifecyclePhase LifecyclePhase { get; set; } = StreamLifecyclePhase.Stopped;
@@ -46,6 +47,12 @@ internal enum StreamLifecyclePhase {
 }
 
 internal static class StreamHealthEvaluator {
+    public const string VideoOutputNotConfirmedReason = "video_output_not_confirmed";
+
+    public static bool HasVideoEvidence(StreamHealthSample sample) {
+        return sample.HasVideoOutput || sample.DisplayedPictures > 0 || sample.DecodedVideo > 0;
+    }
+
     public static void StartPlayback(StreamHealthState state, StreamHealthSample sample) {
         state.LastTime = sample.MediaTime;
         state.LastPosition = sample.Position;
@@ -54,6 +61,7 @@ internal static class StreamHealthEvaluator {
         state.LastReadBytes = sample.ReadBytes;
         state.LastSampleAt = sample.Timestamp;
         state.PlaybackConfirmedAt = sample.Timestamp;
+        state.VideoOutputConfirmedAt = HasVideoEvidence(sample) ? sample.Timestamp : null;
         state.LastProgressAt = sample.Timestamp;
         state.ConsecutiveUnhealthySamples = 0;
     }
@@ -77,6 +85,9 @@ internal static class StreamHealthEvaluator {
         state.LastDecodedVideo = sample.DecodedVideo;
         state.LastReadBytes = sample.ReadBytes;
         state.LastSampleAt = sample.Timestamp;
+        if (state.VideoOutputConfirmedAt is null && HasVideoEvidence(sample)) {
+            state.VideoOutputConfirmedAt = sample.Timestamp;
+        }
 
         if (state.PlaybackConfirmedAt is null) {
             return new StreamHealthEvaluation(
@@ -109,8 +120,10 @@ internal static class StreamHealthEvaluator {
         return new StreamHealthEvaluation(
             isStale ? StreamHealthEvaluationKind.Stale : StreamHealthEvaluationKind.Unhealthy,
             HasProgressed: false,
-            sample.HasVideoOutput
-                ? "playback has not advanced"
-                : "video output is not available");
+            state.VideoOutputConfirmedAt is null
+                ? VideoOutputNotConfirmedReason
+                : sample.HasVideoOutput
+                    ? "playback has not advanced"
+                    : "video output is not available");
     }
 }

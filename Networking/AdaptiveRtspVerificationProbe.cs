@@ -9,7 +9,8 @@ namespace LocalCam.Networking;
 internal sealed record AdaptiveRtspVerificationTarget(
     IPAddress IpAddress,
     int Port,
-    TapoCameraCandidateDiagnostics Candidate);
+    TapoCameraCandidateDiagnostics Candidate,
+    bool PortWasConfirmedOpen);
 
 internal sealed record AdaptiveRtspVerificationOutcome(
     AdaptiveRtspVerificationTarget Target,
@@ -37,17 +38,40 @@ internal static class AdaptiveRtspVerificationProbe {
         var detectedAddresses = detections
             .Select(static detection => detection.IpAddress)
             .ToHashSet();
-        var selected = candidates
+        var eligibleCandidates = candidates
             .Where(candidate => !detectedAddresses.Contains(candidate.IpAddress))
+            .ToArray();
+        var targetLimit = Math.Clamp(maximumTargets, 0, MaxTargets);
+        var selected = eligibleCandidates
             .SelectMany(candidate => new[] { 554, 8554 }
                 .Where(candidate.OpenPorts.Contains)
-                .Select(port => new AdaptiveRtspVerificationTarget(candidate.IpAddress, port, candidate)))
+                .Select(port => new AdaptiveRtspVerificationTarget(candidate.IpAddress, port, candidate, PortWasConfirmedOpen: true)))
             .DistinctBy(static target => $"{target.IpAddress}:{target.Port}", StringComparer.Ordinal)
             .OrderByDescending(static target => HasIndependentCameraEvidence(target.Candidate))
             .ThenBy(static target => target.Port == 554 ? 0 : 1)
             .ThenBy(static target => ToUInt32(target.IpAddress))
-            .Take(Math.Clamp(maximumTargets, 0, MaxTargets))
-            .ToArray();
+            .Take(targetLimit)
+            .ToList();
+
+        if (selected.Count < targetLimit) {
+            var selectedKeys = selected
+                .Select(static target => $"{target.IpAddress}:{target.Port}")
+                .ToHashSet(StringComparer.Ordinal);
+            var fallbackTargets = eligibleCandidates
+                .SelectMany(candidate => new[] { 554, 8554 }
+                    .Where(port => !candidate.OpenPorts.Contains(port))
+                    .Select(port => new AdaptiveRtspVerificationTarget(candidate.IpAddress, port, candidate, PortWasConfirmedOpen: false)))
+                .DistinctBy(static target => $"{target.IpAddress}:{target.Port}", StringComparer.Ordinal)
+                .Where(target => !selectedKeys.Contains($"{target.IpAddress}:{target.Port}"))
+                .OrderByDescending(static target => HasIndependentCameraEvidence(target.Candidate))
+                .ThenByDescending(static target => target.Candidate.IsLikelyTapo)
+                .ThenByDescending(static target => target.Candidate.ConfidenceScore)
+                .ThenByDescending(static target => target.Candidate.SeenInArpTable)
+                .ThenBy(static target => target.Port == 554 ? 0 : 1)
+                .ThenBy(static target => ToUInt32(target.IpAddress));
+
+            selected.AddRange(fallbackTargets.Take(targetLimit - selected.Count));
+        }
 
         return selected;
     }
