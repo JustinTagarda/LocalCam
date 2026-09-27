@@ -32,7 +32,7 @@ The application is organized around four responsibilities:
 1. `App.xaml.cs` initializes JSONL diagnostics.
 2. `MainWindow` loads persisted settings and restores window bounds when available.
 3. If Reconnect recent cameras on startup is enabled, the main window reconnects recent cameras after the video engine is ready.
-4. Detect and Play retries cache-first reconnect and local discovery, then starts playback for detected cameras; an empty result remains retryable from the dashboard.
+4. Detect and Play requests cached-camera playback first, then refreshes discovery even when cached reconnect succeeds. New detections start playback incrementally; the bounded adaptive pass runs after local methods even when local cameras were found.
 5. Packaged Store builds resolve Premium UI state after first render; Microsoft Store delivers package updates outside the app.
 6. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
 
@@ -42,20 +42,23 @@ Discovery is heuristic and best-effort. It does not prove camera identity or gua
 
 The scanner:
 
-- Enumerates active IPv4 interfaces with gateways.
+- Enumerates active, eligible IPv4 interfaces and uses connected-prefix and route clues visible to Windows.
 - Skips loopback, tunnel, and APIPA interfaces.
-- Limits broad subnet enumeration to `/24`.
-- Uses bounded concurrency and short network timeouts.
+- Bounds connected-prefix enumeration, concurrency, protocol receive windows, request counts, response sizes, and timeouts.
 - Probes reachability and common camera/service ports, including `80`, `443`, `554`, `8554`, `2020`, `8080`, and `8443`.
 - Reads ARP data and attempts reverse DNS.
-- Uses HTTP/HTTPS fingerprints, ONVIF WS-Discovery, SSDP/UPnP, mDNS/DNS-SD, ARP-seeded probes, subnet probes, and Tapo UDP signals.
-- Persists the last successful detection method and prefers it for subsequent scans.
+- Uses ONVIF WS-Discovery, SSDP/UPnP, Tapo UDP, mDNS/DNS-SD, ARP-seeded probes, RTSP OPTIONS probes, subnet probes, and Tapo/TP-Link-specific fingerprints.
+- Runs the persisted last successful local method first. When neither Tapo UDP nor ONVIF is preferred, their discovery hints are collected concurrently; remaining local methods continue in their fixed order.
+- Successful local detection results update the persisted method preference, which is resolved again on the next scan in the same app session or after restart.
+- Runs the existing `AdaptiveRtspVerificationProbe` after all local methods even if local cameras have been found. It selects bounded candidate private `/24` ranges from recent camera and adapter DNS/DHCP clues plus common home-network candidates, then validates responsive RTSP endpoints without credentials.
+- Publishes cumulative detections during scanning so newly found cameras can start playback before the full scan completes.
+- Does not claim multicast crosses routers or identify exact mesh/extender/backhaul topology. Candidate inference does not create routes or bypass NAT, ACLs, or firewalls.
 
 Internal results are represented by Tapo-specific records such as `TapoCameraDetection`, with IP address, hostname, MAC address, open ports, confidence score, and detection reason. Internal names are intentionally not generalized. User-facing method labels are mapped to `ONVIF`, `SSDP`, `local discovery`, `mDNS`, `ARP probe`, and `subnet probe`.
 
 ## 6. Dashboard and Playback
 
-The custom-chrome main window provides:
+The native-frame main window provides:
 
 - Detect and Play, Play all, Stop All, and Settings toolbar actions.
 - A camera tile for each current detection.
@@ -63,9 +66,9 @@ The custom-chrome main window provides:
 - Double-click collapse/expand behavior while a tile is playing.
 - Discovery, stream, snapshot, and recording status in the activity/status area.
 
-RTSP playback uses the configured username, password, detected host, port `554`, and normalized stream path:
+RTSP playback uses the configured username, password, detected host, a validated service port, and normalized stream path. Port `554` is the default; `8554` is retained for playback/reconnect only after a valid RTSP OPTIONS response confirms that endpoint:
 
-`rtsp://{username}:{password}@{host}:554/{streamPath}`
+`rtsp://{username}:{password}@{host}:{validatedPort}/{streamPath}`
 
 Credentials are URL-escaped before URL construction. The default stream path is `stream1`; blank or slash-prefixed input is normalized. Missing or invalid RTSP configuration opens Settings and displays `RTSP credentials are missing or invalid.`
 
@@ -94,7 +97,7 @@ Packaged Store builds additionally apply Basic/Premium limits defined in `docs/B
 - RTSP username and password.
 - Stream Path.
 - Reconnect recent cameras on startup.
-- Detect and Play starts playback for detected cameras.
+- Theme preference (System, Light, or Dark).
 - Snapshot Save Folder.
 - Recording Save Folder.
 
@@ -131,7 +134,7 @@ The current implementation does not provide:
 
 - Manual camera IP entry or a persistent camera profile inventory.
 - A device authentication or ONVIF profile-negotiation handshake.
-- Arbitrary RTSP port or custom RTSP URL settings.
+- Arbitrary RTSP ports or custom RTSP URL settings; supported ports are 554 by default and 8554 only after validation.
 - Guaranteed universal camera compatibility.
 - Diagnostics export.
 - Multi-page navigation.

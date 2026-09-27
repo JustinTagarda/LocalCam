@@ -308,9 +308,6 @@ namespace LocalCam.Networking {
 
                 foreach (var method in BuildAttemptOrder(preferredFirstMethod)) {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (method == TapoDetectionMethod.AdaptiveRtspVerificationProbe && aggregatedDetections.Count > 0) {
-                        break;
-                    }
 
                     if (!priorityMethodsStartedTogether &&
                         !preferredMethodIsPriorityMethod &&

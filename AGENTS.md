@@ -80,15 +80,16 @@
   - Single-window WPF desktop app (`MainWindow`) using the native Windows frame and a flattened client-area root grid.
   - Startup can reconnect recent cameras when enabled; Detect and Play retries the cache-first reconnect/discovery flow from the same window.
   - Camera tiles are shown based on current detections, with expand/collapse behavior and responsive layout.
-  - Settings dialog is available for RTSP credentials and stream path.
-  - Settings uses a native WPF window frame with a flattened client-area root grid and retains a themed custom control surface but no custom title bar.
+  - Settings edits RTSP credentials, stream path, reconnect preference, theme, snapshot folder, and recording folder.
+  - Settings uses a native WPF window frame and flattened client-area root grid; it does not use a custom title bar.
   - Detect and Play starts playback for detected cameras; Reconnect recent cameras on startup is the persisted startup preference.
 
 - Discovery:
   - Local-network discovery is heuristic and best-effort.
   - Scanner uses multi-method probing with persisted preferred detection method.
   - Detection and scan lifecycle statuses are surfaced in the main window.
-  - Settings can optionally store bounded IPv4 CIDR ranges for routed camera networks; automatic active-interface scanning remains enabled regardless of that setting.
+  - After the local method sequence completes, the existing bounded adaptive unicast search runs whether or not local cameras were found; it does not require user-entered CIDR ranges.
+  - Windows-observable interface and route clues do not establish exact mesh, extender, access-point, or wireless-backhaul identity.
 
 - Streaming:
   - RTSP playback uses LibVLCSharp.
@@ -100,6 +101,16 @@
   - Structured JSONL app diagnostics use one `JsonLogStore` route across Debug, Release, and installed builds.
   - Packaged builds write under Windows package-local application data, which is removed with the package; unpackaged builds use `%LocalAppData%\\LocalCam\\LocalState\\logs` and never write beside the launched executable.
   - Diagnostics redact credentials, complete RTSP URLs, and secret-bearing values, and retain log files for seven days.
+  - Shared RTSP credentials are stored in the local JSON settings file; diagnostics must never disclose them.
+
+## Pipeline And Route Change Control
+
+- Before changing an entrypoint, pipeline, persistence route, network route, playback path, or shutdown path, read `docs/requirements/08-RUNTIME-PIPELINES-AND-CHANGE-GUARDRAILS.md` and the applicable requirement/decision records.
+- Preserve the existing owners, ordering, state transitions, cancellation boundaries, persistence side effects, and UI feedback described there unless the user explicitly authorizes the specific behavior change.
+- Do not bypass an existing route by adding a parallel path that has different identity, cache, credential, logging, or cleanup behavior.
+- Changes crossing subsystem boundaries require an accepted decision record before implementation; behavior changes update the SRS, architecture baseline, and traceability plan in the same change.
+- Keep discovery, camera identity reconciliation, playback, settings escalation, reconnect cache, and per-camera errors as separate but connected stages. Local results stay incremental; adaptive discovery follows all local methods even after local detections and retains its documented bounds.
+- Treat the pipeline guardrail document as a map of current behavior, not proof of integration coverage. Record unverified live-network, WPF, LibVLC, or Store behavior as unverified.
 
 ## Theme Implementation And Change Guardrails
 
@@ -239,8 +250,10 @@ The app may discover non-Tapo cameras when they expose compatible services, espe
 Route-aware discovery additions:
 
 - Preserve the existing automatic local-network methods, ordering, evidence scoring, identity merge, cancellation, and per-host probe cache.
-- Optional Settings CIDR ranges are restricted to IPv4 /20 through /30, at most 16 entries and 8,192 additional hosts total.
-- Routed ranges add unicast host probes. Do not claim that local-link mDNS or multicast discovery crosses routers; a CIDR does not create a route or bypass NAT/firewall policy.
+- Resolve the current `LastSuccessfulDetectionMethod` for every scan, run it before other local methods, and continue updating it after successful local scans; never pin it once at process startup or persist the adaptive verifier as the preferred local method.
+- Run the existing bounded `AdaptiveRtspVerificationProbe` after the local method sequence whether or not local methods found cameras. Do not add a second adaptive route or change its selection, request, endpoint, host, or range limits without explicit authorization.
+- Automatic private `/24` candidates are inferred from recent confirmed camera addresses, adapter DNS/DHCP clues, and bounded common home-network candidates; the app does not expose manual CIDR entry in Settings.
+- Additional ranges add unicast host probes. Do not claim that local-link mDNS or multicast discovery crosses routers; inferred targets do not create a route or bypass NAT/firewall policy.
 - Use Windows-observable interface and selected-route data only. Do not infer exact mesh, extender, AP, wireless-backhaul, or VMware NAT mode from an adapter label alone.
 - Discovery may select RTSP port 8554 only after a validated RTSP OPTIONS reply confirms the service. Port 554 remains the default. Preserve the confirmed port in recent-camera reconnect data.
 - Never send credentials during discovery. Keep stream path normalization, credential handling, LibVLC options, and stream lifecycle unchanged.
@@ -555,8 +568,9 @@ Do not include any of the following in a brand-neutral UI wording task:
 
 ## Feature Availability Policy
 
-- LocalCam has no Store-tier monetization path.
-- Do not add premium entitlement, purchase flow, or upgrade CTA surfaces unless explicitly requested.
+- Packaged Store builds currently implement the Basic/Premium access rules in `docs/BASIC_PREMIUM_GATING_POLICY.md` through the existing entitlement and purchase services.
+- Unpackaged development builds hide Store entitlement and upgrade UI.
+- Do not add new Store monetization workflows or change the existing packaged limits, entitlement source, purchase route, or development-mode behavior unless explicitly requested.
 - Keep camera detection, playback, snapshot, and recording behavior controlled only by functional app state and existing validation rules.
 
 ## Store Packaging Baseline (x64 Only)
@@ -585,6 +599,7 @@ Required references:
 - `docs/requirements/04-TRACEABILITY-AND-VERIFICATION-PLAN.md`: requirement evidence, testing expectations, and definition of done.
 - `docs/requirements/05-DECISIONS-AND-CONSTRAINTS.md`: accepted design decisions and durable constraints.
 - `docs/requirements/06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md`: proposed work that is not yet approved implementation scope.
+- `docs/requirements/08-RUNTIME-PIPELINES-AND-CHANGE-GUARDRAILS.md`: verified subsystem ownership, end-to-end pipelines, persistence/network routes, protected invariants, known discrepancies, and change-control checks.
 
 Mandatory rules:
 

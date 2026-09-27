@@ -206,7 +206,7 @@ When the user configures additional IPv4 camera CIDR ranges, LocalCam probes tho
 
 ## DEC-024: Automatic bounded additional-network discovery
 
-Status: Accepted
+Status: Partially superseded by DEC-030 (adaptive-search trigger)
 
 The technical Additional Camera Networks Settings field and persisted range input are removed. The established local discovery methods and their order remain unchanged. Only after those methods yield zero cameras does LocalCam run an additional unicast search. It derives private /24 candidate networks from valid recent-camera cache addresses, adapter DNS/DHCP addresses, and a bounded list of common home networks. It checks the Windows-selected route for each candidate and tests common gateway addresses. The first stage prioritizes candidates with network evidence and responsive gateways, then fills remaining range slots with the next ranked candidates. When untried candidates remain within the global limits, the second stage selects up to four more ranges regardless of whether stage one found cameras. Detections and evidence from both stages are merged. Across both stages it selects at most eight ranges and inventories at most 2,032 additional hosts from at most 16 candidates per scan. It reuses the existing per-host probe, evidence validation, cache, cancellation, and connection flow. The automatic method is not persisted as the preferred local discovery method.
 
@@ -214,7 +214,7 @@ This is a best-effort search, not network configuration or a guarantee of camera
 
 ## DEC-025: Adaptive RTSP verification after local discovery
 
-Status: Accepted
+Status: Partially superseded by DEC-030 (adaptive-search trigger)
 
 After the established discovery methods produce zero detections, the final adaptive pass may verify responsive hosts in its selected networks. It prioritizes hosts whose initial TCP probe confirmed RTSP ports, then uses remaining budget to try ports 554 and 8554 on other responsive candidates. The combined budget is limited to 64 endpoints across both search stages. Verification uses bounded unauthenticated OPTIONS requests for `*` and the configured stream path, plus one DESCRIBE request for port 554, and reads no more than 16 KiB per response under existing cancellation and timeout controls. A syntactically valid RTSP response with the matching CSeq is service evidence; 401/407 with an authentication challenge is recognized as an endpoint requiring authentication. The confirmed playback port remains constrained by DEC-022: 8554 is selected only after a validated OPTIONS response.
 
@@ -250,4 +250,14 @@ Status: Accepted
 
 Each discovery process shall place the valid persisted `LastSuccessfulDetectionMethod` first. A successful scan continues to update and persist that method at runtime so later startup or Detect and Play scans use the latest successful local method. If the preferred method is Tapo UDP broadcast or ONVIF WS-Discovery, it runs alone first and the other follows next. If there is no preferred method, or the preferred method is outside that pair, Tapo UDP broadcast and ONVIF WS-Discovery hint collection run concurrently as the first pair after the preferred method. Detection evidence is then processed in deterministic Tapo-before-ONVIF order.
 
-The remaining default local order is mDNS/DNS-SD, SSDP/UPnP, ARP-seeded target probing, RTSP OPTIONS probing, and subnet fallback. Method probes, scoring, identity reconciliation, adaptive-search conditions and bounds, and RTSP connection behavior remain unchanged. This decision supersedes only the local method-order statement in DEC-026; its incremental publishing, playback, and credential handling decisions remain in force.
+The remaining default local order is mDNS/DNS-SD, SSDP/UPnP, ARP-seeded target probing, RTSP OPTIONS probing, and subnet fallback. Method probes, scoring, identity reconciliation, adaptive-search bounds, and RTSP connection behavior remain unchanged. The adaptive-search trigger is governed by DEC-030. This decision supersedes only the local method-order statement in DEC-026; its incremental publishing, playback, and credential handling decisions remain in force.
+
+## DEC-030: Run adaptive discovery after local results
+
+Status: Accepted
+
+After the existing local discovery methods finish, LocalCam shall run the existing `AdaptiveRtspVerificationProbe` whether or not those methods found cameras. Local detections remain published as they arrive and can start playback while the adaptive search runs. Adaptive detections merge into the same result set; existing identities and active streams are preserved by the current reconciliation path, and only newly discovered identities receive playback requests.
+
+This changes only the adaptive pass trigger. It does not add a discovery method, change local method order or behavior, change candidate selection, or relax the existing bounds: at most eight additional `/24` networks across two stages, 2,032 additional hosts, and 64 unauthenticated RTSP verification endpoints. Connected local ranges remain excluded from the additional-range planner because the local methods already search those ranges. The pass remains best-effort and depends on the app being able to identify and route to candidate networks.
+
+The purpose is to let a scan that finds cameras on one home-network segment continue checking other reachable segments, such as a separately routed mesh or IoT network. It does not claim that the app can identify exact mesh/extender topology or overcome client isolation, firewall rules, or missing routes.

@@ -22,7 +22,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - Discovery is heuristic and is not an authoritative camera inventory.
 - The scanner is optimized for Tapo/TP-Link signals but can find compatible cameras exposing similar RTSP or ONVIF-related services.
 - There is no manual IP/camera entry workflow, camera profile management, or device authentication handshake.
-- RTSP uses port `554`; arbitrary RTSP ports and custom RTSP URLs are not exposed as settings.
+- RTSP uses port `554` by default; validated port `8554` is also supported. Arbitrary RTSP ports and custom RTSP URLs are not exposed as settings.
 - Automated tests cover settings merging, persistence recovery, concurrent saves, cache policy, scanner evaluation, stream health, failure classification, and entitlement rules.
 
 ## User Workflow
@@ -44,7 +44,9 @@ Settings are stored at `%LocalAppData%\\LocalCam\\settings.json` and include RTS
 
 ## Discovery
 
-The scanner enumerates active IPv4 interfaces, skips loopback/tunnel interfaces, limits broad subnet probing to `/24`, and uses bounded concurrent probing. Detection combines network reachability, open ports, ARP data, reverse DNS, HTTP/HTTPS fingerprints, ONVIF/SSDP/mDNS hints, and Tapo/TP-Link-specific signals. The last successful detection method is persisted and preferred on the next scan.
+The scanner enumerates active IPv4 interfaces and uses bounded concurrent probing. The persisted last successful local detection method runs first on each scan and successful local results update that preference for the next scan. Without a prior method, Tapo UDP and ONVIF hint collection start together; the remaining local methods follow in the documented order. After all local methods finish, the existing bounded `AdaptiveRtspVerificationProbe` searches inferred additional private ranges even if local cameras were already found. Results are published incrementally so local cameras can start playing while discovery continues.
+
+Detection combines network reachability, open ports, ARP data, reverse DNS, HTTP/HTTPS fingerprints, ONVIF/SSDP/mDNS hints, and Tapo/TP-Link-specific signals. Adaptive search is best-effort and bounded; interface clues do not identify exact mesh, extender, AP, or backhaul topology, and probes do not create routes or bypass isolation/firewalls.
 
 User-facing detection labels are mapped to neutral names such as `ONVIF`, `SSDP`, `local discovery`, `mDNS`, `ARP probe`, and `subnet probe`.
 
@@ -118,3 +120,4 @@ For the authoritative Store package versioning, build, validation, Partner Cente
 - [docs/requirements/04-TRACEABILITY-AND-VERIFICATION-PLAN.md](D:/Projects/LocalCam/docs/requirements/04-TRACEABILITY-AND-VERIFICATION-PLAN.md): verification and traceability.
 - [docs/requirements/05-DECISIONS-AND-CONSTRAINTS.md](D:/Projects/LocalCam/docs/requirements/05-DECISIONS-AND-CONSTRAINTS.md): accepted decisions and constraints.
 - [docs/requirements/06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md](D:/Projects/LocalCam/docs/requirements/06-FUTURE-RECOMMENDATIONS-AND-ROADMAP.md): recommended future goals.
+- [docs/requirements/08-RUNTIME-PIPELINES-AND-CHANGE-GUARDRAILS.md](docs/requirements/08-RUNTIME-PIPELINES-AND-CHANGE-GUARDRAILS.md): code ownership, pipeline routes, invariants, known gaps, and change-control requirements.
