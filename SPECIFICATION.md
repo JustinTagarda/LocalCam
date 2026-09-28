@@ -34,7 +34,8 @@ The application is organized around four responsibilities:
 3. If Reconnect recent cameras on startup is enabled, the main window reconnects recent cameras after the video engine is ready.
 4. Detect and Play requests cached-camera playback first, then refreshes discovery even when cached reconnect succeeds. New detections start playback incrementally; the bounded adaptive pass runs after local methods even when local cameras were found.
 5. Packaged Store builds resolve Premium UI state after first render; Microsoft Store delivers package updates outside the app.
-6. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
+6. On system suspend or hibernate, active recording and streams are stopped through the normal Stop All path; resume does not restart playback or recording automatically.
+7. On close, active recordings and streams are stopped, cancellation is requested, and LibVLC resources are disposed.
 
 ## 5. Discovery
 
@@ -62,11 +63,12 @@ The native-frame main window provides:
 
 - Detect and Play, Play all, Stop All, and Settings toolbar actions.
 - A camera tile for each current detection.
+- Per-camera Information view with available identity, discovery, connection, playback, and recording details. Credential values are not displayed or copied.
 - Per-tile Play/Stop, Snapshot, Record/Stop Recording, and Expand/Collapse actions.
 - Double-click collapse/expand behavior while a tile is playing.
 - Discovery, stream, snapshot, and recording status in the activity/status area.
 
-RTSP playback uses the configured username, password, detected host, a validated service port, and normalized stream path. Port `554` is the default; `8554` is retained for playback/reconnect only after a valid RTSP OPTIONS response confirms that endpoint:
+RTSP playback uses the configured username, password, detected host, a validated service port, and normalized stream path. Port `554` is the default; `8554` is used and retained for playback/reconnect only after a valid RTSP OPTIONS response confirms that endpoint:
 
 `rtsp://{username}:{password}@{host}:{validatedPort}/{streamPath}`
 

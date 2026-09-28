@@ -295,7 +295,7 @@
           <li>Check the manufacturer's support site to confirm that this exact model provides a local RTSP video stream.</li>
           <li>Your camera is powered on and, if required for local streaming, connected to continuous power.</li>
           <li>Your camera and Windows computer are connected to the same home network.</li>
-          <li>Most cameras use port <code>554</code> automatically. If the official instructions for your camera require a different port, the current LocalCam version may not support it.</li>
+          <li>LocalCam uses RTSP port <code>554</code> by default. It can also use port <code>8554</code> when discovery confirms an RTSP service there. Other ports are not supported. Check the official instructions for your exact camera model.</li>
           <li>You can open the camera manufacturer's app or support website.</li>
         </ul>
         <p><strong>Same home network</strong> means that both devices connect through the same home router. They do not both need to use Wi-Fi: a computer connected by network cable and a camera connected by Wi-Fi can work together if they use the same router. Guest Wi-Fi often prevents devices from seeing each other.</p>
@@ -341,7 +341,7 @@
           <div>
             <h3>Check the stream path</h3>
             <p>LocalCam starts with <code>stream1</code> as its default path. Keep that value unless the official instructions for your exact model specify a different path.</p>
-            <p>Stream paths are model-specific. If the manufacturer shows a complete address such as <code>rtsp://user:password@camera-address:554/example-path</code>, copy everything after <code>:554/</code> into LocalCam's <strong>Stream Path</strong> field. In this example, enter only <code>example-path</code>.</p>
+            <p>Stream paths are model-specific. If the manufacturer shows a complete address such as <code>rtsp://user:password@camera-address:554/example-path</code> or <code>rtsp://user:password@camera-address:8554/example-path</code>, copy the part after the port and slash into LocalCam's <strong>Stream Path</strong> field. In these examples, enter only <code>example-path</code>.</p>
             <p>Do not include the leading slash, username, password, camera address, or complete RTSP URL. Do not assume that every camera uses <code>stream1</code>.</p>
           </div>
         </article>
@@ -402,7 +402,7 @@
       <h2>Optional technical reference</h2>
       <p><strong>Most users can skip this section.</strong> It shows how camera information is combined conceptually:</p>
       <pre>rtsp://username:password@camera-ip:554/stream1</pre>
-      <p>This is only a generic example using placeholders. Never replace them with real credentials or camera data in a public document. You normally should not type this complete address into LocalCam. LocalCam discovers the camera address and uses the standard RTSP port <code>554</code>.</p>
+      <p>This is only a generic example using placeholders. Never replace them with real credentials or camera data in a public document. You normally should not type this complete address into LocalCam. LocalCam discovers the camera address and uses RTSP port <code>554</code> by default; it can use <code>8554</code> only after discovery confirms an RTSP service on that port.</p>
     </section>
 
     <section id="troubleshooting">
@@ -445,7 +445,7 @@
 
         <article class="faq">
           <h3>My camera uses a different RTSP port</h3>
-          <p>LocalCam currently expects the standard RTSP port <code>554</code>. If your camera requires another port, it may not be compatible with the current LocalCam configuration.</p>
+          <p>LocalCam supports RTSP port <code>554</code> by default and port <code>8554</code> only when discovery confirms an RTSP service there. Other ports are not supported by the current configuration.</p>
         </article>
       </div>
     </section>

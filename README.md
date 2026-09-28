@@ -11,8 +11,11 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - Snapshot capture for active streams.
 - Manual video recording to `.ts` files, with one active recording across the app and 60-minute segment rollover.
 - Expand/collapse controls and double-click layout toggling for active camera tiles.
+- Per-camera Information view for available identity, discovery, connection, playback, and recording details; credential values are not shown or copied.
 - Settings for RTSP credentials, stream path, reconnect recent cameras on startup, snapshot folder, and recording folder.
+- Persisted System, Light, and Dark theme preferences.
 - Inline validation that opens Settings when RTSP configuration is missing or invalid.
+- Stops active streams and recording when Windows suspends or hibernates; playback does not restart automatically on resume.
 - Persisted settings and window bounds.
 - Structured JSONL diagnostics for discovery, settings, streaming, snapshots, recording, entitlement, and purchase events. Debug, Release, and installed builds use one application-data logging route; logs are redacted and retained for seven days.
 - Packaged Microsoft Store entitlement and Premium purchase flows. Microsoft Store delivers package updates for Store-distributed releases.
@@ -22,7 +25,7 @@ LocalCam is a Windows desktop WPF application that discovers compatible cameras 
 - Discovery is heuristic and is not an authoritative camera inventory.
 - The scanner is optimized for Tapo/TP-Link signals but can find compatible cameras exposing similar RTSP or ONVIF-related services.
 - There is no manual IP/camera entry workflow, camera profile management, or device authentication handshake.
-- RTSP uses port `554` by default; validated port `8554` is also supported. Arbitrary RTSP ports and custom RTSP URLs are not exposed as settings.
+- RTSP uses port `554` by default. Port `8554` is supported only after a valid RTSP OPTIONS response confirms the service. Arbitrary RTSP ports and custom RTSP URLs are not exposed as settings.
 - Automated tests cover settings merging, persistence recovery, concurrent saves, cache policy, scanner evaluation, stream health, failure classification, and entitlement rules.
 
 ## User Workflow
@@ -52,7 +55,7 @@ User-facing detection labels are mapped to neutral names such as `ONVIF`, `SSDP`
 
 ## Streaming, Snapshots, and Recording
 
-RTSP URLs are built from the configured credentials, detected host, port `554`, and normalized stream path. LibVLC media players are created per active tile and disposed when playback stops or the window closes.
+RTSP URLs are built from the configured credentials, detected host, validated service port, and normalized stream path. Port `554` is the default; `8554` is used only when discovery validates the RTSP service. LibVLC media players are created per active tile and disposed when playback stops or the window closes.
 
 Snapshots use unique filenames and report save failures through the activity/status area and structured diagnostics. Recordings use `.ts` output, allow only one active recording session across all cards, automatically stop a previous card's recording when switching cards, and roll over to a new segment after 60 minutes while playback remains active.
 
