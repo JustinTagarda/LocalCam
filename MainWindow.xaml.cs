@@ -154,6 +154,9 @@ namespace LocalCam {
             public required TextBlock PlaybackErrorText { get; init; }
             public VlcMediaPlayer? MediaPlayer { get; set; }
             public string? CameraIdentity { get; set; }
+            public string? CameraIpAddress { get; set; }
+            public string? CameraMacAddress { get; set; }
+            public long CameraBindingVersion { get; set; }
             public bool IsSnapshotSaving { get; set; }
         }
 
@@ -593,15 +596,26 @@ namespace LocalCam {
             for (var i = 0; i < _cameraTiles.Count; i++) {
                 var tile = _cameraTiles[i];
                 var detection = detections[i];
-                var identity = GetCameraIdentity(detection);
+                var identity = GetCameraIdentity(detection, detections);
                 if (!string.Equals(tile.CameraIdentity, identity, StringComparison.Ordinal)) {
-                    if (_expandedCameraIndex == i) {
-                        _expandedCameraIndex = null;
+                    if (IsSameCameraEndpoint(tile, detection)) {
+                        if (tile.CameraIdentity is string previousIdentity &&
+                            _discoveryAutoStartedCameraIdentities.Remove(previousIdentity)) {
+                            _discoveryAutoStartedCameraIdentities.Add(identity);
+                        }
+                        tile.CameraIdentity = identity;
                     }
-                    ResetCameraTileForDetectionChange(i);
-                    tile.CameraIdentity = identity;
+                    else {
+                        if (_expandedCameraIndex == i) {
+                            _expandedCameraIndex = null;
+                        }
+                        ResetCameraTileForDetectionChange(i);
+                        tile.CameraIdentity = identity;
+                    }
                 }
 
+                tile.CameraIpAddress = detection.IpAddress.ToString();
+                tile.CameraMacAddress = detection.MacAddress;
                 tile.Label.Text = $"camera {i + 1} - detected ({detection.IpAddress})";
                 if (tile.MediaPlayer is null || (!IsStreamRunning(i) && !IsStreamTransitioning(i))) {
                     SetVideoSurfaceActive(i, isActive: false);
@@ -642,8 +656,18 @@ namespace LocalCam {
             }
         }
 
-        private static string GetCameraIdentity(TapoCameraDetection detection) {
-            return CameraDetectionReconciler.GetIdentity(detection);
+        private static string GetCameraIdentity(
+            TapoCameraDetection detection,
+            IReadOnlyCollection<TapoCameraDetection> detections) {
+            return CameraDetectionReconciler.GetIdentity(detection, detections);
+        }
+
+        private static bool IsSameCameraEndpoint(CameraTileControls tile, TapoCameraDetection detection) {
+            return string.Equals(tile.CameraIpAddress, detection.IpAddress.ToString(), StringComparison.Ordinal)
+                && string.Equals(
+                    tile.CameraMacAddress?.Trim(),
+                    detection.MacAddress?.Trim(),
+                    StringComparison.OrdinalIgnoreCase);
         }
 
         private void ResetCameraTileForDetectionChange(int tileIndex) {
@@ -651,7 +675,9 @@ namespace LocalCam {
                 return;
             }
 
-            if (_cameraTiles[tileIndex].CameraIdentity is string previousIdentity) {
+            var tile = _cameraTiles[tileIndex];
+            tile.CameraBindingVersion++;
+            if (tile.CameraIdentity is string previousIdentity) {
                 _discoveryAutoStartedCameraIdentities.Remove(previousIdentity);
             }
 
@@ -665,7 +691,6 @@ namespace LocalCam {
             ClearPlaybackFailure(tileIndex);
             _terminalStreamRecoveryAttempts.Remove(tileIndex);
 
-            var tile = _cameraTiles[tileIndex];
             StopMediaPlayerIntentionally(tile.MediaPlayer);
             tile.VideoView.MediaPlayer = null;
             DisposeMediaPlayer(tile.MediaPlayer);
@@ -782,7 +807,7 @@ namespace LocalCam {
             };
             playButton.Click += async (_, _) => {
                 if (tileIndex >= 0 && tileIndex < _detections.Count) {
-                    _discoveryAutoStartedCameraIdentities.Remove(GetCameraIdentity(_detections[tileIndex]));
+                    _discoveryAutoStartedCameraIdentities.Remove(GetCameraIdentity(_detections[tileIndex], _detections));
                 }
                 await StartSingleStreamAsync(tileIndex);
                 _streamsRunning = IsAnyStreamRunning();
@@ -1320,7 +1345,7 @@ namespace LocalCam {
                 return;
             }
 
-            var cameraIdentity = GetCameraIdentity(detection);
+            var cameraBindingVersion = tile.CameraBindingVersion;
             var mediaPlayer = new VlcMediaPlayer(_libVlc) {
                 EnableHardwareDecoding = false,
                 EnableMouseInput = false,
@@ -1329,7 +1354,7 @@ namespace LocalCam {
             mediaPlayer.Playing += (_, _) => Dispatcher.BeginInvoke(new Action(() => {
                 var tileIndex = _cameraTiles.IndexOf(tile);
                 if (tileIndex < 0 || !ReferenceEquals(tile.MediaPlayer, mediaPlayer) ||
-                    !string.Equals(tile.CameraIdentity, cameraIdentity, StringComparison.Ordinal)) {
+                    tile.CameraBindingVersion != cameraBindingVersion) {
                     return;
                 }
 
@@ -1345,10 +1370,13 @@ namespace LocalCam {
                 ClearPlaybackFailureOnPlaybackConfirmed(tileIndex, playbackSample);
                 CompletePlaybackConfirmation(mediaPlayer, confirmed: true);
                 _streamsRunning = IsAnyStreamRunning();
-                if (tileIndex < _detections.Count &&
-                    string.Equals(GetCameraIdentity(_detections[tileIndex]), cameraIdentity, StringComparison.Ordinal)) {
+                if (tileIndex < _detections.Count && tile.CameraBindingVersion == cameraBindingVersion) {
                     var cachedDetection = CompleteCachedReconnectAttempt(tileIndex);
-                    RecentCameraConnectionCache.ConfirmPlayback(_settings, cachedDetection ?? detection, DateTimeOffset.UtcNow);
+                    RecentCameraConnectionCache.ConfirmPlayback(
+                        _settings,
+                        cachedDetection ?? detection,
+                        DateTimeOffset.UtcNow,
+                        _detections);
                     TrySaveSettings("recent_camera_connection_save_failed", "Failed to save a recent camera connection.");
                 }
                 JsonLogStore.Information(
@@ -1542,7 +1570,7 @@ namespace LocalCam {
             }
 
             if (tileIndex is int index && index >= 0 && index < _detections.Count &&
-                _discoveryAutoStartedCameraIdentities.Contains(GetCameraIdentity(_detections[index]))) {
+                _discoveryAutoStartedCameraIdentities.Contains(GetCameraIdentity(_detections[index], _detections))) {
                 JsonLogStore.Information(
                     eventName: "camera_discovery_playback_failure_kept_on_card",
                     message: "A discovery-started camera rejected playback credentials; the error remains on its card while discovery continues.",
@@ -2242,7 +2270,7 @@ namespace LocalCam {
         private bool HandleCachedReconnectFailure(int tileIndex) {
             var detection = CompleteCachedReconnectAttempt(tileIndex);
             if (detection is null) return false;
-            var evicted = RecentCameraConnectionCache.RegisterReconnectFailure(_settings, detection);
+            var evicted = RecentCameraConnectionCache.RegisterReconnectFailure(_settings, detection, _detections);
             TrySaveSettings("recent_camera_connection_failure_save_failed", "Failed to save recent camera reconnect state.");
             JsonLogStore.Warning(evicted ? "recent_camera_connection_evicted" : "recent_camera_reconnect_failed", evicted ? "A recent camera connection was removed after repeated reconnect failures." : "A recent camera reconnect failed; local discovery will be attempted.", "camera_reconnect", new Dictionary<string, object?> { ["cameraIndex"] = tileIndex + 1, ["ipAddress"] = detection.IpAddress.ToString(), ["evicted"] = evicted });
             if (_isRecoveryDiscoveryQueued || _isClosing || _isScanning) return true;
@@ -2464,14 +2492,27 @@ namespace LocalCam {
                 return;
             }
 
-            var knownIdentities = _detections
-                .Select(GetCameraIdentity)
+            var previousDetections = _detections;
+            var knownIdentities = previousDetections
+                .Select(detection => GetCameraIdentity(detection, previousDetections))
                 .ToHashSet(StringComparer.Ordinal);
             ShowDetections(detections, activity.Method, scanInProgress: true);
             _scanHasPublishedDetections = true;
 
             var newCameraIndexes = Enumerable.Range(0, _detections.Count)
-                .Where(index => !knownIdentities.Contains(GetCameraIdentity(_detections[index])))
+                .Where(index => {
+                    var detection = _detections[index];
+                    var identity = GetCameraIdentity(detection, _detections);
+                    if (knownIdentities.Contains(identity)) {
+                        return false;
+                    }
+
+                    return !identity.StartsWith("ip:", StringComparison.Ordinal)
+                        || !previousDetections.Any(previous =>
+                            previous.IpAddress.Equals(detection.IpAddress)
+                            && !string.IsNullOrWhiteSpace(detection.MacAddress)
+                            && string.Equals(previous.MacAddress?.Trim(), detection.MacAddress.Trim(), StringComparison.OrdinalIgnoreCase));
+                })
                 .ToArray();
             if (newCameraIndexes.Length == 0) {
                 return;
@@ -2495,7 +2536,7 @@ namespace LocalCam {
             }
 
             foreach (var tileIndex in newCameraIndexes) {
-                var identity = GetCameraIdentity(_detections[tileIndex]);
+                var identity = GetCameraIdentity(_detections[tileIndex], _detections);
                 if (!_discoveryAutoStartedCameraIdentities.Add(identity)) {
                     continue;
                 }

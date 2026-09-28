@@ -27,18 +27,53 @@ public sealed class CameraDetectionReconcilerTests {
     }
 
     [Fact]
-    public void Reconcile_CollapsesDuplicateMacIdentitiesAndKeepsHighestConfidenceDetection() {
+    public void Reconcile_PreservesDifferentAddressesThatShareMacAndKeepsUniqueCamera() {
         var discovered = new[] {
             Detection("192.0.2.10", "aa:00:00:00:00:01", confidence: 0.4),
             Detection("192.0.2.11", "AA:00:00:00:00:01", confidence: 0.9),
-            Detection("192.0.2.20", null)
+            Detection("192.0.2.20", "AA:00:00:00:00:03")
         };
 
         var result = CameraDetectionReconciler.Reconcile([], discovered);
 
-        Assert.Equal(2, result.Count);
-        Assert.Equal("192.0.2.11", result[0].IpAddress.ToString());
-        Assert.Equal("192.0.2.20", result[1].IpAddress.ToString());
+        Assert.Equal(3, result.Count);
+        Assert.Equal(discovered.Select(detection => detection.IpAddress.ToString()),
+            result.Select(detection => detection.IpAddress.ToString()));
+        Assert.Equal("ip:192.0.2.10", CameraDetectionReconciler.GetIdentity(result[0], result));
+        Assert.Equal("ip:192.0.2.11", CameraDetectionReconciler.GetIdentity(result[1], result));
+        Assert.Equal("mac:AA:00:00:00:00:03", CameraDetectionReconciler.GetIdentity(result[2], result));
+    }
+
+    [Fact]
+    public void Reconcile_CollapsesRepeatedDetectionForSameAddressAndKeepsHighestConfidence() {
+        var discovered = new[] {
+            Detection("192.0.2.10", "AA:00:00:00:00:01", confidence: 0.4),
+            Detection("192.0.2.10", "aa:00:00:00:00:01", confidence: 0.9)
+        };
+
+        var result = CameraDetectionReconciler.Reconcile([], discovered);
+
+        var detection = Assert.Single(result);
+        Assert.Equal(0.9, detection.ConfidenceScore);
+    }
+
+    [Fact]
+    public void Reconcile_PreservesPriorCameraOrderWhenMacBecomesAmbiguous() {
+        var previous = new[] {
+            Detection("192.0.2.11", "AA:00:00:00:00:01"),
+            Detection("192.0.2.20", "AA:00:00:00:00:02")
+        };
+        var discovered = new[] {
+            Detection("192.0.2.10", "AA:00:00:00:00:01"),
+            Detection("192.0.2.11", "AA:00:00:00:00:01"),
+            Detection("192.0.2.20", "AA:00:00:00:00:02")
+        };
+
+        var result = CameraDetectionReconciler.Reconcile(previous, discovered);
+
+        Assert.Equal(
+            ["192.0.2.11", "192.0.2.20", "192.0.2.10"],
+            result.Select(detection => detection.IpAddress.ToString()));
     }
 
     [Fact]

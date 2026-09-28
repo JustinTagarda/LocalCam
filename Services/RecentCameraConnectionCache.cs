@@ -25,8 +25,12 @@ namespace LocalCam.Services {
                 .ToArray();
         }
 
-        public static void ConfirmPlayback(LocalCamSettings settings, TapoCameraDetection detection, DateTimeOffset now) {
-            var entry = Find(settings, detection);
+        public static void ConfirmPlayback(
+            LocalCamSettings settings,
+            TapoCameraDetection detection,
+            DateTimeOffset now,
+            IReadOnlyCollection<TapoCameraDetection>? currentDetections = null) {
+            var entry = Find(settings, detection, currentDetections);
             if (entry is null) {
                 entry = new RecentCameraConnection();
                 settings.RecentCameraConnections.Add(entry);
@@ -40,8 +44,11 @@ namespace LocalCam.Services {
             entry.ConsecutiveReconnectFailures = 0;
         }
 
-        public static bool RegisterReconnectFailure(LocalCamSettings settings, TapoCameraDetection detection) {
-            var entry = Find(settings, detection);
+        public static bool RegisterReconnectFailure(
+            LocalCamSettings settings,
+            TapoCameraDetection detection,
+            IReadOnlyCollection<TapoCameraDetection>? currentDetections = null) {
+            var entry = Find(settings, detection, currentDetections);
             if (entry is null) {
                 return false;
             }
@@ -64,12 +71,29 @@ namespace LocalCam.Services {
                 && now - entry.LastConfirmedPlaybackUtc <= EntryLifetime;
         }
 
-        private static RecentCameraConnection? Find(LocalCamSettings settings, TapoCameraDetection detection) {
+        private static RecentCameraConnection? Find(
+            LocalCamSettings settings,
+            TapoCameraDetection detection,
+            IReadOnlyCollection<TapoCameraDetection>? currentDetections) {
             if (!string.IsNullOrWhiteSpace(detection.MacAddress)) {
-                var byMac = settings.RecentCameraConnections.FirstOrDefault(entry =>
-                    string.Equals(entry.MacAddress, detection.MacAddress, StringComparison.OrdinalIgnoreCase));
-                if (byMac is not null) return byMac;
+                var matchingEntries = settings.RecentCameraConnections
+                    .Where(entry => string.Equals(entry.MacAddress, detection.MacAddress, StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                var macIsAmbiguous = matchingEntries.Length > 1
+                    || currentDetections?.Any(candidate =>
+                        !candidate.IpAddress.Equals(detection.IpAddress)
+                        && string.Equals(candidate.MacAddress?.Trim(), detection.MacAddress.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+
+                if (macIsAmbiguous) {
+                    return settings.RecentCameraConnections.FirstOrDefault(entry =>
+                        string.Equals(entry.IpAddress, detection.IpAddress.ToString(), StringComparison.Ordinal));
+                }
+
+                if (matchingEntries.Length == 1) {
+                    return matchingEntries[0];
+                }
             }
+
             return settings.RecentCameraConnections.FirstOrDefault(entry =>
                 string.Equals(entry.IpAddress, detection.IpAddress.ToString(), StringComparison.Ordinal));
         }
